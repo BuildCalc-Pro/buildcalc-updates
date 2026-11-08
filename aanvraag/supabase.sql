@@ -15,6 +15,8 @@ create table if not exists inm_aanvraag (
   status text not null default 'open',
   ingediend timestamptz default now(), ingemeten timestamptz);
 
+alter table inm_aanvraag add column if not exists door text;
+
 alter table inm_instelling enable row level security;
 alter table inm_wvb enable row level security;
 alter table inm_aanvraag enable row level security;
@@ -29,12 +31,13 @@ begin
 end $$;
 
 -- Calculator
+drop function if exists inm_lijst(text);
 create or replace function inm_lijst(p_sleutel text)
-returns table(id bigint, adres text, opdrachtgever text, deadline date, status text, ingediend timestamptz, wvb text, email text)
+returns table(id bigint, adres text, opdrachtgever text, deadline date, status text, ingediend timestamptz, wvb text, email text, door text)
 language plpgsql security definer set search_path = public as $$
 begin
   perform inm_ok(p_sleutel);
-  return query select a.id, a.adres, a.opdrachtgever, a.deadline, a.status, a.ingediend, w.naam, w.email
+  return query select a.id, a.adres, a.opdrachtgever, a.deadline, a.status, a.ingediend, w.naam, w.email, a.door
     from inm_aanvraag a left join inm_wvb w on w.id = a.wvb_id where a.status <> 'verwijderd' order by a.deadline nulls last, a.id;
 end $$;
 
@@ -64,6 +67,18 @@ begin
   return json_build_object('ok', true, 'token', t);
 end $$;
 
+-- Wie meet dit adres in? Leeg = niemand. Een ander kan een adres dat al gepakt is niet overnemen.
+create or replace function inm_pak(p_sleutel text, p_id bigint, p_door text) returns json
+language plpgsql security definer set search_path = public as $$
+declare huidig text;
+begin
+  perform inm_ok(p_sleutel);
+  select door into huidig from inm_aanvraag where id = p_id;
+  if coalesce(p_door, '') <> '' and coalesce(huidig, '') <> '' and huidig <> p_door then raise exception '% meet dit al in', huidig; end if;
+  update inm_aanvraag set door = nullif(p_door, '') where id = p_id;
+  return json_build_object('ok', true);
+end $$;
+
 -- Werkvoorbereider (met de token uit zijn link)
 create or replace function inm_mijn(p_token text) returns json
 language plpgsql security definer set search_path = public as $$
@@ -89,5 +104,5 @@ begin
 end $$;
 
 revoke execute on function inm_ok(text) from public, anon, authenticated;
-grant execute on function inm_lijst(text), inm_status(text, bigint, text), inm_wvb_lijst(text), inm_wvb_toevoegen(text, text, text),
+grant execute on function inm_lijst(text), inm_status(text, bigint, text), inm_pak(text, bigint, text), inm_wvb_lijst(text), inm_wvb_toevoegen(text, text, text),
   inm_mijn(text), inm_indienen(text, text, date, text[]) to anon;

@@ -6,7 +6,7 @@
  */
 const SLEUTEL = 'PLAK_HIER_DE_SLEUTEL'; // zet BuildCalc er zelf in als je op "Kopieer script" tikt
 
-const KOP_A = ['id', 'ingediend', 'adres', 'opdrachtgever', 'deadline', 'werkvoorbereider', 'email', 'status', 'ingemeten', 'token'];
+const KOP_A = ['id', 'ingediend', 'adres', 'opdrachtgever', 'deadline', 'werkvoorbereider', 'email', 'status', 'ingemeten', 'token', 'door'];
 const KOP_W = ['naam', 'email', 'token', 'toegevoegd'];
 
 function blad(naam, kop) {
@@ -15,7 +15,12 @@ function blad(naam, kop) {
   if (!s) { s = ss.insertSheet(naam); s.appendRow(kop); s.setFrozenRows(1); s.getRange('A:Z').setNumberFormat('@'); }
   return s;
 }
-const aanvragen = () => blad('Aanvragen', KOP_A);
+// Oudere spreadsheets missen soms een kolom (bijv. 'door'): die zetten we er dan achteraan bij.
+function aanvragen() {
+  const s = blad('Aanvragen', KOP_A), kop = s.getDataRange().getValues()[0].map(String);
+  KOP_A.forEach((k, i) => { if (kop.indexOf(k) < 0) s.getRange(1, i + 1).setValue(k); });
+  return s;
+}
 const werkvoorbereiders = () => blad('Werkvoorbereiders', KOP_W);
 function rijen(s) {
   const v = s.getDataRange().getValues(), kop = v.shift();
@@ -43,14 +48,21 @@ function doPost(e) {
       const nu = Utilities.formatDate(new Date(), 'Europe/Amsterdam', 'yyyy-MM-dd HH:mm');
       const s = aanvragen();
       s.getRange(s.getLastRow() + 1, 1, lijst.length, KOP_A.length).setValues(lijst.map(a =>
-        [Utilities.getUuid().slice(0, 8), nu, a, String(d.opdrachtgever || ''), String(d.deadline || ''), w.naam, w.email, 'open', '', w.token]));
+        [Utilities.getUuid().slice(0, 8), nu, a, String(d.opdrachtgever || ''), String(d.deadline || ''), w.naam, w.email, 'open', '', w.token, '']));
       return uit({ ok: true, aantal: lijst.length });
     }
     // Calculator (BuildCalc, met de sleutel)
     if (SLEUTEL === 'PLAK_' + 'HIER_DE_SLEUTEL' || d.sleutel !== SLEUTEL) return uit({ fout: 'Sleutel klopt niet. Kopieer het script opnieuw vanuit BuildCalc.' });
     if (d.actie === 'lijst') {
       return uit({ items: rijen(aanvragen()).filter(r => r.status !== 'verwijderd').map(r => ({
-        id: r.id, adres: r.adres, opdrachtgever: r.opdrachtgever, deadline: r.deadline, wvb: r.werkvoorbereider, email: r.email, status: r.status, ingediend: r.ingediend })) });
+        id: r.id, adres: r.adres, opdrachtgever: r.opdrachtgever, deadline: r.deadline, wvb: r.werkvoorbereider, email: r.email, status: r.status, ingediend: r.ingediend, door: r.door || '' })) });
+    }
+    if (d.actie === 'pak') {
+      const s = aanvragen(), r = rijen(s).find(x => x.id === String(d.id));
+      if (!r) return uit({ fout: 'Adres niet gevonden' });
+      if (d.door && r.door && r.door !== d.door) return uit({ fout: r.door + ' meet dit al in' });
+      s.getRange(r._rij, KOP_A.indexOf('door') + 1).setValue(String(d.door || ''));
+      return uit({ ok: true });
     }
     if (d.actie === 'status') {
       const s = aanvragen(), r = rijen(s).find(x => x.id === String(d.id));
