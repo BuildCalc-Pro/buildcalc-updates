@@ -74,7 +74,7 @@ function doPost(e) {
       if (d.status === 'ingemeten' && r.email) {
         const voornaam = String(r.werkvoorbereider).split(' ')[0];
         MailApp.sendEmail(r.email, 'Ingemeten: ' + r.adres,
-          `Hoi ${voornaam},\n\n${r.adres}${r.opdrachtgever ? ' (' + r.opdrachtgever + ')' : ''} is ingemeten en staat in TopCalc. Je kunt verder uitwerken.\n\nGroet,\n${d.van || ''}`);
+          `Hoi ${voornaam},\n\n${r.adres}${r.opdrachtgever ? ' (' + r.opdrachtgever + ')' : ''} is ingemeten. Het staat in TopCalc en de foto's en maten staan in de projectmap op de pc. Je kunt verder uitwerken.\n\nGroet,\n${d.van || ''}`);
         mail = true;
       }
       return uit({ ok: true, mail });
