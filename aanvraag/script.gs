@@ -52,7 +52,12 @@ function doPost(e) {
       return uit({ ok: true, aantal: lijst.length });
     }
     // Calculator (BuildCalc, met de sleutel)
-    if (SLEUTEL === 'PLAK_' + 'HIER_DE_SLEUTEL' || d.sleutel !== SLEUTEL) return uit({ fout: 'Sleutel klopt niet. Kopieer het script opnieuw vanuit BuildCalc.' });
+    // Jouw sleutel = beheer. Een collega heeft sha256('collega:' + jouw sleutel): inmeten mag, werkvoorbereiders niet.
+    if (SLEUTEL === 'PLAK_' + 'HIER_DE_SLEUTEL' || !d.sleutel) return uit({ fout: 'Sleutel klopt niet. Kopieer het script opnieuw vanuit BuildCalc.' });
+    const colSl = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, 'collega:' + SLEUTEL, Utilities.Charset.UTF_8).map(b => ((b + 256) % 256).toString(16).padStart(2, '0')).join('');
+    const beheer = d.sleutel === SLEUTEL;
+    if (!beheer && d.sleutel !== colSl) return uit({ fout: 'Sleutel klopt niet. Kopieer het script opnieuw vanuit BuildCalc.' });
+    if (!beheer && (d.actie === 'wvbLijst' || d.actie === 'wvbToevoegen')) return uit({ fout: 'Alleen de beheerder kan dit.' });
     if (d.actie === 'lijst') {
       return uit({ items: rijen(aanvragen()).filter(r => r.status !== 'verwijderd').map(r => ({
         id: r.id, adres: r.adres, opdrachtgever: r.opdrachtgever, deadline: r.deadline, wvb: r.werkvoorbereider, email: r.email, status: r.status, ingediend: r.ingediend, door: r.door || '' })) });
