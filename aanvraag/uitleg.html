@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Inmeten koppelen</title>
+<style>
+:root{--bg:#f7f5f0;--ink:#1d1b16;--muted:#5f5a50;--lijn:#e3ded3;--paper:#fff;--olijf:#7b6a3c;--link:#1d5fd1;color-scheme:light}
+@media (prefers-color-scheme:dark){:root{--bg:#16150f;--ink:#ece8de;--muted:#a39d8f;--lijn:#2f2c24;--paper:#1f1d17;--olijf:#c2ad6e;--link:#7fa6f0;color-scheme:dark}}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:680px;margin:0 auto;padding:20px max(16px,env(safe-area-inset-left)) 60px max(16px,env(safe-area-inset-right))}
+h1{font-size:24px;margin:0 0 6px}h2{font-size:19px;margin:28px 0 8px;color:var(--olijf)}
+.kaart{background:var(--paper);border:1px solid var(--lijn);border-radius:14px;padding:6px 16px 6px 8px}
+ol{padding-left:28px}li{margin:8px 0}b{font-weight:700}a{color:var(--link)}
+.let{border-left:4px solid var(--olijf);padding:8px 12px;background:var(--paper);border-radius:6px;margin:12px 0;color:var(--muted)}
+nav a{margin-right:14px;font-weight:700}
+</style>
+</head>
+<body><div class="wrap">
+<h1>Inmeten koppelen</h1>
+<p>Kies één van de twee. Je kunt later altijd wisselen in BuildCalc (Instellingen, Inmeetaanvragen).</p>
+<nav><a href="#sheet">Google Spreadsheet</a><a href="#supabase">Supabase</a></nav>
+
+<h2 id="sheet">Google Spreadsheet (ongeveer 10 minuten)</h2>
+<div class="kaart"><ol>
+<li>Open BuildCalc, ga naar <b>Instellingen</b> (tandwiel rechtsboven), <b>Inmeetaanvragen</b> en kies <b>Spreadsheet</b>.</li>
+<li>Tik op <b>Kopieer script</b>. Het script staat nu met jouw sleutel erin op je klembord.</li>
+<li>Ga op de computer naar <a href="https://sheets.new" target="_blank" rel="noopener">sheets.new</a>. Er opent een lege Google Spreadsheet. Geef hem een naam, bijvoorbeeld <b>BuildCalc inmeten</b>.</li>
+<li>Kies in het menu <b>Extensies</b>, dan <b>Apps Script</b>.</li>
+<li>Haal de tekst die er staat weg en plak het script. Klik op het diskette-icoon om op te slaan.</li>
+<li>Klik rechtsboven op <b>Implementeren</b>, dan <b>Nieuwe implementatie</b>. Kies bij het tandwiel <b>Web-app</b>.</li>
+<li>Zet <b>Uitvoeren als</b> op <b>Ik</b> en <b>Wie heeft toegang</b> op <b>Iedereen</b>. Klik op <b>Implementeren</b>.</li>
+<li>Google vraagt toestemming. Kies je account, klik op <b>Geavanceerd</b> en dan op <b>Ga naar … (onveilig)</b>. Dat is normaal voor een eigen script. Klik op <b>Toestaan</b>.</li>
+<li>Kopieer de link onder <b>Web-app</b> (eindigt op <b>/exec</b>) en plak die in BuildCalc bij <b>Link van het script</b>. Tik op <b>Opslaan en testen</b>.</li>
+</ol></div>
+<div class="let">De mail aan de werkvoorbereider gaat vanuit jouw Gmail. Een gewoon Google-account kan 100 mails per dag versturen.</div>
+
+<h2 id="supabase">Supabase (ongeveer 10 minuten)</h2>
+<div class="kaart"><ol>
+<li>Maak een gratis account op <a href="https://supabase.com" target="_blank" rel="noopener">supabase.com</a> en klik op <b>New project</b>. Kies bij <b>Region</b> <b>Central EU (Frankfurt)</b>.</li>
+<li>Kies in BuildCalc bij Inmeetaanvragen <b>Supabase</b> en tik op <b>Kopieer SQL</b>.</li>
+<li>Ga in Supabase links naar <b>SQL Editor</b>, plak de SQL en klik op <b>Run</b>.</li>
+<li>Ga naar <b>Project Settings</b>, dan <b>API</b>. Kopieer de <b>Project URL</b> en de <b>anon public</b> key naar BuildCalc. Tik op <b>Opslaan en testen</b>.</li>
+</ol></div>
+<div class="let">Gebruik nooit de <b>service_role</b> key. Met Supabase opent bij "In TopCalc" je mail met het bericht al ingevuld, en druk je zelf op Versturen. Een gratis project gaat slapen als het een week niet gebruikt is; met één klik in Supabase zet je het weer aan.</div>
+
+<h2>Daarna: werkvoorbereiders toevoegen</h2>
+<div class="kaart"><ol>
+<li>In BuildCalc bij Inmeetaanvragen: tik op <b>Werkvoorbereider toevoegen</b> en vul naam en e-mail in.</li>
+<li>Deel de link via WhatsApp of mail. Meer heeft de werkvoorbereider niet nodig: hij opent de link, vult adressen in en drukt op Verstuur.</li>
+</ol></div>
+</div></body></html>

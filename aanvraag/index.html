@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Inmeetaanvraag</title>
+<style>
+:root{--bg:#f7f5f0;--ink:#1d1b16;--muted:#5f5a50;--lijn:#e3ded3;--paper:#fff;--olijf:#7b6a3c;--olijf-ink:#fff;--link:#1d5fd1;--rood:#c62828;--groen:#2f7d4a;--zacht:#ece8df;color-scheme:light}
+@media (prefers-color-scheme:dark){:root{--bg:#16150f;--ink:#ece8de;--muted:#a39d8f;--lijn:#2f2c24;--paper:#1f1d17;--olijf:#c2ad6e;--olijf-ink:#1b1608;--link:#7fa6f0;--rood:#f87171;--groen:#86efac;--zacht:#29261d;color-scheme:dark}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:620px;margin:0 auto;padding:16px max(16px,env(safe-area-inset-left)) 48px max(16px,env(safe-area-inset-right))}
+.kop{display:flex;justify-content:space-between;align-items:baseline;gap:8px;border-bottom:1px solid var(--lijn);padding-bottom:10px;margin-bottom:14px}
+.kop h1{font-size:22px;margin:0}.kop span{color:var(--muted)}
+.stap{display:grid;grid-template-columns:auto 1fr;gap:12px;background:var(--paper);border:1px solid var(--lijn);border-radius:16px;padding:14px;margin-bottom:10px}
+.sn{width:28px;height:28px;border-radius:50%;background:var(--olijf);color:var(--olijf-ink);display:grid;place-items:center;font-weight:700}
+.sl{font-weight:700;font-size:17px;margin-bottom:8px}
+.keuze{display:flex;flex-wrap:wrap;gap:8px}
+.keuze button{border:1.5px solid var(--lijn);background:var(--paper);color:var(--ink);border-radius:999px;padding:9px 14px;font:600 15px inherit;font-family:inherit;cursor:pointer}
+.keuze button[aria-pressed="true"]{background:var(--olijf);border-color:var(--olijf);color:var(--olijf-ink)}
+input,textarea{width:100%;font:16px inherit;font-family:inherit;padding:10px;border:1px solid var(--lijn);border-radius:10px;background:var(--paper);color:var(--ink)}
+.rows{display:grid;gap:6px}.rw{display:grid;grid-template-columns:1fr auto;gap:6px}
+.x{border:0;background:var(--zacht);color:var(--muted);border-radius:10px;width:42px;font-size:20px;cursor:pointer}
+.link{background:none;border:0;color:var(--link);font-weight:700;font-size:15px;cursor:pointer;padding:8px 0}
+.hint{color:var(--muted);font-size:14px;margin:0 0 8px}
+.groot{width:100%;font:700 17px inherit;font-family:inherit;padding:14px;border:0;border-radius:999px;background:var(--olijf);color:var(--olijf-ink);cursor:pointer;margin-top:4px}
+.groot:disabled{opacity:.45;cursor:default}
+h2{font-size:18px;margin:26px 0 4px}
+.mr{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 2px;border-bottom:1px solid var(--lijn)}
+.mr b{display:block}.mr small{color:var(--muted)}
+.st{font-weight:700;font-size:14px;color:var(--muted);white-space:nowrap}.ok{color:var(--groen)}
+.melding{border-radius:12px;padding:12px 14px;margin-bottom:12px;background:var(--paper);border:1px solid var(--lijn)}
+.melding.fout{border-color:var(--rood);color:var(--rood)}.melding.goed{border-color:var(--groen)}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(16px + env(safe-area-inset-bottom));background:var(--ink);color:var(--bg);padding:12px 16px;border-radius:12px;max-width:calc(100% - 32px)}
+:focus-visible{outline:3px solid var(--link);outline-offset:2px}
+</style>
+</head>
+<body>
+<div class="wrap"><main id="app"><p class="hint">Laden…</p></main></div>
+<script>
+// Inmeetaanvraag: werkvoorbereiders sturen hier adressen naar de calculator. De link bevat waar het naartoe gaat (#b=…&u=…&t=…).
+const P = new URLSearchParams(location.hash.slice(1));
+const B = P.get('b'), U = P.get('u') || '', K = P.get('k') || '', T = P.get('t') || '';
+const OG = ['Eigen Haard', 'Pré Wonen', 'De Key', 'Ymere'];
+const lees = (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } };
+const zet = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
+const S = { naam: '', items: [], rows: [''], og: lees('ia_og', 'Eigen Haard'), anders: '', plaats: lees('ia_plaats', ''), dl: '', alles: false, fout: '', bezig: false };
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const app = document.getElementById('app');
+
+async function api(actie, data = {}) {
+  if (B === 'demo') { await new Promise(r => setTimeout(r, 300)); if (actie === 'mijn') return { naam: 'Sanne (voorbeeld)', items: S.items }; return { ok: true, aantal: data.adressen.length }; }
+  if (B === 'sheet') {
+    const r = await fetch(U, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ actie, token: T, ...data }) });
+    const j = await r.json(); if (j.fout) throw new Error(j.fout); return j;
+  }
+  if (B === 'sb') {
+    const fn = { mijn: 'inm_mijn', indienen: 'inm_indienen' }[actie], args = { p_token: T };
+    for (const [k, v] of Object.entries(data)) args['p_' + k] = v;
+    const r = await fetch(U.replace(/\/+$/, '') + '/rest/v1/rpc/' + fn, { method: 'POST', headers: { apikey: K, Authorization: 'Bearer ' + K, 'Content-Type': 'application/json' }, body: JSON.stringify(args) });
+    const j = await r.json().catch(() => null); if (!r.ok) throw new Error(j?.message || 'Fout ' + r.status); return j;
+  }
+  throw new Error('Deze link is niet compleet. Vraag de calculator om een nieuwe link.');
+}
+async function laad() {
+  try { const j = await api('mijn'); S.naam = j.naam || ''; S.items = j.items || []; S.fout = ''; }
+  catch (e) { S.fout = e.message || String(e); }
+  teken();
+}
+const datum = s => s ? new Date(String(s).slice(0, 10) + 'T12:00:00').toLocaleDateString('nl-NL', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+const telRows = () => S.rows.filter(r => r.trim()).length;
+const knopTekst = () => { const n = telRows(); return n ? `Verstuur ${n} ${n === 1 ? 'adres' : 'adressen'}` : 'Vul eerst een adres in'; };
+
+function teken() {
+  if (S.fout && !S.naam) { app.innerHTML = `<div class="kop"><h1>Inmeetaanvraag</h1></div><div class="melding fout">${esc(S.fout)}</div>`; return; }
+  const ogs = [...OG, 'Anders'];
+  const mijn = [...S.items].sort((a, b) => (a.status === 'ingemeten') - (b.status === 'ingemeten') || String(a.deadline).localeCompare(String(b.deadline)));
+  const nIn = mijn.filter(m => m.status === 'ingemeten').length;
+  app.innerHTML = `<div class="kop"><h1>Inmeetaanvraag</h1><span>${esc(S.naam)}</span></div>
+  <div id="melding"></div>
+  <div class="stap"><span class="sn">1</span><div><div class="sl">Voor welke opdrachtgever?</div>
+    <div class="keuze">${ogs.map(o => `<button type="button" data-og="${esc(o)}" aria-pressed="${S.og === o}">${esc(o)}</button>`).join('')}</div>
+    ${S.og === 'Anders' ? `<input id="anders" placeholder="Naam opdrachtgever" value="${esc(S.anders)}" style="margin-top:8px" aria-label="Naam opdrachtgever">` : ''}</div></div>
+  <div class="stap"><span class="sn">2</span><div><label class="sl" for="dl" style="display:block">Wanneer moet het ingemeten zijn?</label>
+    <input id="dl" type="date" value="${esc(S.dl)}" style="max-width:220px"></div></div>
+  <div class="stap"><span class="sn">3</span><div style="min-width:0"><div class="sl">Welke adressen?</div>
+    <label for="plaats" class="hint" style="display:block">Plaats</label>
+    <input id="plaats" placeholder="Bijv. Amsterdam" value="${esc(S.plaats)}" style="margin-bottom:10px;max-width:260px">
+    <p class="hint">Typ een adres, of kopieer een kolom uit Excel en plak die in het eerste vak. Elke regel wordt dan een adres.</p>
+    <div class="rows">${S.rows.map((r, i) => `<div class="rw"><input data-row="${i}" value="${esc(r)}" placeholder="Straat en huisnummer" aria-label="Adres ${i + 1}"><button type="button" class="x" data-del="${i}" aria-label="Verwijder adres ${i + 1}">×</button></div>`).join('')}</div>
+    <button type="button" class="link" id="plus">+ Nog een adres</button></div></div>
+  <button class="groot" id="stuur" ${telRows() && !S.bezig ? '' : 'disabled'}>${S.bezig ? 'Versturen…' : knopTekst()}</button>
+  ${mijn.length ? `<h2>Mijn aanvragen</h2><p class="hint">${nIn} ingemeten · ${mijn.length - nIn} wachten nog</p>
+    ${(S.alles ? mijn : mijn.slice(0, 8)).map(m => `<div class="mr"><div style="min-width:0"><b>${esc(m.adres)}</b><small>${esc([m.opdrachtgever, m.deadline && 'klaar ' + datum(m.deadline)].filter(Boolean).join(' · '))}</small></div>
+      <span class="st ${m.status === 'ingemeten' ? 'ok' : ''}">${m.status === 'ingemeten' ? '✓ Ingemeten' : 'Verstuurd'}</span></div>`).join('')}
+    ${!S.alles && mijn.length > 8 ? `<button class="link" id="alles">Toon alle ${mijn.length}</button>` : ''}` : ''}
+  <p class="hint" style="margin-top:24px">Je krijgt een mail zodra een adres is ingemeten.</p>`;
+  koppel();
+}
+function koppel() {
+  app.querySelectorAll('[data-og]').forEach(b => b.onclick = () => { S.og = b.dataset.og; zet('ia_og', S.og); teken(); });
+  const an = document.getElementById('anders'); if (an) { an.oninput = () => S.anders = an.value; if (!S.anders) an.focus(); }
+  document.getElementById('dl').onchange = e => S.dl = e.target.value;
+  const pl = document.getElementById('plaats'); pl.oninput = () => { S.plaats = pl.value; zet('ia_plaats', S.plaats); };
+  document.getElementById('plus').onclick = () => { S.rows.push(''); teken(); app.querySelector(`[data-row="${S.rows.length - 1}"]`).focus(); };
+  app.querySelectorAll('[data-del]').forEach(b => b.onclick = () => { S.rows.splice(+b.dataset.del, 1); if (!S.rows.length) S.rows = ['']; teken(); });
+  app.querySelectorAll('[data-row]').forEach(inp => {
+    inp.oninput = () => { S.rows[+inp.dataset.row] = inp.value; const k = document.getElementById('stuur'); k.disabled = !telRows(); k.textContent = knopTekst(); };
+    inp.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); const i = +inp.dataset.row; if (i === S.rows.length - 1) { S.rows.push(''); teken(); } app.querySelector(`[data-row="${i + 1}"]`)?.focus(); } };
+    inp.onpaste = e => {
+      const t = (e.clipboardData || window.clipboardData).getData('text'); if (!/\n/.test(t.trim())) return;
+      e.preventDefault();
+      const regels = t.split(/\r?\n/).map(r => r.split('\t').map(c => c.trim()).filter(Boolean).slice(0, 2).join(', ')).filter(r => r && !/^(adres|straat)/i.test(r));
+      const i = +inp.dataset.row; S.rows.splice(i, 1, ...regels); if (S.rows.at(-1)) S.rows.push('');
+      teken(); toast(regels.length + ' adressen geplakt');
+    };
+  });
+  const al = document.getElementById('alles'); if (al) al.onclick = () => { S.alles = true; teken(); };
+  document.getElementById('stuur').onclick = stuur;
+}
+async function stuur() {
+  const og = S.og === 'Anders' ? S.anders.trim() : S.og;
+  const melding = (t, soort) => { const m = document.getElementById('melding'); m.innerHTML = `<div class="melding ${soort}">${esc(t)}</div>`; m.scrollIntoView({ block: 'center', behavior: 'smooth' }); };
+  if (!og) return melding('Vul de naam van de opdrachtgever in.', 'fout');
+  if (!S.dl) return melding('Kies wanneer het ingemeten moet zijn.', 'fout');
+  const plaats = S.plaats.trim();
+  const adressen = S.rows.map(r => r.trim()).filter(Boolean).map(r => /,/.test(r) || !plaats ? r : r + ', ' + plaats);
+  S.bezig = true; teken();
+  try {
+    await api('indienen', { opdrachtgever: og, deadline: S.dl, adressen });
+    if (B === 'demo') S.items.push(...adressen.map(adres => ({ adres, opdrachtgever: og, deadline: S.dl, status: 'open' })));
+    S.rows = ['']; S.bezig = false; await laad();
+    melding(`${adressen.length} ${adressen.length === 1 ? 'adres is' : 'adressen zijn'} verstuurd. Je krijgt een mail zodra ze zijn ingemeten.`, 'goed');
+  } catch (e) { S.bezig = false; teken(); melding('Versturen lukte niet: ' + (e.message || e) + '. Probeer het opnieuw.', 'fout'); }
+}
+let tt; function toast(t) { document.querySelector('.toast')?.remove(); const d = document.createElement('div'); d.className = 'toast'; d.setAttribute('role', 'status'); d.textContent = t; document.body.appendChild(d); clearTimeout(tt); tt = setTimeout(() => d.remove(), 3000); }
+laad();
+</script>
+</body>
+</html>
