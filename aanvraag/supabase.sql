@@ -1,6 +1,7 @@
 -- BuildCalc Inmeten: Supabase-koppeling.
 -- Plak dit in Supabase > SQL Editor en klik op Run. Je kunt het later opnieuw draaien; het maakt niets dubbel.
 -- De tabellen zijn dicht; alleen de functies hieronder mogen erbij. De sleutel bewijst dat jij de calculator bent.
+-- Een collega krijgt een afgeleide sleutel: die mag de lijst zien en inmeten, maar geen werkvoorbereiders zien of toevoegen.
 
 create table if not exists inm_instelling (sleutel text primary key);
 create table if not exists inm_wvb (
@@ -21,13 +22,29 @@ alter table inm_instelling enable row level security;
 alter table inm_wvb enable row level security;
 alter table inm_aanvraag enable row level security;
 
+-- Alleen de sleutel uit deze SQL blijft geldig. Maak je in BuildCalc een nieuwe sleutel, dan werken oude koppelingen niet meer.
+delete from inm_instelling where sleutel <> 'PLAK_HIER_DE_SLEUTEL';
 insert into inm_instelling values ('PLAK_HIER_DE_SLEUTEL') on conflict do nothing;
+
+-- 'beheer' = jouw eigen sleutel, 'collega' = sha256 van 'collega:' + jouw sleutel.
+create or replace function inm_rol(p_sleutel text) returns text language plpgsql security definer set search_path = public as $$
+begin
+  if coalesce(p_sleutel, '') <> '' and p_sleutel <> 'PLAK' || 'HIER_DE_SLEUTEL' then
+    if exists (select 1 from inm_instelling where sleutel = p_sleutel) then return 'beheer'; end if;
+    if exists (select 1 from inm_instelling where sleutel <> 'PLAK' || 'HIER_DE_SLEUTEL'
+      and encode(sha256(convert_to('collega:' || sleutel, 'UTF8')), 'hex') = p_sleutel) then return 'collega'; end if;
+  end if;
+  raise exception 'Sleutel klopt niet. Kopieer de SQL opnieuw vanuit BuildCalc.';
+end $$;
 
 create or replace function inm_ok(p_sleutel text) returns void language plpgsql security definer set search_path = public as $$
 begin
-  if p_sleutel = 'PLAK' || 'HIER_DE_SLEUTEL' or not exists (select 1 from inm_instelling where sleutel = p_sleutel) then
-    raise exception 'Sleutel klopt niet. Kopieer de SQL opnieuw vanuit BuildCalc.';
-  end if;
+  perform inm_rol(p_sleutel);
+end $$;
+
+create or replace function inm_beheer(p_sleutel text) returns void language plpgsql security definer set search_path = public as $$
+begin
+  if inm_rol(p_sleutel) <> 'beheer' then raise exception 'Alleen de beheerder kan dit.'; end if;
 end $$;
 
 -- Calculator
@@ -54,7 +71,7 @@ end $$;
 create or replace function inm_wvb_lijst(p_sleutel text) returns table(naam text, email text, token text)
 language plpgsql security definer set search_path = public as $$
 begin
-  perform inm_ok(p_sleutel);
+  perform inm_beheer(p_sleutel);
   return query select w.naam, w.email, w.token from inm_wvb w order by w.naam;
 end $$;
 
@@ -62,7 +79,7 @@ create or replace function inm_wvb_toevoegen(p_sleutel text, p_naam text, p_emai
 language plpgsql security definer set search_path = public as $$
 declare t text;
 begin
-  perform inm_ok(p_sleutel);
+  perform inm_beheer(p_sleutel);
   insert into inm_wvb(naam, email) values (p_naam, nullif(p_email, '')) returning token into t;
   return json_build_object('ok', true, 'token', t);
 end $$;
@@ -103,6 +120,6 @@ begin
   return json_build_object('ok', true, 'aantal', n);
 end $$;
 
-revoke execute on function inm_ok(text) from public, anon, authenticated;
+revoke execute on function inm_ok(text), inm_rol(text), inm_beheer(text) from public, anon, authenticated;
 grant execute on function inm_lijst(text), inm_status(text, bigint, text), inm_pak(text, bigint, text), inm_wvb_lijst(text), inm_wvb_toevoegen(text, text, text),
   inm_mijn(text), inm_indienen(text, text, date, text[]) to anon;
