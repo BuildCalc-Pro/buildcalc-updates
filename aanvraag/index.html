@@ -58,7 +58,7 @@ async function api(actie, data = {}) {
   if (B === 'sb') {
     const fn = { mijn: 'inm_mijn', indienen: 'inm_indienen' }[actie], args = { p_token: T };
     for (const [k, v] of Object.entries(data)) args['p_' + k] = v;
-    const r = await fetch(U.replace(/\/+$/, '') + '/rest/v1/rpc/' + fn, { method: 'POST', headers: { apikey: K, Authorization: 'Bearer ' + K, 'Content-Type': 'application/json' }, body: JSON.stringify(args) });
+    const r = await fetch(U.replace(/\/+$/, '') + '/rest/v1/rpc/' + fn, { method: 'POST', headers: { apikey: K, ...(/^eyJ/.test(K) ? { Authorization: 'Bearer ' + K } : {}), 'Content-Type': 'application/json' }, body: JSON.stringify(args) });
     const j = await r.json().catch(() => null); if (!r.ok) throw new Error(j?.message || 'Fout ' + r.status); return j;
   }
   throw new Error('Deze link is niet compleet. Vraag de calculator om een nieuwe link.');
