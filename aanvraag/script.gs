@@ -78,8 +78,8 @@ function doPost(e) {
       let mail = false;
       if (d.status === 'ingemeten' && r.email) {
         const voornaam = String(r.werkvoorbereider).split(' ')[0];
-        MailApp.sendEmail(r.email, 'Ingemeten: ' + r.adres,
-          `Hoi ${voornaam},\n\n${r.adres}${r.opdrachtgever ? ' (' + r.opdrachtgever + ')' : ''} is ingemeten. Je kunt verder uitwerken.\n\nGroet,\n${d.van || ''}`,
+        MailApp.sendEmail(r.email, 'Ingemeten' + (d.van ? ' door ' + d.van : '') + ': ' + r.adres,
+          `Hoi ${voornaam},\n\n${r.adres}${r.opdrachtgever ? ' (' + r.opdrachtgever + ')' : ''} is ingemeten${d.van ? ' door ' + d.van : ''}. Je kunt verder uitwerken.\n\nGroet,\n${d.van || ''}`,
           Object.assign({ name: d.van || 'Inmeten' }, /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(d.antw || '')) ? { replyTo: String(d.antw) } : {}));
         mail = true;
       }
