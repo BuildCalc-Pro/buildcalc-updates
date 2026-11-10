@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#7b6a3c">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Inmeten">
+<link rel="icon" href="../app/icoon-192.png">
+<link rel="apple-touch-icon" href="../app/icoon-192.png">
+<title>Inmeten</title>
+<style>
+:root{--bg:#f7f5f0;--ink:#1d1b16;--muted:#5f5a50;--lijn:#e3ded3;--paper:#fff;--olijf:#7b6a3c;--olijf-ink:#fff;--link:#1d5fd1;--rood:#c62828;--groen:#2f7d4a;--zacht:#ece8df;color-scheme:light}
+@media (prefers-color-scheme:dark){:root{--bg:#16150f;--ink:#ece8de;--muted:#a39d8f;--lijn:#2f2c24;--paper:#1f1d17;--olijf:#c2ad6e;--olijf-ink:#1b1608;--link:#7fa6f0;--rood:#f87171;--groen:#86efac;--zacht:#29261d;color-scheme:dark}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:620px;margin:0 auto;padding:16px max(16px,env(safe-area-inset-left)) 48px max(16px,env(safe-area-inset-right))}
+.kop{display:flex;justify-content:space-between;align-items:baseline;gap:8px;border-bottom:1px solid var(--lijn);padding-bottom:10px;margin-bottom:12px}
+.kop h1{font-size:22px;margin:0}.kop button{background:none;border:0;color:var(--muted);font:14px inherit;font-family:inherit;cursor:pointer;padding:4px 0;text-align:right}
+.tabs{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+.tabs button{border:1.5px solid var(--lijn);background:var(--paper);color:var(--ink);border-radius:999px;padding:7px 13px;font:600 14px inherit;font-family:inherit;cursor:pointer}
+.tabs button[aria-pressed="true"]{background:var(--olijf);border-color:var(--olijf);color:var(--olijf-ink)}
+.k{background:var(--paper);border:1px solid var(--lijn);border-radius:16px;padding:12px 14px;margin-bottom:10px}
+.k.mijn{border:2px solid var(--olijf)}
+.a{font-weight:700;font-size:17px;color:var(--link);text-decoration:none}
+.m{color:var(--muted);font-size:14px}.d{font-size:14px;margin-top:2px}.spoed{color:var(--rood);font-weight:700}
+.w{font-size:14px;margin-top:6px}.w a{color:var(--link);font-weight:600;text-decoration:none}
+.door{display:inline-block;margin-top:6px;font-size:13px;font-weight:700;background:var(--zacht);border-radius:999px;padding:3px 10px;color:var(--muted)}
+.knoppen{display:flex;gap:8px;margin-top:10px}
+.knoppen button,.groot{flex:1;border-radius:999px;padding:10px;font:700 15px inherit;font-family:inherit;border:1.5px solid var(--olijf);background:none;color:var(--olijf);cursor:pointer}
+.knoppen .vol,.groot{background:var(--olijf);color:var(--olijf-ink)}
+.groot{width:100%;padding:13px;font-size:16px;margin-top:10px}
+.grijs{background:var(--zacht)!important;color:var(--ink)!important;border-color:var(--zacht)!important}
+button:disabled{opacity:.5;cursor:default}
+.hint{color:var(--muted);font-size:14px}
+.leeg{color:var(--muted);text-align:center;padding:32px 0}
+.melding{border-radius:12px;padding:12px 14px;margin-bottom:12px;background:var(--paper);border:1px solid var(--rood);color:var(--rood)}
+input{width:100%;font:16px inherit;font-family:inherit;padding:11px;border:1px solid var(--lijn);border-radius:10px;background:var(--paper);color:var(--ink);margin-top:6px}
+.scrim{position:fixed;inset:0;background:#0007;display:flex;align-items:flex-end;justify-content:center;z-index:5}
+.sh{background:var(--paper);width:100%;max-width:620px;border-radius:20px 20px 0 0;padding:20px 16px calc(24px + env(safe-area-inset-bottom));max-height:92vh;overflow:auto}
+.sh h2{margin:0 0 8px;font-size:21px}.sh p{color:var(--muted);margin:0 0 12px}
+.mail{background:var(--zacht);border-radius:12px;padding:12px;font-size:14px;white-space:pre-wrap;overflow-wrap:anywhere}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(16px + env(safe-area-inset-bottom));background:var(--ink);color:var(--bg);padding:12px 16px;border-radius:12px;max-width:calc(100% - 32px);z-index:9}
+:focus-visible{outline:3px solid var(--link);outline-offset:2px}
+</style>
+</head>
+<body>
+<div class="wrap"><main id="app"><p class="hint">Laden…</p></main></div>
+<script>
+// Inmeetlijst voor een collega zonder de app. De link komt uit BuildCalc (Instellingen > Inmeetaanvragen)
+// en bevat de collega-sleutel: #b=sb|sheet&u=…&k=…&s=…  Hij ziet de open adressen, pakt er een en meldt hem klaar.
+const lees = (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } };
+const zet = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
+let P = new URLSearchParams(location.hash.slice(1));
+if (P.get('b')) zet('il_link', P.toString()); else P = new URLSearchParams(lees('il_link', ''));
+const B = P.get('b'), U = P.get('u') || '', K = P.get('k') || '', SL = P.get('s') || '';
+const S = { naam: lees('il_naam', ''), items: [], tab: lees('il_tab', 'alles'), fout: '', laden: true, tijd: null, bezig: '' };
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const app = document.getElementById('app');
+
+// Voorbeeld (#b=demo) zonder koppeling, met verzonnen adressen.
+const DEMO = () => { const d = n => { const x = new Date(); x.setDate(x.getDate() + n); return x.toISOString().slice(0, 10); };
+  return [{ id: '1', adres: 'Bovenkruier 1, Amsterdam', opdrachtgever: 'Eigen Haard', deadline: d(2), status: 'open', wvb: 'Sanne de Vries', email: 'sanne@voorbeeld.nl', door: '' },
+    { id: '2', adres: 'Bovenkruier 3, Amsterdam', opdrachtgever: 'Eigen Haard', deadline: d(2), status: 'open', wvb: 'Sanne de Vries', email: 'sanne@voorbeeld.nl', door: 'Dave' },
+    { id: '3', adres: 'Bos en Lommerweg 214, Amsterdam', opdrachtgever: 'De Key', deadline: d(5), status: 'open', wvb: 'Mark Jansen', email: 'mark@voorbeeld.nl', door: '' },
+    { id: '4', adres: 'Kinkerstraat 88, Amsterdam', opdrachtgever: 'Ymere', deadline: d(19), status: 'open', wvb: 'Ilse Bakker', email: 'ilse@voorbeeld.nl', door: '' },
+    { id: '5', adres: 'Javastraat 12, Amsterdam', opdrachtgever: 'Pré Wonen', deadline: null, status: 'open', wvb: 'Mark Jansen', email: 'mark@voorbeeld.nl', door: '' }]; };
+
+async function api(actie, data = {}) {
+  if (B === 'demo') {
+    await new Promise(r => setTimeout(r, 200));
+    let l = JSON.parse(lees('il_demo', 'null') || 'null'); if (!l) l = DEMO();
+    const x = l.find(y => String(y.id) === String(data.id));
+    if (actie === 'pak' && x) x.door = data.door; if (actie === 'status' && x) x.status = data.status;
+    zet('il_demo', JSON.stringify(l)); return actie === 'lijst' ? { items: l } : { ok: true, mail: false, email: x?.email };
+  }
+  if (!navigator.onLine) throw new Error('Geen internet. Probeer het zo opnieuw.');
+  if (B === 'sheet') {
+    const r = await fetch(U, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ actie, sleutel: SL, van: S.naam, ...data }) });
+    const j = await r.json().catch(() => { throw new Error('Geen goed antwoord. Probeer het zo opnieuw.'); });
+    if (j.fout) throw new Error(j.fout); return j;
+  }
+  if (B === 'sb') {
+    const fn = { lijst: 'inm_lijst', pak: 'inm_pak', status: 'inm_status' }[actie], args = { p_sleutel: SL };
+    for (const [k, v] of Object.entries(data)) args['p_' + k] = v;
+    const r = await fetch(U.replace(/\/+$/, '') + '/rest/v1/rpc/' + fn, { method: 'POST', headers: { apikey: K, ...(/^eyJ/.test(K) ? { Authorization: 'Bearer ' + K } : {}), 'Content-Type': 'application/json' }, body: JSON.stringify(args) });
+    const j = await r.json().catch(() => null); if (!r.ok) throw new Error(j?.message || 'Fout ' + r.status);
+    return Array.isArray(j) ? { items: j } : j;
+  }
+  throw new Error('Deze link is niet compleet. Vraag om een nieuwe link.');
+}
+
+async function laad() {
+  try { const j = await api('lijst'); S.items = (j.items || []).map(x => ({ ...x, id: String(x.id), door: x.door || '' })); S.fout = ''; S.tijd = new Date(); }
+  catch (e) { S.fout = e.message || String(e); }
+  S.laden = false; teken();
+}
+
+const nu = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; };
+const dagen = s => s ? Math.round((new Date(String(s).slice(0, 10) + 'T00:00:00') - nu()) / 864e5) : 999;
+const datum = s => new Date(String(s).slice(0, 10) + 'T12:00:00').toLocaleDateString('nl-NL', { weekday: 'short', day: 'numeric', month: 'short' });
+const straat = x => String(x.adres).split(',')[0].trim();
+const plaats = x => (String(x.adres).split(',')[1] || '').trim();
+const voornaam = s => String(s || '').split(' ')[0];
+const mijn = x => S.naam && x.door === S.naam;
+
+function kaart(x) {
+  const n = dagen(x.deadline), spoed = x.deadline && n <= 7;
+  const dl = !x.deadline ? 'Geen datum' : n < 0 ? `Te laat, moest ${datum(x.deadline)}` : `${spoed ? 'Spoed, klaar voor ' : 'Klaar voor '}${datum(x.deadline)}`;
+  const vraag = x.email ? `mailto:${encodeURIComponent(x.email)}?subject=${encodeURIComponent('Vraag over ' + x.adres)}&body=${encodeURIComponent(`Hoi ${voornaam(x.wvb)},\n\n`)}` : '';
+  const b = S.bezig === x.id ? 'disabled' : '';
+  return `<div class="k${mijn(x) ? ' mijn' : ''}">
+    <a class="a" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(x.adres)}" target="_blank" rel="noopener">${esc(straat(x))}</a>
+    <div class="m">${esc([plaats(x), x.opdrachtgever].filter(Boolean).join(' · '))}</div>
+    <div class="d${spoed ? ' spoed' : ''}">${esc(dl)}</div>
+    ${x.wvb ? `<div class="w">Ingediend door ${vraag ? `<a href="${vraag}">${esc(x.wvb)} ✉</a>` : esc(x.wvb)}</div>` : ''}
+    ${x.door ? `<span class="door">${mijn(x) ? '✓ Jij meet dit in' : esc(x.door) + ' meet dit in'}</span>` : ''}
+    ${!x.door ? `<div class="knoppen"><button data-pak="${esc(x.id)}" ${b}>Ik pak dit</button></div>`
+      : mijn(x) ? `<div class="knoppen"><button data-los="${esc(x.id)}" ${b}>Loslaten</button><button class="vol" data-klaar="${esc(x.id)}" ${b}>Klaar</button></div>` : ''}
+  </div>`;
+}
+
+function teken() {
+  if (!B) { app.innerHTML = `<div class="kop"><h1>Inmeten</h1></div><div class="melding">Deze link is niet compleet. Vraag om een nieuwe link.</div>`; return; }
+  if (!S.naam) {
+    app.innerHTML = `<div class="kop"><h1>Inmeten</h1></div>
+      <p>Hier zie je wat er ingemeten moet worden. Vul eerst één keer je naam in. Die zien je collega's bij de adressen die jij pakt, en de werkvoorbereider in de mail.</p>
+      <label for="naam"><b>Jouw naam</b></label><input id="naam" placeholder="Bijv. Kees" autocomplete="given-name">
+      <button class="groot" id="naamOk">Verder</button>`;
+    const ok = () => { const n = document.getElementById('naam').value.trim(); if (!n) return; S.naam = n; zet('il_naam', n); teken(); };
+    document.getElementById('naamOk').onclick = ok; document.getElementById('naam').onkeydown = e => { if (e.key === 'Enter') ok(); };
+    return;
+  }
+  const open = S.items.filter(x => x.status !== 'ingemeten')
+    .sort((a, b) => dagen(a.deadline) - dagen(b.deadline) || String(a.adres).localeCompare(String(b.adres), 'nl', { numeric: true }));
+  const telM = open.filter(mijn).length, telV = open.filter(x => !x.door).length;
+  const l = S.tab === 'mijn' ? open.filter(mijn) : S.tab === 'vrij' ? open.filter(x => !x.door) : open;
+  const tijd = S.tijd ? S.tijd.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' }) : '';
+  app.innerHTML = `<div class="kop"><h1>Inmeten</h1><button id="ververs" aria-label="Verversen">${esc(S.naam)}${tijd ? ' · ververst ' + tijd : ''} ↻</button></div>
+    ${S.fout ? `<div class="melding">${esc(S.fout)}</div>` : ''}
+    ${B === 'demo' ? '<p class="hint">Voorbeeld met verzonnen adressen.</p>' : ''}
+    <div class="tabs">${[['alles', `Alles (${open.length})`], ['mijn', `Van mij (${telM})`], ['vrij', `Vrij (${telV})`]].map(([t, n]) => `<button data-tab="${t}" aria-pressed="${S.tab === t}">${n}</button>`).join('')}</div>
+    ${S.laden ? '<p class="hint">Laden…</p>' : l.map(kaart).join('') || `<div class="leeg">${S.tab === 'mijn' ? 'Je hebt nog niets gepakt. Kies een adres bij Alles of Vrij.' : 'Niets meer in te meten.'}</div>`}
+    <button class="kop" id="naamWeg" style="border:0;background:none;color:var(--muted);font-size:13px;margin-top:20px;cursor:pointer;font-family:inherit">Niet ${esc(S.naam)}? Naam wijzigen</button>`;
+  document.getElementById('ververs').onclick = () => { S.laden = true; teken(); laad(); };
+  document.getElementById('naamWeg').onclick = () => { S.naam = ''; zet('il_naam', ''); teken(); };
+  app.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { S.tab = b.dataset.tab; zet('il_tab', S.tab); teken(); });
+  app.querySelectorAll('[data-pak]').forEach(b => b.onclick = () => pak(b.dataset.pak, S.naam));
+  app.querySelectorAll('[data-los]').forEach(b => b.onclick = () => pak(b.dataset.los, ''));
+  app.querySelectorAll('[data-klaar]').forEach(b => b.onclick = () => klaar(S.items.find(x => x.id === b.dataset.klaar)));
+}
+
+async function pak(id, door) {
+  const x = S.items.find(y => y.id === id); if (!x) return;
+  S.bezig = id; teken();
+  try { await api('pak', { id: B === 'sb' ? +id : id, door }); x.door = door; toast(door ? 'Staat op jouw naam' : 'Losgelaten'); }
+  catch (e) { toast(e.message || String(e)); laad(); }
+  S.bezig = ''; teken();
+}
+
+function mailTekst(x) {
+  const og = x.opdrachtgever ? ` (${x.opdrachtgever})` : '';
+  return { onderwerp: `Ingemeten door ${S.naam}: ${x.adres}`, tekst: `Hoi ${voornaam(x.wvb)},\n\n${x.adres}${og} is ingemeten door ${S.naam}. Je kunt verder uitwerken.\n\nGroet,\n${S.naam}` };
+}
+
+function klaar(x) {
+  if (!x) return;
+  const m = mailTekst(x), auto = B === 'sheet';
+  const d = document.createElement('div'); d.className = 'scrim';
+  d.innerHTML = `<div class="sh" role="dialog" aria-modal="true" aria-labelledby="kt"><h2 id="kt">Klaar met inmeten?</h2>
+    <p>${esc(x.adres)}. ${x.email ? (auto ? `${esc(voornaam(x.wvb))} krijgt dit bericht:` : `Daarna opent je mail met dit bericht voor ${esc(voornaam(x.wvb))}:`) : 'Er is geen mailadres van de werkvoorbereider bekend. Het adres gaat wel op ingemeten.'}</p>
+    ${x.email ? `<div class="mail"><b>Aan:</b> ${esc(x.email)}\n<b>Onderwerp:</b> ${esc(m.onderwerp)}\n\n${esc(m.tekst)}</div>` : ''}
+    <button class="groot" id="ja">Ja, ingemeten</button><button class="groot grijs" id="nee">Annuleren</button></div>`;
+  document.body.appendChild(d);
+  const weg = () => d.remove();
+  d.onclick = e => { if (e.target === d) weg(); };
+  d.querySelector('#nee').onclick = weg;
+  d.querySelector('#ja').onclick = async () => {
+    d.querySelector('#ja').disabled = true;
+    try {
+      const r = await api('status', { id: B === 'sb' ? +x.id : x.id, status: 'ingemeten' });
+      x.status = 'ingemeten'; weg(); teken();
+      const naar = r.email || x.email;
+      if (r.mail) toast(`Mail verstuurd naar ${voornaam(x.wvb)}`);
+      else if (naar) location.href = `mailto:${encodeURIComponent(naar)}?subject=${encodeURIComponent(m.onderwerp)}&body=${encodeURIComponent(m.tekst)}`;
+      else toast('Op ingemeten gezet');
+    } catch (e) { d.querySelector('#ja').disabled = false; toast(e.message || String(e)); }
+  };
+}
+
+let tt; function toast(t) { document.querySelector('.toast')?.remove(); const d = document.createElement('div'); d.className = 'toast'; d.setAttribute('role', 'status'); d.textContent = t; document.body.appendChild(d); clearTimeout(tt); tt = setTimeout(() => d.remove(), 3500); }
+
+teken(); if (B) laad();
+// Bijwerken als hij de pagina weer opent, en elke 2 minuten zolang hij open staat.
+document.addEventListener('visibilitychange', () => { if (!document.hidden && B && S.naam) laad(); });
+setInterval(() => { if (!document.hidden && B && S.naam && !document.querySelector('.scrim')) laad(); }, 120000);
+</script>
+</body>
+</html>
