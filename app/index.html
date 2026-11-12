@@ -4164,7 +4164,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.12-8';
+const APP_VERSIE = '2026.11.12-9';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
@@ -7616,6 +7616,13 @@ function maakTcGroep(s, mi, rijen) {
   }
 }
 const hoeveelTekst = (v, e) => v == null ? '?' : e === 'ST' ? String(Math.round(v)) : `${getalNL(v)} ${e.toLowerCase()}`;
+// Uitkomst van een Topcalc-regel in de eenheid van de code, zodat je in de lijst ziet wat Topcalc straks als uitkomst geeft.
+// Leeg bij een lege regel, ? als de code of een maat nog mist. De factor (aantal woningen) rekent de app niet mee: die vul je in Topcalc in.
+function tcUitkomstHtml(r) {
+  if (!r || tcLeeg(r)) return '';
+  const { hoeveel, eenheid } = tcReken(r);
+  return hoeveel == null ? '<span style="color:var(--open)">?</span>' : esc(hoeveelTekst(hoeveel, eenheid));
+}
 // Pc: de foto waar je mee bezig bent in een eigen venster, dat je naar je tweede scherm sleept.
 // Hetzelfde venster wordt steeds hergebruikt; klik je een ander fotootje aan, dan wisselt de foto daar.
 const FS = { win: null, id: null };
@@ -7711,7 +7718,7 @@ function renderTopcalc(m) {
   const p = vind(RP.projectId); if (!p) return;
   const fotos = tcFotos(p);
   // Regels van een foto: alleen het aantal is hier aan te passen; de rest komt van de foto (📷 opent die foto).
-  const rijHtml = (r, b) => `<tr data-id="${r ? r.id : ''}"${r?.bron ? ' class="tcvanfoto"' : ''}>${TC_VELDEN.map(([k, , w]) => `<td${k === 'b' && r?.dikte ? ' style="position:relative"' : ''}><input data-v="${k}" value="${esc(r?.[k] ?? '')}" style="width:${w}" autocomplete="off" spellcheck="false"${r?.bron && k !== 'n' ? ' readonly tabindex="-1"' : ''}${k === 'b' && r?.dikte ? ` title="Inclusief ${r.dikte} cm diktekant"` : ''}>${k === 'b' && r?.dikte ? `<small class="dkbadge">+${r.dikte}</small>` : ''}</td>`).join('')}<td>${r?.bron
+  const rijHtml = (r, b) => `<tr data-id="${r ? r.id : ''}"${r?.bron ? ' class="tcvanfoto"' : ''}>${TC_VELDEN.map(([k, , w]) => `<td${k === 'b' && r?.dikte ? ' style="position:relative"' : ''}><input data-v="${k}" value="${esc(r?.[k] ?? '')}" style="width:${w}" autocomplete="off" spellcheck="false"${r?.bron && k !== 'n' ? ' readonly tabindex="-1"' : ''}${k === 'b' && r?.dikte ? ` title="Inclusief ${r.dikte} cm diktekant"` : ''}>${k === 'b' && r?.dikte ? `<small class="dkbadge">+${r.dikte}</small>` : ''}</td>`).join('')}<td class="tcuit" style="text-align:right;white-space:nowrap;font-weight:700;font-size:13px;padding-left:8px">${tcUitkomstHtml(r)}</td><td>${r?.bron
     ? `<button class="tcweg" data-tcfoto="${esc(r.foto || '')}" title="Van de foto: maten pas je aan op de foto" tabindex="-1">📷</button>` : '<button class="tcweg" data-weg title="Regel verwijderen" tabindex="-1">✕</button>'}</td></tr>`;
   m.innerHTML = `<div class="pad" style="padding-bottom:40px">
     <div style="color:var(--muted);font-size:14px;margin:0 2px 12px">Vul per map de regels in, net als in Topcalc. Kijk ondertussen naar je foto's en Google Maps. <b>Tab</b> = volgend vakje, <b>Enter</b> = volgende regel. Strekkend rekent zichzelf uit bij een m1-code; pas het aan als er stijlen bij of af moeten. Weet je de code niet? Klik met de rechtermuisknop (of dubbelklik) op Code of Type om te zoeken.</div>
@@ -7731,7 +7738,7 @@ function renderTopcalc(m) {
       let blokken = BESTEK_LIJST.filter(b => rijen.some(r => rijBestek(r, s) === b) || extra.includes(b));
       if (!blokken.length) blokken = [standaard];
       const kopjes = blokken.length > 1 || blokken[0] !== standaard;
-      const tabel = b => `<div class="tcscroll"><table class="tcgrid"><thead><tr>${TC_VELDEN.map(([, l]) => `<th>${l}</th>`).join('')}<th></th></tr></thead>
+      const tabel = b => `<div class="tcscroll"><table class="tcgrid"><thead><tr>${TC_VELDEN.map(([, l]) => `<th>${l}</th>`).join('')}<th style="text-align:right">Uitkomst</th><th></th></tr></thead>
       <tbody data-bestek="${b}">${rijen.filter(r => rijBestek(r, s) === b).map(r => rijHtml(r, b)).join('')}${rijHtml(null, b)}</tbody></table></div>`;
       const blokKop = b => `<div style="font-size:12px;font-weight:700;letter-spacing:.04em;color:${bestekKleur(b)};margin:12px 2px 4px">${b} · ${BESTEKKEN[b][0].toUpperCase()}</div>`;
       const nogTeKiezen = BESTEK_LIJST.filter(b => !blokken.includes(b));
@@ -7771,6 +7778,7 @@ function renderTopcalc(m) {
     const zoekCode2 = async tr => { if (rijVan(tr)?.bron) return toast('Deze regel komt van een foto. Kies de code op de foto.'); const r = maakEcht(tr);
       const c = await codeKiezer(r.oms || `${s.naam}: code`, `${r.code} ${r.type}`.trim(), false, rijBestek(r, s)); if (!c) return;
       [r.code, r.type] = c.split(' '); $('[data-v=code]', tr).value = r.code; $('[data-v=type]', tr).value = r.type || ''; bewaar(); toonInfo(tr); $('[data-v=oms]', tr).focus(); };
+    const zetUitkomst = tr => { const c = tr.querySelector('.tcuit'), r = tr.dataset.id ? rijVan(tr) : null; if (c) c.innerHTML = tcUitkomstHtml(r); };
     body.addEventListener('input', e => { const inp = e.target, tr = inp.closest('tr'); if (!inp.dataset.v) return;
       if (inp.dataset.v === 'type') { const pos = inp.selectionStart; inp.value = inp.value.toUpperCase(); inp.setSelectionRange?.(pos, pos); }
       const r = maakEcht(tr); r[inp.dataset.v] = inp.value;
@@ -7778,7 +7786,7 @@ function renderTopcalc(m) {
       // Typ je zelf iets in Strekkend (bijv. met extra stijlen erbij), dan blijft dat staan.
       if (inp.dataset.v === 'st') r.stAuto = false; else if (!r.bron) autoStrekkend(r, tr);
       if (tr.dataset.id && !$('[data-v=n]', tr).value && inp.dataset.v !== 'n') $('[data-v=n]', tr).value = r.n;
-      toonInfo(tr); bewaarStraks(); });
+      toonInfo(tr); zetUitkomst(tr); bewaarStraks(); });
     body.addEventListener('focusin', e => { const tr = e.target.closest('tr'); if (!tr) return; toonInfo(tr);
       // Strekkend: de cursor achteraan, zodat je meteen +125 (een stijl erbij) of -125 kunt typen. Niets typen en Tab = verder.
       if (['b', 'h'].includes(e.target.dataset.v)) info.insertAdjacentHTML('beforeend', '<div style="margin-top:4px">Stenen tellen: <b>12x6,2</b> of kort <b>12L</b> = 12 lagen (6,2 cm), <b>5S</b> = 5 stenen lang (22 cm). Ook samen: <b>5S+12L</b>.</div>');
@@ -7789,7 +7797,7 @@ function renderTopcalc(m) {
     body.addEventListener('change', e => { const inp = e.target, v = inp.dataset.v; if (!['b', 'h', 'st', 'n'].includes(v)) return;
       const uit = rekenSom(inp.value); if (uit == null || uit === inp.value) return;
       const tr = inp.closest('tr'), r = rijVan(tr); if (!r) return;
-      inp.value = uit; r[v] = uit; if (v !== 'st' && !r.bron) autoStrekkend(r, tr); toonInfo(tr); bewaar(); });
+      inp.value = uit; r[v] = uit; if (v !== 'st' && !r.bron) autoStrekkend(r, tr); toonInfo(tr); zetUitkomst(tr); bewaar(); });
     body.addEventListener('focusout', bewaarNu);
     body.addEventListener('keydown', e => {
       if (e.key !== 'Enter' || !e.target.dataset.v) return; e.preventDefault();
