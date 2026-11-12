@@ -936,7 +936,7 @@ function renderSimpelProject(m, p) {
         ${dicht ? '' : s.fotos.map((f, i) => `<button class="srij in" data-foto-open="${s.id}:${i}"><img class="mini" data-foto="${f.id}" alt=""><span class="t"><b>Foto ${i + 1}</b><small>${fotoStatus(f)}</small></span>
           ${fotoOpen(f) ? '<span class="spil open">open</span>' : f.lijnen.length ? '<span class="spil ok">✓</span>' : ''}</button>`).join('')}</div>`; };
   // Een straat: eigen kaart met de naam bovenaan, daaronder de mappen van die straat. Tik op de naam = in- of uitklappen.
-  const straatKaart = (g, rij, metNieuw) => { const ms = mappenIn(p, g.id), dicht = GROEP_DICHT.has(g.id), fo = ms.reduce((n, s) => n + s.fotos.length, 0), o = ms.reduce((n, s) => n + s.fotos.filter(fotoOpen).length, 0);
+  const straatKaart = (g, rij, metNieuw) => { const ms = mappenIn(p, g.id), dicht = !GROEP_OPEN.has(g.id), fo = ms.reduce((n, s) => n + s.fotos.length, 0), o = ms.reduce((n, s) => n + s.fotos.filter(fotoOpen).length, 0);
     return `<div class="card" style="margin-top:12px"><div style="display:flex;align-items:center;border-bottom:${dicht ? '0' : '1px solid var(--line, rgba(128,128,128,.25))'}"><button class="srij" data-groep="${g.id}" style="flex:1"><span class="sico" style="color:var(--gold)">${ic('huis')}</span><span class="t"><b>${esc(g.naam)}</b><small>${ms.length === 1 ? '1 map' : ms.length + ' mappen'} • ${fo ? aantal(fo) : 'nog geen foto'}</small></span>
       ${modus === 'kantoor' && o ? `<span class="spil open">${o} open</span>` : ''}<span class="pijl">${dicht ? '▸' : '▾'}</span></button><button class="iconbtn" data-gopt="${g.id}" aria-label="Opties straat" style="margin-right:6px">${ic('more')}</button></div>
       ${dicht ? '' : ms.map(rij).join('') + (metNieuw ? `<button class="srij" data-nieuw-in="${g.id}"><span class="t" style="color:var(--a2);font-weight:600">＋ Map in ${esc(g.naam)}</span></button>` : '')}</div>`; };
@@ -993,8 +993,7 @@ function renderSimpelProject(m, p) {
   // Straten (tweede laag)
   const nieuweMap = (naam, gid) => ({ id: nieuwId(), naam, aangemaakt: new Date().toISOString(), fotos: [], notities: [], ...(gid ? { groep: gid } : {}) });
   const straatBestaat = (naam, behalve) => (p.groepen || []).some(g => g !== behalve && g.naam.toLowerCase() === naam.toLowerCase());
-  m.querySelectorAll('[data-groep]').forEach(b => b.onclick = () => { const k = b.dataset.groep; GROEP_DICHT.has(k) ? GROEP_DICHT.delete(k) : GROEP_DICHT.add(k);
-    try { localStorage.setItem('bc_straatDicht', JSON.stringify([...GROEP_DICHT])); } catch (e) {} render(); });
+  m.querySelectorAll('[data-groep]').forEach(b => b.onclick = () => { const k = b.dataset.groep; GROEP_OPEN.has(k) ? GROEP_OPEN.delete(k) : GROEP_OPEN.add(k); render(); });
   m.querySelectorAll('[data-nieuw-in]').forEach(b => b.onclick = async () => { const g = (p.groepen || []).find(x => x.id === b.dataset.nieuwIn); if (!g) return;
     const naam = await vraagNaam(`Nieuwe map in ${g.naam}`, p, null, g.id);
     if (naam) { p.submappen.push(nieuweMap(naam, g.id)); ordenMappen(p); bewaar(); render(); } });
@@ -1021,7 +1020,8 @@ function renderSimpelProject(m, p) {
       p.submappen = p.submappen.filter(s => !ms.includes(s)); p.groepen = p.groepen.filter(x => x !== g); bewaar(); fotoWeg(ms.flatMap(s => s.fotos.map(f => f.id))); render(); }]]); });
 }
 // Welke straten dichtgeklapt zijn, blijft bewaard (ook na herstart). Een nieuwe straat staat open.
-const GROEP_DICHT = new Set((() => { try { return JSON.parse(localStorage.getItem('bc_straatDicht') || '[]'); } catch (e) { return []; } })());
+// Straten staan altijd dicht als je de app opent; je klapt ze open met het driehoekje (open blijven ze zolang de app aan staat).
+const GROEP_OPEN = new Set();
 
 // ---------- Adressenlijst van een complex ----------
 // De lijst uit Excel (straat, huisnummer, woningtype) plak je in het project. De app telt per woningtype hoeveel
@@ -4164,7 +4164,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.12-11';
+const APP_VERSIE = '2026.11.12-12';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
