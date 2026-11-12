@@ -4165,7 +4165,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.12-13';
+const APP_VERSIE = '2026.11.12-14';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
@@ -7539,7 +7539,9 @@ function nietMee(p) {
       if (maten.length && !w) bij(`${naam}: wand mist een breedte of een hoogte`);
       if (w?.los) bij(`${naam}: lijn op Eraf zonder hoogte, gaat er niet af`);
     }
-    const losse = f.lijnen.filter(l => !l.ref && !l.kozijn && l.maat != null).length;
+    // Een lasermaat is houvast als er op deze foto lijnen staan die hun maat uit de foto krijgen (≈): die telt niet mee en hoort dat ook niet te doen.
+    const alsHouvast = f.lijnen.some(l => l.uitRef);
+    const losse = f.lijnen.filter(l => !l.ref && !l.kozijn && l.maat != null && !(alsHouvast && isLasermaat(l))).length;
     if (losse) bij(`${losse === 1 ? '1 maat hoort' : losse + ' maten horen'} bij geen onderdeel`);
   }));
   return uit;
