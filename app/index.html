@@ -2552,8 +2552,9 @@ function tekenUI() {
     const ob = bestekVan(o);
     const kiesCode = async (i = 0, b = bestekVan(o, o.codes?.[i])) => { const naam = `${o.letter}${o.naam ? ' ' + o.naam : ''}`, oud = o.codes?.[i]?.code || '';
       const c = await kiesBestekCode(b, `${b}-code voor ${naam}`, oud); if (!c) return;
-      o.codes ??= []; o.codes[i] = { code: c, bestek: b }; if (!i) sjCodeOnthoud(o); bewaar(); tekenUI();
-      toast(`${naam} ${c} staat nu in de Topcalc-lijst van ${V.s.naam}, bij ${b} (${BESTEKKEN[b][0].toLowerCase()}).`); };
+      o.codes ??= []; o.codes[i] = { code: c, bestek: b }; if (!i) sjCodeOnthoud(o);
+      const ook = !i && !oud ? codeNaarGelijke(f, o, c, b) : []; bewaar(); tekenUI();
+      toast(`${naam} ${c} staat nu in de Topcalc-lijst van ${V.s.naam}, bij ${b} (${BESTEKKEN[b][0].toLowerCase()}).${gelijkeTekst(ook)}`, ook.length ? 6000 : undefined); };
     const anders = BESTEK_KNOPPEN.filter(b => !(o.codes || []).some(c => bestekVan(o, c) === b) && (o.codes?.length || b !== ob)), n0 = o.codes?.length || 0;
     menu([['ruler', o.codes?.length ? `Code wijzigen (${bestekVan(o, o.codes[0])} ${o.codes[0].code})` : `${ob}-code kiezen`, () => kiesCode(0)],
       ...(o.codes?.length ? [['plus', `Nog een ${ob}-code (zelfde maten)`, () => kiesCode(n0, ob)]] : []),
@@ -3763,6 +3764,19 @@ function maakZelfde(f, l, L) {
   V.paar = null; V.ond = N; V.alles = false; V.sel = null; V.modus = 'bekijken'; bewaar(); tekenUI();
   toast(`${N} ${n.naam}: ${h ? 'hoogte' : 'breedte'} ${maatLabel(ander.maat)} zoals ${L}${n.codes?.length ? `, code ${n.codes[0].code}` : ''}.`, 5000);
 }
+// Code voor één raam geldt voor de hele gevel: dezelfde soort onderdeel (Kozijn, Deur...) op deze foto, nog zonder code,
+// krijgt dezelfde code. Wat al een code heeft blijft staan. Geeft de letters terug die zijn ingevuld.
+const soortVan = o => (o.naam || '').match(/^(Kozijn|Draairaam|Paneel|Luik|Deur|Vast raam)/)?.[1] || (o.naam || '').replace(/\s*\d+$/, '').trim();
+function codeNaarGelijke(f, o, code, bestek) {
+  if (isWand(o)) return [];
+  const soort = soortVan(o), uit = [];
+  for (const x of ondVan(f)) {
+    if (x === o || isWand(x) || x.codes?.length || soortVan(x) !== soort || bestekVan(x) !== bestek) continue;
+    x.codes = [{ code, bestek }]; x.bestek = bestek; uit.push(x.letter);
+  }
+  return uit;
+}
+const gelijkeTekst = l => l.length ? ` Ook ingevuld bij ${l.length === 1 ? l[0] : l.slice(0, -1).join(', ') + ' en ' + l.at(-1)}.` : '';
 // Verkeerde soort gekozen (bijv. Deur voor het hele kozijn): naam aanpassen en de code opnieuw kiezen. Lijnen blijven staan.
 const SOORTEN = ['Kozijn', 'Draairaam', 'Paneel', 'Luik', 'Deur', 'Vast raam'];
 function zetSoort(f, o, soort) {
@@ -3780,9 +3794,9 @@ async function tikCodeVraag(f, o, soort, maten) {
   let vorige = {}; try { vorige = JSON.parse(localStorage.getItem('bc_soortcode') || '{}'); } catch (e) {}
   const c = await kiesBestekCode(b, `${b}-code voor ${o.letter} ${o.naam || soort}${maten ? ` (${maten})` : ''}`, vorige[b + ' ' + soort] || '');
   if (!c) return;
-  o.codes = [{ code: c, bestek: b }]; o.bestek = b; bewaar(); if (V) tekenUI();
+  o.codes = [{ code: c, bestek: b }]; o.bestek = b; const ook = codeNaarGelijke(f, o, c, b); bewaar(); if (V) tekenUI();
   try { vorige[b + ' ' + soort] = c; localStorage.setItem('bc_soortcode', JSON.stringify(vorige)); } catch (e) {}
-  toast(`${o.letter} ${o.naam || soort}: ${b} ${c} staat in de Topcalc-lijst.`);
+  toast(`${o.letter} ${o.naam || soort}: ${b} ${c} staat in de Topcalc-lijst.${gelijkeTekst(ook)}`, ook.length ? 6000 : undefined);
 }
 // Schaal voor aangetikte kozijnen: zoals elke lijn uit de foto, en anders de standaard stenen (6,2 cm per laag).
 function tikMeter(f) {
@@ -4138,7 +4152,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.12-4';
+const APP_VERSIE = '2026.11.12-5';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
