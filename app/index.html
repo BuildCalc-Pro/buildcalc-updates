@@ -3348,11 +3348,12 @@ function maatOverzicht(f) {
 // Een lijn van een ander onderdeel dan het gekozen onderdeel is verborgen, tenzij "Alles tonen" aan staat.
 // Lijnen van andere onderdelen blijven zichtbaar (vaag), zodat je ziet wat al gemeten is. "Alles tonen" = alles even sterk.
 const verborgenLijn = l => false;
-// Laseren op locatie (gevel): de lijnen die nog gemeten moeten worden krijgen een nummer, in de volgorde van de gouden balk
+// Laseren op locatie (gevel, trap, plafond): de lijnen die nog gemeten moeten worden krijgen een nummer, in de volgorde van de gouden balk
 // ("1 van 6"). De lijn die nu aan de beurt is, is goud. Zo zie je meteen wat er nog komt.
 function gvNummers(f, W, H, nuId, rh) {
-  if (!gvAan(f)) return '';
-  const alle = gvLijnen(f), r = Math.max(rh * 1.45, 11);
+  // Gevel of sjabloon (trapwand, plafond, onderkant trap): dezelfde nummers in de volgorde van de gouden balk.
+  const alle = gvAan(f) ? gvLijnen(f) : sjLijnen(f), r = Math.max(rh * 1.45, 11);
+  if (!alle.length) return '';
   return alle.map((l, i) => {
     if (l.maat != null || l.uitRef || l.ref) return '';
     const x = (l.x1 + l.x2) / 2 * W, y = (l.y1 + l.y2) / 2 * H, nu = l.id === nuId;
@@ -4164,7 +4165,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.12-12';
+const APP_VERSIE = '2026.11.12-13';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
