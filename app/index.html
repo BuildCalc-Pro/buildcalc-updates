@@ -4164,7 +4164,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.12-10';
+const APP_VERSIE = '2026.11.12-11';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
@@ -7620,6 +7620,24 @@ function maakTcGroep(s, mi, rijen) {
   }
 }
 const hoeveelTekst = (v, e) => v == null ? '?' : e === 'ST' ? String(Math.round(v)) : `${getalNL(v)} ${e.toLowerCase()}`;
+// Totaal per straat: alle regels van de mappen in die straat, opgeteld per code en eenheid. Zonder factor (aantal woningen):
+// die vul je zelf in Topcalc in. Alleen bij een project met straten.
+function tcStraatTotalen(p) {
+  return (p.groepen || []).map(g => {
+    const som = new Map();
+    for (const s of mappenIn(p, g.id)) for (const r of tcLijst(s).filter(r => !tcLeeg(r))) {
+      const { z, hoeveel, eenheid } = tcReken(r), code = `${r.code || ''} ${r.type || ''}`.trim(); if (!code) continue;
+      const sl = code + '|' + eenheid, x = som.get(sl) || { code, naam: z ? z[1].naam : (r.oms || ''), eenheid, tot: 0, mist: 0 };
+      if (hoeveel == null) x.mist++; else x.tot += hoeveel; som.set(sl, x);
+    }
+    return { g, regels: [...som.values()].sort((a, b) => a.code.localeCompare(b.code)) };
+  }).filter(x => x.regels.length);
+}
+function tcStraatHtml(p) {
+  const t = tcStraatTotalen(p); if (!t.length) return '';
+  return t.map(({ g, regels }) => `<div class="card" style="margin:0 0 10px;padding:10px 12px"><div style="font-weight:700;margin-bottom:4px">Totaal ${esc(g.naam)} <small style="color:var(--muted);font-weight:400">(zonder factor)</small></div>
+    ${regels.map(x => `<div style="display:flex;justify-content:space-between;gap:10px;margin-top:3px;font-size:14px"><span><b>${esc(x.code)}</b> ${esc(x.naam)}</span><span style="white-space:nowrap;font-weight:700">${esc(hoeveelTekst(x.tot, x.eenheid))}${x.mist ? ` <span style="color:var(--open)" title="${x.mist} regel(s) zonder maat tellen niet mee">+ ${x.mist}?</span>` : ''}</span></div>`).join('')}</div>`).join('');
+}
 // Uitkomst van een Topcalc-regel in de eenheid van de code, zodat je in de lijst ziet wat Topcalc straks als uitkomst geeft.
 // Leeg bij een lege regel, ? als de code of een maat nog mist. De factor (aantal woningen) rekent de app niet mee: die vul je in Topcalc in.
 function tcUitkomstHtml(r) {
@@ -7727,6 +7745,7 @@ function renderTopcalc(m) {
   m.innerHTML = `<div class="pad" style="padding-bottom:40px">
     <div style="color:var(--muted);font-size:14px;margin:0 2px 12px">Vul per map de regels in, net als in Topcalc. Kijk ondertussen naar je foto's en Google Maps. <b>Tab</b> = volgend vakje, <b>Enter</b> = volgende regel. Strekkend rekent zichzelf uit bij een m1-code; pas het aan als er stijlen bij of af moeten. Weet je de code niet? Klik met de rechtermuisknop (of dubbelklik) op Code of Type om te zoeken.</div>
     ${nietMeeHtml(nietMee(p), x => `data-tcopen="${x.f.id}"`)}
+    ${tcStraatHtml(p)}
     ${(() => { const mp = topcalcMappen(p).bestekken; return mp.length ? `<div class="card" style="margin:0 0 10px;padding:10px 12px"><div style="font-weight:700;margin-bottom:4px">Maak eerst deze mappen in Topcalc</div>
       <div style="color:var(--muted);font-size:13px">In Topcalc: Nieuw, kies het bestek, maak daarin de map met de straatnaam en daarin de mappen per gevel.</div>
       ${mp.map(b => `<div style="margin-top:6px"><b style="color:${bestekKleur(b.bestek)}">${b.bestek}</b> &gt; ${esc(b.straat)} &gt; ${b.mappen.map(esc).join(', ')}</div>`).join('')}</div>` : ''; })()}
