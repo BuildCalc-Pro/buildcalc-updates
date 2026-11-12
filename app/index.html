@@ -2879,14 +2879,14 @@ function pijlVorm(x1, y1, x2, y2, tw, s = 1) {
 // Strakke maatlijnen: dunne lijn met een zachte donkere rand (leesbaar op elke foto), kleine pijlpunten en tekst.
 const PIJL_RAND = 'rgba(0,0,0,.45)';
 const PIJL_FIJN = .72; // lijnen en cm in de fotokijker: fijner dan in rapport en tweede scherm
-function svgPijl(x1, y1, x2, y2, label, kl, s = 1) {
+function svgPijl(x1, y1, x2, y2, label, kl, s = 1, streep = false) {
   const v = pijlVorm(x1, y1, x2, y2, (label.length * 6.3 + 2) * s, s);
   if (label === '?') v.hoek = 0;
   const d = v.stukken.map(([a, b, c, e]) => `M${a} ${b}L${c} ${e}`).join('');
   const pk = v.koppen.map(k => `<polygon points="${k.map(p => p.join(',')).join(' ')}"`);
   return `<path d="${d}" stroke="${PIJL_RAND}" stroke-width="${2.8 * s}" stroke-linecap="round" fill="none"/>
     ${pk.map(p => `${p} fill="${PIJL_RAND}" stroke="${PIJL_RAND}" stroke-width="${1.6 * s}" stroke-linejoin="round"/>`).join('')}
-    <path d="${d}" stroke="${kl}" stroke-width="${1.2 * s}" stroke-linecap="round" fill="none"/>
+    <path d="${d}" stroke="${kl}" stroke-width="${1.2 * s}" stroke-linecap="round" fill="none"${streep ? ` stroke-dasharray="${5 * s} ${4 * s}"` : ''}/>
     ${pk.map(p => `${p} fill="${kl}"/>`).join('')}
     <text transform="translate(${v.tx} ${v.ty}) rotate(${v.hoek})" text-anchor="middle" dominant-baseline="central" font-size="${11 * s}" font-weight="600" letter-spacing="${.2 * s}" fill="${kl}" stroke="${PIJL_RAND}" stroke-width="${2.4 * s}" stroke-linejoin="round" paint-order="stroke">${label}</text>`;
 }
@@ -3371,15 +3371,15 @@ function tekenLijnen() {
   const zien = l => l.ref ? V.refTonen || l.id === V.sel || l.rol === 'GL' : (!verborgenLijn(l) && !sjOverslaan(foto(), l)) || l.id === V.sel;
   // Sjabloon: de lijn die nu aan de beurt is, is goud (net als een gekozen lijn).
   const nuId = !V.sel && V.modus === 'bekijken' ? (sjNu(foto()) || gvNu(foto()))?.id : null;
-  const lijnen = foto().lijnen.filter(zien).map(l => [l.x1 * W, l.y1 * H, l.x2 * W, l.y2 * H, l.id === V.sel || l.id === nuId, l.maat, (l.stenen && l.id === V.sel ? stenenTekst(l) + ' = ' : '') + lijnLabel(l), !l.ref && (ander(l) || vaag(l)), l.aftrek, vaag(l), l.ref, l.uitRef && l.maat == null, l.stenenOk === false]);
+  const lijnen = foto().lijnen.filter(zien).map(l => [l.x1 * W, l.y1 * H, l.x2 * W, l.y2 * H, l.id === V.sel || l.id === nuId, l.maat, (l.stenen && l.id === V.sel ? stenenTekst(l) + ' = ' : '') + lijnLabel(l), !l.ref && (ander(l) || vaag(l)), l.aftrek, vaag(l), l.ref, l.uitRef && l.maat == null, l.stenenOk === false, !!l.uitRef && l.maat != null && !l.ref]);
   if (V.nieuw) lijnen.push([...V.nieuw, true, null, '?']);
   // Fijn: ingezoomd worden lijnen en tekst niet mee dikker (wel iets, zodat het leesbaar blijft).
   const zm = V.zoom?.s || 1, sp = PIJL_FIJN / Math.pow(zm, .75), rh = 9 / Math.pow(zm, .8);
-  svg.innerHTML = lijnen.map(([x1, y1, x2, y2, sel, maat, label, dim, af, heelVaag, ref, uitFoto, nareken]) => {
+  svg.innerHTML = lijnen.map(([x1, y1, x2, y2, sel, maat, label, dim, af, heelVaag, ref, uitFoto, nareken, geschat]) => {
     // Wit = gemeten, oranje ? = maat ontbreekt nog, goud = geselecteerd, zalm = gaat eraf (wand), lichtblauw = referentie. Lijnen van een ander onderdeel iets doorzichtig.
     // Gevel: lichtblauw = rekent de app uit de foto (nog geen maat), oranje = stenen geven een andere maat (narekenen).
-    const kl = sel ? '#D4AF37' : uitFoto ? '#9FE7FF' : maat == null ? '#FFA726' : nareken ? '#FF9800' : ref ? '#81D4FA' : af ? '#FF8A50' : '#FFFFFF';
-    return (dim ? `<g opacity="${heelVaag ? .2 : .45}">${svgPijl(x1, y1, x2, y2, label, kl, sp)}</g>` : svgPijl(x1, y1, x2, y2, label, kl, sp)) +
+    const kl = sel ? '#D4AF37' : uitFoto ? '#9FE7FF' : maat == null ? '#FFA726' : nareken ? '#FF9800' : ref ? '#81D4FA' : af ? '#FF8A50' : geschat ? '#FFB74D' : '#FFFFFF';   // geschat (≈ uit de foto): oranje stippellijn
+    return (dim ? `<g opacity="${heelVaag ? .2 : .45}">${svgPijl(x1, y1, x2, y2, label, kl, sp, geschat && !sel)}</g>` : svgPijl(x1, y1, x2, y2, label, kl, sp, geschat && !sel)) +
       (sel ? [[x1, y1], [x2, y2]].map(([x, y]) => `<circle cx="${x}" cy="${y}" r="${rh}" fill="rgba(212,175,55,.2)" stroke="${kl}" stroke-width="${1.6 * rh / 9}"/>`).join('') : '');
   }).join('') + gvNummers(foto(), W, H, nuId, rh) + refSvg(foto(), W, H) + gvZoomSvg(foto(), W, H) + tikSvg(foto(), W, H) + stenenStreepjes(W, H) + typeChip(foto(), W, H) + ballonnenSvg(foto(), W, H) + labelsSvg(foto(), W, H);
   // Alleen bij tekenen of een geselecteerde lijn vangen we het slepen af.
@@ -4164,7 +4164,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.12-7';
+const APP_VERSIE = '2026.11.12-8';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
