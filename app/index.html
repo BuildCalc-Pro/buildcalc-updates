@@ -4247,7 +4247,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.13-12';
+const APP_VERSIE = '2026.11.13-13';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
@@ -5206,14 +5206,19 @@ function zoekCodes(vraag) {
   // Woorden van 3 letters of meer mogen ook midden in een woord staan: "kozijn" vindt "Gevelkozijnen".
   // Topcalc noemt een paneel "puivulling": zoeken op paneel vindt die ook.
   const gevonden = alle.filter(x => { const t0 = `${x.o.naam} ${x.ot.naam}`.toLowerCase(), t = `${t0}${/puivulling/.test(t0) ? ' paneel' : ''}`.split(/[^\p{L}\d]+/u); return woorden.every(w => t.some(n => w.length >= 3 ? n.includes(w) : n.startsWith(w))); }).sort(opGebruik);
-  if (gevonden.length || woorden.length !== 1) return gevonden;
-  // Staat het woord niet in Topcalc zelf (daklijst, garagedeur), maar kent BuildCalc het wel? Dan de codes die daarbij horen.
+  if (woorden.length !== 1) return gevonden;
+  // Het woord staat niet (of niet alleen) zo in Topcalc (daklijst, lijst, garagedeur), maar BuildCalc kent het wel? Dan eerst de codes die daarbij horen,
+  // met alle breedteklassen (N, N1 < 10 cm, N2 10-20 cm, N3 20-30 cm).
   const w = woorden[0], uit = new Map();
   for (const [sleutel, d] of Object.entries(DEFS)) { const k = sleutel.toLowerCase();
-    if (k.length < 4 || !(w === k || w.startsWith(k) || w.endsWith(k))) continue;
+    if (!(k.length >= 4 && (w === k || w.startsWith(k) || w.endsWith(k) || (w.length >= 4 && k.endsWith(w))))) continue;
     const ots = (() => { try { return d.ots ? d.ots('') : []; } catch { return []; } })();
-    for (const obj of [...Object.values(d.buiten || {}), ...Object.values(d.binnen || {})]) for (const ot of ots) { const z = zoekCode(`${obj} ${ot}`); if (z) uit.set(`${z[0].code} ${z[1].code}`, { o: z[0], ot: z[1], code: `${z[0].code} ${z[1].code}` }); } }
-  return [...uit.values()].sort(opGebruik);
+    for (const obj of [...Object.values(d.buiten || {}), ...Object.values(d.binnen || {})]) { const o = TC.get(obj); if (!o) continue;
+      for (const ot of o.onderdelen.values()) if (ots.some(x => ot.code === x || (ot.code.length === x.length + 1 && ot.code.startsWith(x) && /\d/.test(ot.code.slice(-1)))))
+        uit.set(`${o.code} ${ot.code}`, { o, ot, code: `${o.code} ${ot.code}` }); } }
+  const eerst = [...uit.values()].sort(opGebruik), rest = gevonden.filter(x => !uit.has(x.code));
+  // Een samengesteld woord dat Topcalc zelf al kent (garagedeur) eerst zoals Topcalc het noemt, de rest daarna.
+  return gevonden.length && [...uit.values()].every(x => !(x.o.naam + ' ' + x.ot.naam).toLowerCase().includes(w)) && w.length > 6 ? [...rest, ...eerst] : [...eerst, ...rest];
 }
 // De codekiezer: één vak voor code of trefwoord. Leeg: eerst je vaak gebruikte codes, dan bladeren per groep en object.
 // Geeft de gekozen code ("001 N"), '' voor Standaard of null bij Annuleren.
