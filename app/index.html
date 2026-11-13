@@ -3708,7 +3708,9 @@ function koppelGebaren(surf) {
         // Op kantoor: breedte en hoogte samen = één onderdeel. Na de eerste lijn blijf je in Lijn, na de tweede kies je wat het is.
         if (!V.el.classList.contains('loc')) {
           const eerste = foto().lijnen.find(x => x.id === V.paar);
-          if (eerste && eerste.richting !== l.richting && lijnPaarPast(eerste, l)) { V.paar = null; setTimeout(() => lijnPaarVraag(foto(), eerste, l), 50); }
+          // Horen beide lijnen al bij een onderdeel dat je koos (bijv. via ONB, Deur)? Dan niet nog eens vragen wat het is.
+          if (eerste && l.kozijn && eerste.kozijn === l.kozijn) { V.paar = null; V.modus = 'bekijken'; V.sel = l.id; }
+          else if (eerste && eerste.richting !== l.richting && lijnPaarPast(eerste, l)) { V.paar = null; setTimeout(() => lijnPaarVraag(foto(), eerste, l), 50); }
           // Eerste lijn niet geselecteerd laten: anders pak je bij de tweede lijn (vanuit de hoek) het eind van de eerste.
           else { V.paar = l.id; V.modus = 'lijn'; V.sel = null; }
         }
@@ -4199,7 +4201,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.13-3';
+const APP_VERSIE = '2026.11.13-4';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
