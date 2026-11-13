@@ -4247,7 +4247,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.13-10';
+const APP_VERSIE = '2026.11.13-12';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
@@ -5205,7 +5205,15 @@ function zoekCodes(vraag) {
   const woorden = q.split(/[^\p{L}\d]+/u).filter(Boolean);
   // Woorden van 3 letters of meer mogen ook midden in een woord staan: "kozijn" vindt "Gevelkozijnen".
   // Topcalc noemt een paneel "puivulling": zoeken op paneel vindt die ook.
-  return alle.filter(x => { const t0 = `${x.o.naam} ${x.ot.naam}`.toLowerCase(), t = `${t0}${/puivulling/.test(t0) ? ' paneel' : ''}`.split(/[^\p{L}\d]+/u); return woorden.every(w => t.some(n => w.length >= 3 ? n.includes(w) : n.startsWith(w))); }).sort(opGebruik);
+  const gevonden = alle.filter(x => { const t0 = `${x.o.naam} ${x.ot.naam}`.toLowerCase(), t = `${t0}${/puivulling/.test(t0) ? ' paneel' : ''}`.split(/[^\p{L}\d]+/u); return woorden.every(w => t.some(n => w.length >= 3 ? n.includes(w) : n.startsWith(w))); }).sort(opGebruik);
+  if (gevonden.length || woorden.length !== 1) return gevonden;
+  // Staat het woord niet in Topcalc zelf (daklijst, garagedeur), maar kent BuildCalc het wel? Dan de codes die daarbij horen.
+  const w = woorden[0], uit = new Map();
+  for (const [sleutel, d] of Object.entries(DEFS)) { const k = sleutel.toLowerCase();
+    if (k.length < 4 || !(w === k || w.startsWith(k) || w.endsWith(k))) continue;
+    const ots = (() => { try { return d.ots ? d.ots('') : []; } catch { return []; } })();
+    for (const obj of [...Object.values(d.buiten || {}), ...Object.values(d.binnen || {})]) for (const ot of ots) { const z = zoekCode(`${obj} ${ot}`); if (z) uit.set(`${z[0].code} ${z[1].code}`, { o: z[0], ot: z[1], code: `${z[0].code} ${z[1].code}` }); } }
+  return [...uit.values()].sort(opGebruik);
 }
 // De codekiezer: één vak voor code of trefwoord. Leeg: eerst je vaak gebruikte codes, dan bladeren per groep en object.
 // Geeft de gekozen code ("001 N"), '' voor Standaard of null bij Annuleren.
@@ -7841,6 +7849,29 @@ function losRegelSheet(titel, h, metWeg = false) {
     setTimeout(() => $('input', d).focus(), 50);
   });
 }
+// Een onderdeel dat bij de hele gevel hoort (dakgoot, daklijst…): soort kiezen, lengte typen (zelf gemeten met Google Maps of Earth),
+// de code wordt per soort en per buiten/binnen onthouden. m1 = lengte, m2 = lengte en hoogte, stuks = aantal.
+async function gevelOnderdeel(s, klaar) {
+  const standaard = isRdo(s) ? 'RDO' : (s.laatsteGevelBestek || (BINNEN.test(String(s.naam || '').toLowerCase()) ? 'ONI' : 'ONB'));
+  const kies = bt => new Promise(res => menu([
+    ['ruler', bt === 'ONB' ? 'Buiten (ONB), tik voor Binnen (ONI)' : 'Binnen (ONI), tik voor Buiten (ONB)', () => { s.laatsteGevelBestek = bt === 'ONB' ? 'ONI' : 'ONB'; bewaar(); setTimeout(async () => res(await kies(s.laatsteGevelBestek)), 60); }],
+    ...['Dakgoot', 'Daklijst', 'Boeideel', 'Windveer', 'Overstek'].map(n => ['plus', n, () => res([n, bt])]),
+    ['edit', 'Anders… (zelf typen)', async () => { const t = (await vraagTekst('Wat is het?', 'Naam van het onderdeel', 'bijv. Hekwerk, Dakkapel', '', ['Hekwerk', 'Regenpijp', 'Dakkapel']) || '').trim(); res(t ? [t, bt] : null); }],
+    ['close', 'Annuleren', () => res(null)]]));
+  const k = await kies(standaard); if (!k) return;
+  const [naam, bt] = k; s.laatsteGevelBestek = bt;
+  let mem = {}; try { mem = JSON.parse(localStorage.getItem('bc_soortcode') || '{}'); } catch (e) {}
+  let code = mem[bt + ' ' + naam];
+  if (!code) { code = await codeKiezer(`${bt}-code voor ${naam}`, naam, false, bt); if (!code) return;
+    try { mem[bt + ' ' + naam] = code; localStorage.setItem('bc_soortcode', JSON.stringify(mem)); } catch (e) {} }
+  const z = zoekCode(code), eenheid = z?.[1].eenheid || 'M1', [c1, c2 = ''] = code.split(' ');
+  const r = { id: nieuwId(), code: c1, type: c2, oms: naam, b: '', h: '', st: '', n: '1', bestek: bt };
+  if (eenheid === 'ST') { const n = await vraagTekst(naam, 'Aantal stuks', '1', '1'); if (n == null) return; r.n = String(Math.max(1, Math.round(getal(n) || 1))); }
+  else { const l = getal(await vraagTekst(naam, 'Lengte in meter (uit Google Maps of Earth)', 'Bijv. 12,5') ?? ''); if (!l || l <= 0) return toast('Geen lengte ingevuld, niets toegevoegd.'); r.b = String(cmOp(l));
+    if (eenheid === 'M2') { const h = getal(await vraagTekst(naam, 'Hoogte of breedte in cm', 'Bijv. 20') ?? ''); if (!h || h <= 0) return toast('Geen hoogte ingevuld, niets toegevoegd.'); r.h = String(Math.ceil(h)); } }
+  tcLijst(s).push(r); bewaar(); klaar();
+  toast(`${naam} staat bij ${s.naam}: ${bt} ${code}${eenheid === 'M2' ? ` (m²)` : eenheid === 'ST' ? ' (stuks)' : ' (m1)'}.`);
+}
 function renderTopcalc(m) {
   const p = vind(RP.projectId); if (!p) return;
   const fotos = tcFotos(p);
@@ -7875,7 +7906,7 @@ function renderTopcalc(m) {
       ${s.fotos.length ? `<div class="tcfotos">${s.fotos.map((f, fi) => `<img data-foto="${f.id}" data-tcopen="${f.id}" alt="" title="Foto ${fi + 1}">`).join('')}</div>` : ''}
       ${blokken.map(b => `${kopjes ? blokKop(b) : ''}${tabel(b)}<button class="ghost tcknop" data-tckopie="${s.id}" data-bestek="${b}" style="margin:6px 0 0">Kopiëren voor Topcalc${kopjes ? ` (${b})` : ''}</button>`).join('')}
       <div class="tcinfo" data-info>Klik in een regel om te zien welk onderdeel het is.</div>
-      ${nogTeKiezen.length ? `<button class="ghost tcknop" data-tcbestek="${s.id}" style="margin:6px 0 0">＋ Bestek (${nogTeKiezen.join(', ')})</button>` : ''}</div>`; }).join('')}
+      <button class="ghost tcknop" data-gevelond="${s.id}" style="margin:6px 8px 0 0">＋ Gevelonderdeel (dakgoot, daklijst…)</button>${nogTeKiezen.length ? `<button class="ghost tcknop" data-tcbestek="${s.id}" style="margin:6px 0 0">＋ Bestek (${nogTeKiezen.join(', ')})</button>` : ''}</div>`; }).join('')}
   </div>`;
   m.querySelectorAll('img[data-foto]').forEach(async img => { const u = await fotoMini(img.dataset.foto); if (u) img.src = u; });
   m.querySelectorAll('[data-tcopen]').forEach(img => img.onclick = () => { const i = fotos.findIndex(x => x.f.id === img.dataset.tcopen), r = fotos[i];
@@ -7884,6 +7915,7 @@ function renderTopcalc(m) {
   $('#tcScherm', m)?.addEventListener('click', () => { if (!fotos.length) return toast("Dit project heeft nog geen foto's."); if (!fotoScherm(p, fotos, Math.max(0, fotos.findIndex(x => x.f.id === FS.id)))) toast('Je browser blokkeert het venster. Sta pop-ups toe voor BuildCalc.'); });
   if (FS.id) markeerTcRij(FS.id);
   m.querySelectorAll('[data-tckeer]').forEach(b => b.onclick = () => keerSheet(p, p.submappen.find(s => s.id === b.dataset.tckeer)));
+  m.querySelectorAll('[data-gevelond]').forEach(k => k.onclick = () => { const s = p.submappen.find(x => x.id === k.dataset.gevelond); if (s) gevelOnderdeel(s, () => renderTopcalc(m)); });
   m.querySelectorAll('[data-tcbestek]').forEach(k => k.onclick = () => { const s = p.submappen.find(x => x.id === k.dataset.tcbestek); if (!s) return;
     const nog = BESTEK_LIJST.filter(b => !(s.toonBestek || []).includes(b));
     menu(nog.map(b => ['plus', `${b} · ${BESTEKKEN[b][0]}`, () => { s.toonBestek = [...(s.toonBestek || []), b]; bewaar(); renderTopcalc(m); }])); });
