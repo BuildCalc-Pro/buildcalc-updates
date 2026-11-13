@@ -2884,9 +2884,9 @@ function pijlVorm(x1, y1, x2, y2, tw, s = 1) {
 }
 // Strakke maatlijnen: dunne lijn met een zachte donkere rand (leesbaar op elke foto), kleine pijlpunten en tekst.
 const PIJL_RAND = 'rgba(0,0,0,.45)';
-const PIJL_FIJN = .72; // lijnen en cm in de fotokijker: fijner dan in rapport en tweede scherm
+const PIJL_FIJN = 1.4; // lijnen en cm in de fotokijker: fijner dan in rapport en tweede scherm
 function svgPijl(x1, y1, x2, y2, label, kl, s = 1, streep = false) {
-  const v = pijlVorm(x1, y1, x2, y2, (label.length * 6.3 + 2) * s, s);
+  const v = pijlVorm(x1, y1, x2, y2, (label.length * 6.9 + 4) * s, s);
   if (label === '?') v.hoek = 0;
   const d = v.stukken.map(([a, b, c, e]) => `M${a} ${b}L${c} ${e}`).join('');
   const pk = v.koppen.map(k => `<polygon points="${k.map(p => p.join(',')).join(' ')}"`);
@@ -2894,7 +2894,7 @@ function svgPijl(x1, y1, x2, y2, label, kl, s = 1, streep = false) {
     ${pk.map(p => `${p} fill="${PIJL_RAND}" stroke="${PIJL_RAND}" stroke-width="${1.6 * s}" stroke-linejoin="round"/>`).join('')}
     <path d="${d}" stroke="${kl}" stroke-width="${1.2 * s}" stroke-linecap="round" fill="none"${streep ? ` stroke-dasharray="${5 * s} ${4 * s}"` : ''}/>
     ${pk.map(p => `${p} fill="${kl}"/>`).join('')}
-    <text transform="translate(${v.tx} ${v.ty}) rotate(${v.hoek})" text-anchor="middle" dominant-baseline="central" font-size="${11 * s}" font-weight="600" letter-spacing="${.2 * s}" fill="${kl}" stroke="${PIJL_RAND}" stroke-width="${2.4 * s}" stroke-linejoin="round" paint-order="stroke">${label}</text>`;
+    <text transform="translate(${v.tx} ${v.ty}) rotate(${v.hoek})" text-anchor="middle" dominant-baseline="central" font-size="${11 * s}" font-weight="700" letter-spacing="${.2 * s}" fill="${kl}" stroke="rgba(0,0,0,.8)" stroke-width="${3.4 * s}" stroke-linejoin="round" paint-order="stroke">${label}</text>`;
 }
 function canvasPijl(g, x1, y1, x2, y2, label, kl, s) {
   g.font = `600 ${11.5 * s}px Helvetica, Arial, sans-serif`;
@@ -4180,7 +4180,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.13-1';
+const APP_VERSIE = '2026.11.13-2';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
