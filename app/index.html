@@ -2611,10 +2611,10 @@ function tekenUI() {
       ...(o.zelfdeOnd?.length ? [['close', 'Laatste zelfde kozijn weer los', () => { gvNietZelfde(f, o); bewaar(); tekenUI(); }]] : []),
       ['edit', 'Naam wijzigen', async () => { const n = await vraagTekst(`Onderdeel ${o.letter}`, 'Naam', 'Bijv. Kozijn 1e verdieping', o.naam || '', onderdeelNamen()); if (n == null) return; o.naam = n; bewaar(); tekenUI(); }],
       ['trash', 'Onderdeel verwijderen', () => {
-        // De lijnen blijven altijd staan (als losse lijnen); alleen de berekening gaat weg. Altijd even terug te draaien.
+        // De lijnen van het onderdeel gaan mee weg, de lasermaten blijven (referentie). Altijd even terug te draaien.
         const oud = { lijnen: JSON.parse(JSON.stringify(f.lijnen)), ond: JSON.parse(JSON.stringify(f.onderdelen || [])) };
         verwijderOnderdeel(f, o.letter); V.ond = null; bewaar(); tekenUI();
-        ongedaanToast(`Onderdeel ${o.letter} weg, de lijnen staan er nog.`, () => { f.lijnen = oud.lijnen; f.onderdelen = oud.ond; V.ond = o.letter; bewaar(); tekenUI(); }); }]]);
+        ongedaanToast(`Onderdeel ${o.letter} weg, met zijn lijnen. Je lasermaten blijven staan.`, () => { f.lijnen = oud.lijnen; f.onderdelen = oud.ond; V.ond = o.letter; bewaar(); tekenUI(); }); }]]);
   });
   if ($('#valles', vx)) $('#valles', vx).onclick = () => { V.alles = !V.alles; V.sel = null; tekenUI(); };
   if ($('#vref', vx)) $('#vref', vx).onclick = () => { V.refTonen = !V.refTonen; V.sel = null; tekenUI(); };
@@ -4201,7 +4201,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.13-5';
+const APP_VERSIE = '2026.11.13-6';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
@@ -6300,9 +6300,11 @@ const wandAantal = o => Math.max(1, o?.aantal || 1);
 // Lasermaat: een lijn met een maat die op locatie is gemeten (niet op kantoor getrokken) of met de lasermeter is gezet.
 // Die gaat nooit mee weg met een onderdeel: hij blijft als losse maat staan (op kantoor onder de knop "Lasermaten").
 const isLasermaat = l => l.maat != null && (l.bron === 'laser' || !l.kant) && !l.uitRef && l.bron !== 'foto' && l.bron !== 'stenen';
-// De lijnen blijven altijd staan: ze worden losse lijnen. Een berekening verwijderen gooit nooit lijnen weg.
+// De lijnen van het onderdeel gaan mee weg; alleen lasermaten (referentie) blijven staan.
 function verwijderOnderdeel(f, L) {
-  f.lijnen.forEach(l => { if (l.kozijn === L) { delete l.kozijn; delete l.aftrek; } });
+  // De lijnen van het onderdeel gaan mee weg. Alleen je lasermaten blijven staan, als referentie.
+  f.lijnen = f.lijnen.filter(l => { if (l.kozijn !== L) return true; if (l.ref || isLasermaat(l)) { delete l.kozijn; delete l.aftrek; l.ref = true; return true; } return false; });
+  if (V && !f.lijnen.some(l => l.id === V.sel)) V.sel = null;
   f.onderdelen = ondVan(f).filter(o => o.letter !== L);
   // Nog één over: dan weer gewoon de hele foto, zonder letter.
   if (f.onderdelen.length === 1 && !f.onderdelen[0].naam) { const L1 = f.onderdelen[0].letter; f.lijnen.forEach(l => { if (l.kozijn === L1) delete l.kozijn; }); f.onderdelen = []; }
