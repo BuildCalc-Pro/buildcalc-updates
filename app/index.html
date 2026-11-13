@@ -2555,7 +2555,9 @@ function tekenUI() {
   if (opLoc && !V.sel) { st.textContent = ''; st.hidden = true; } else st.hidden = false;
   if (ond.length && !ond.some(o => o.letter === V.ond)) V.ond = ond[0].letter;
   if (!ond.length) V.ond = null;
-  vx.innerHTML = V.p.simpel && !V.sel && !opLoc ? `${V.paar ? zelfdeHtml(f, f.lijnen.find(l => l.id === V.paar)) : ''}<div class="ondrij">${ond.map(o => `<button class="ondchip${o.letter === V.ond ? ' on' : ''}" style="border-color:${bestekKleur(bestekVan(o))}${o.letter === V.ond ? `;background:color-mix(in srgb, ${bestekKleur(bestekVan(o))} 20%, transparent)` : ''}" data-ond="${o.letter}"><b style="color:${bestekKleur(bestekVan(o))}">${ondTonen(o)}</b>${o.naam ? ' ' + esc(ondKortNaam(o)) : ''}${o.codes?.length ? ' ' + codesHtml(o) : ''}${(o.aantal || 1) > 1 ? ` <b>× ${o.aantal}</b>` : ''}</button>`).join('')}${BESTEK_KNOPPEN.map(b => `<button class="ondchip plus" data-plusb="${b}" title="${BESTEKKEN[b][0]}" style="color:var(--text);font-weight:700;border:2px solid ${bestekKleur(b)}"><span style="color:${bestekKleur(b)}">＋</span> ${b}</button>`).join('')}<button class="ondchip plus" id="vwand" title="Wand opmeten in m²" style="color:var(--text);font-weight:700;border:2px solid var(--gold)"><span style="color:var(--gold)">＋</span> Wand</button>${ond.length > 1 ? `<button class="ondchip${V.alles ? ' on' : ''}" id="valles">${V.alles ? 'Alleen ' + V.ond : 'Alles tonen'}</button>` : ''}${f.lijnen.some(l => l.ref) ? `<button class="ondchip${V.refTonen ? ' on' : ''}" id="vref" style="color:var(--text);font-weight:700;border:2px solid #4FA3D9">${V.refTonen ? '✓ ' : ''}Lasermaten (${f.lijnen.filter(l => l.ref).length})</button>` : ''}</div>
+  const vTop = ond.find(x => x.letter === V.ond)?.in || V.ond;
+  vx.innerHTML = V.p.simpel && !V.sel && !opLoc ? `${V.paar ? zelfdeHtml(f, f.lijnen.find(l => l.id === V.paar)) : ''}<div class="ondrij">${ond.filter(o => !o.in).map(o => `<button class="ondchip${o.letter === vTop ? ' on' : ''}" style="border-color:${bestekKleur(bestekVan(o))}${o.letter === vTop ? `;background:color-mix(in srgb, ${bestekKleur(bestekVan(o))} 20%, transparent)` : ''}" data-ond="${o.letter}"><b style="color:${bestekKleur(bestekVan(o))}">${ondTonen(o)}</b>${o.naam ? ' ' + esc(ondKortNaam(o)) : ''}${o.codes?.length ? ' ' + codesHtml(o) : ''}${(o.aantal || 1) > 1 ? ` <b>× ${o.aantal}</b>` : ''}</button>`).join('')}<button class="ondchip plus" id="vplusond" title="Nieuw onderdeel: ONB, ONI, RCB, RDO, GOB, GOI" style="color:var(--text);font-weight:700;border:2px solid var(--gold)"><span style="color:var(--gold)">＋</span> Onderdeel ▾</button><button class="ondchip plus" id="vwand" title="Wand opmeten in m²" style="color:var(--text);font-weight:700;border:2px solid var(--gold)"><span style="color:var(--gold)">＋</span> Wand</button>${ond.filter(o => !o.in).length > 1 ? `<button class="ondchip${V.alles ? ' on' : ''}" id="valles">${V.alles ? 'Alleen ' + vTop : 'Alles tonen'}</button>` : ''}${f.lijnen.some(l => l.ref) ? `<button class="ondchip${V.refTonen ? ' on' : ''}" id="vref" style="color:var(--text);font-weight:700;border:2px solid #4FA3D9">${V.refTonen ? '✓ ' : ''}Lasermaten (${f.lijnen.filter(l => l.ref).length})</button>` : ''}</div>${(() => { const kin = ondKinderen(f, vTop); if (!kin.length) return ''; const top = ond.find(x => x.letter === vTop);
+      return `<div class="ondrij" style="margin-top:2px"><small style="color:var(--muted);align-self:center">Delen van ${esc(vTop)}:</small>${[top, ...kin].filter(Boolean).map(o => `<button class="ondchip${o.letter === V.ond ? ' on' : ''}" style="border-color:${bestekKleur(bestekVan(o))};padding:3px 9px;font-size:12px" data-ond="${o.letter}">${esc(o.in ? ondKortNaam(o) : (o.naam || 'Kozijn'))}${o.codes?.length ? ' ' + codesHtml(o) : ''}</button>`).join('')}</div>`; })()}
     ${opKantoor ? `${maatOverzicht(f)}${f.kantoor ? '<button class="kantoorknop" id="vkantoor">✓ Klaar: markering weghalen</button>' : ''}`
       : `<button class="kantoorknop${f.kantoor ? ' on' : ''}" id="vkantoor">${f.kantoor ? '✓ Op kantoor doen' : 'Op kantoor doen'}</button>`}` : '';
   requestAnimationFrame(() => { if (!V?.maat) return; const hgt = Math.round($('#stage', V.el).getBoundingClientRect().height);
@@ -2600,6 +2602,13 @@ function tekenUI() {
       ['plus', `Aantal keer (nu ${o.aantal || 1}×)`, async () => { const v = await vraagTekst(`Hoe vaak komt ${o.letter}${o.naam ? ' ' + esc(o.naam) : ''} voor?`, 'Aantal', 'Bijv. 9 (zelfde op elke verdieping)', String(o.aantal || 1)); if (v == null) return;
         const n = Math.max(1, Math.min(999, Math.round(+String(v).replace(',', '.') || 1))); o.aantal = n; bewaar(); tekenUI(); toast(`${o.letter}${o.naam ? ' ' + o.naam : ''} telt nu ${n}× in de Topcalc-lijst.`); }],
       ['plus', 'Soort wijzigen (kozijn, deur…)', () => menu(SOORTEN.map(sn => ['plus', sn, () => zetSoort(f, o, sn)]))],
+      ...(!isWand(o) && ['ONB', 'ONI'].includes(ob) ? [['ruler', ob === 'ONI' ? 'Omzetten naar buiten (ONB)' : 'Omzetten naar binnen (ONI)', async () => { const nb = ob === 'ONI' ? 'ONB' : 'ONI';
+        for (const x of [o, ...ondKinderen(f, o.letter)]) { const sd = SOORTEN.find(sn => String(x.naam || '').startsWith(sn)) || '';
+          let mem = {}; try { mem = JSON.parse(localStorage.getItem('bc_soortcode') || '{}'); } catch (e) {}
+          x.bestek = nb; const c0 = mem[nb + ' ' + sd]; if (c0) x.codes = [{ code: c0, bestek: nb }]; else delete x.codes; }
+        bewaar(); tekenUI();
+        if (!o.codes?.length) { const c = await kiesBestekCode(nb, `${nb}-code voor ${o.letter}${o.naam ? ' ' + o.naam : ''}`, ''); if (c) { o.codes = [{ code: c, bestek: nb }]; bewaar(); tekenUI(); } }
+        toast(`${o.letter}${o.naam ? ' ' + o.naam : ''} staat nu bij ${nb} (${BESTEKKEN[nb][0].toLowerCase()}).`); }]] : []),
       ...(!isWand(o) && !o.in ? [['plus', `Deel toevoegen aan ${o.letter} (deur, paneel…)`, () => menu(SOORTEN.map(sn => ['plus', sn, () => plusDeel(f, o, sn)]))]] : []),
       // Twee kozijnen die hetzelfde zijn: één regel in de lijst met 2×, de letter staat op beide.
       ...(!isWand(o) && !o.in ? [['plus', 'Zelfde kozijn als…', () => { const ander = ond.filter(x => x !== o && !isWand(x) && !x.in);
@@ -2632,6 +2641,7 @@ function tekenUI() {
     toast(`Trek de breedte en de hoogte van ${L}${n ? ' ' + n : ''}${c ? ` (${b} ${c})` : ` (${b})`}. Lasermaten blijven referentie.`);
   };
   vx.querySelectorAll('[data-plusb]').forEach(k => k.onclick = () => plusOnderdeel(k.dataset.plusb));
+  if ($('#vplusond', vx)) $('#vplusond', vx).onclick = () => menu(BESTEK_KNOPPEN.map(b => ['plus', `${b} · ${BESTEKKEN[b][0]}`, () => plusOnderdeel(b)]));
   // ＋ Wand: meteen een wand (m²), zonder eerst ONB/ONI. Bestek volgt de map (binnen = ONI), code = de vorige wandcode.
   // Ook de sjablonen (lijnen staan klaar, de gouden balk zegt wat je meet), zolang er op deze foto nog geen sjabloon is.
   // Eerst binnen (ONI) of buiten (ONB); daarna welke wand. De mapnaam beslist dat niet meer.
@@ -3379,7 +3389,12 @@ function maatOverzicht(f) {
 }
 // Een lijn van een ander onderdeel dan het gekozen onderdeel is verborgen, tenzij "Alles tonen" aan staat.
 // Lijnen van andere onderdelen blijven zichtbaar (vaag), zodat je ziet wat al gemeten is. "Alles tonen" = alles even sterk.
-const verborgenLijn = l => false;
+// Rustige foto: bij onderdelen (via ONB enz.) zie je alleen de lijnen van het onderdeel waar je mee bezig bent.
+// De andere lijnen blijven bewaard; "Alles tonen" laat ze weer zien.
+const schoneFoto = f => !!f && !gvAan(f) && ondVan(f).length > 0 && ondVan(f).every(o => !isWand(o));
+const verborgenLijn = l => { const f = V && foto(); if (!f || V.alles || !l.kozijn || !schoneFoto(f)) return false;
+  const o = ondVan(f).find(x => x.letter === V.ond); if (!o) return false;
+  const lo = ondVan(f).find(x => x.letter === l.kozijn); return (lo?.in || l.kozijn) !== (o.in || o.letter); };
 // Laseren op locatie (gevel, trap, plafond): de lijnen die nog gemeten moeten worden krijgen een nummer, in de volgorde van de gouden balk
 // ("1 van 6"). De lijn die nu aan de beurt is, is goud. Zo zie je meteen wat er nog komt.
 function gvNummers(f, W, H, nuId, rh) {
@@ -3698,7 +3713,7 @@ function koppelGebaren(surf) {
     else if (V.nieuw) {
       const [x1, y1, x2, y2] = V.nieuw; V.nieuw = null;
       if (Math.hypot(x2 - x1, y2 - y1) >= 12) {
-        const l = { id: nieuwId(), richting: Math.abs(x2 - x1) >= Math.abs(y2 - y1) ? 'horizontaal' : 'verticaal', x1: x1 / V.w, y1: y1 / V.h, x2: x2 / V.w, y2: y2 / V.h, ...(V.ond && ondVan(foto()).length ? { kozijn: V.ond } : {}), ...(!Native || V.p.modus === 'kantoor' ? { kant: true } : {}) };
+        const l = { id: nieuwId(), richting: Math.abs(x2 - x1) >= Math.abs(y2 - y1) ? 'horizontaal' : 'verticaal', x1: x1 / V.w, y1: y1 / V.h, x2: x2 / V.w, y2: y2 / V.h, ...(V.ond && ondVan(foto()).length && !nieuwPaarLos(foto()) ? { kozijn: V.ond } : {}), ...(!Native || V.p.modus === 'kantoor' ? { kant: true } : {}) };
         // Eén lijn per keer: daarna terug naar Bekijken. Voor een nieuwe lijn druk je weer op Lijn.
         // Met een referentiekozijn op deze foto krijgt de lijn meteen een maat uit de foto (≈).
         const rm = refMaat(foto(), l); if (rm != null) Object.assign(l, { maat: rm, bron: 'foto', uitRef: true });
@@ -3739,6 +3754,14 @@ function koppelGebaren(surf) {
 // of het referentiekozijn als schaal). Daarna kies je wat het is en de Topcalc-code. Bij een kozijn telt BuildCalc de
 // doorlopende stijlen en dorpels (met + en − aan te passen). Binnen een kozijn heet het "Draairaam in B".
 let TIKR = null; // één rechtgezette foto in het geheugen
+// Eerst trekken, dan één tik: heeft het gekozen onderdeel al een breedte en een hoogte, dan zijn de volgende twee lijnen
+// een nieuw ding. Ze blijven los tot je kiest wat het is (kozijn, deur, paneel…).
+function nieuwPaarLos(f) {
+  if (!V?.p?.simpel || gvAan(f) || V.el.classList.contains('loc')) return false;
+  const o = ondVan(f).find(x => x.letter === V.ond); if (!o || isWand(o)) return false;
+  const e = f.lijnen.filter(l => !l.ref && !l.hoek && l.kozijn === o.letter);
+  return e.some(l => l.richting === 'horizontaal') && e.some(l => l.richting === 'verticaal');
+}
 // Twee lijnen die samen één ding meten: de staande lijn staat bij een zijkant van de liggende, de liggende bij boven- of onderkant.
 function lijnPaarPast(a, b) {
   const h = a.richting === 'horizontaal' ? a : b, v = h === a ? b : a, W = V.w || 1, H = V.h || 1;
@@ -3754,7 +3777,7 @@ function lijnPaarVraag(f, a, b) {
   const mx = (kader[0][0] + kader[1][0]) / 2, my = (kader[0][1] + kader[2][1]) / 2;
   const ouder = ondVan(f).find(o => o.kader && !o.in && inVierhoek(o.kader, mx, my));
   V.tikVoorstel = kader; tekenLijnen();
-  const maak = soort => {
+  const maak = (soort, bt) => {
     V.tikVoorstel = null;
     // Lijnen die al op de foto stonden houden hun eigen onderdeel.
     // Lijnen die nog los op de foto stonden (je lasermaten) worden referentielijnen: ze tellen niet mee, maar geven wel de schaal.
@@ -3766,6 +3789,7 @@ function lijnPaarVraag(f, a, b) {
     const L = volgendeLetter(f); nieuwOnderdeel(f, L, naam, [a, b]);
     a.kozijn = b.kozijn = L;
     const o = ondVan(f).find(x => x.letter === L); o.kader = kader;
+    if (bt) { o.bestek = bt; f.tikBestek = bt; }
     if (ouder && soort !== 'Kozijn') { o.in = ouder.letter; if (ouder.bestek) o.bestek = ouder.bestek; }
     // Kozijn: doorlopende stijlen en dorpels meteen tellen (met + en − aan te passen).
     let extra = '';
@@ -3776,9 +3800,14 @@ function lijnPaarVraag(f, a, b) {
     V.ond = L; V.alles = false; V.sel = v.id; V.modus = 'bekijken'; bewaar(); tekenUI();
     tikCodeVraag(f, o, soort, `${h.maat != null ? cmTekst(h.maat) : '?'} × ${v.maat != null ? cmTekst(v.maat) : '?'} cm${extra ? `, ${extra}` : ''}`);
   };
-  menu([['plus', 'Kozijn', () => maak('Kozijn')], ['plus', 'Draairaam', () => maak('Draairaam')], ['plus', 'Paneel', () => maak('Paneel')], ['plus', 'Luik', () => maak('Luik')],
-    ['plus', 'Deur', () => maak('Deur')], ['plus', 'Vast raam (glas)', () => maak('Vast raam')],
-    ['close', 'Niks, gewoon twee lijnen', () => { V.tikVoorstel = null; V.modus = 'bekijken'; tekenUI(); }]]);
+  // Buiten (ONB) of binnen (ONI): zoals de vorige keer op deze foto, anders volgens de map (Voorgevel = buiten, Gang = binnen).
+  const huidigBestek = () => ouder?.bestek || f.tikBestek || (BINNEN.test(String(V.s?.naam || '').toLowerCase()) || BINNEN.test(String(f.map || '').toLowerCase()) ? 'ONI' : 'ONB');
+  const toonMenu = () => { const bt = huidigBestek();
+    menu([...(ouder ? [] : [['ruler', bt === 'ONB' ? 'Buiten (ONB), tik voor Binnen (ONI)' : 'Binnen (ONI), tik voor Buiten (ONB)', () => { f.tikBestek = bt === 'ONB' ? 'ONI' : 'ONB'; bewaar(); setTimeout(toonMenu, 60); }]]),
+      ['plus', 'Kozijn', () => maak('Kozijn', bt)], ['plus', 'Draairaam', () => maak('Draairaam', bt)], ['plus', 'Paneel', () => maak('Paneel', bt)], ['plus', 'Luik', () => maak('Luik', bt)],
+      ['plus', 'Deur', () => maak('Deur', bt)], ['plus', 'Vast raam (glas)', () => maak('Vast raam', bt)],
+      ['close', 'Niks, gewoon twee lijnen', () => { V.tikVoorstel = null; V.modus = 'bekijken'; tekenUI(); }]]); };
+  toonMenu();
 }
 // Eén lijn getrokken (bijv. alleen de breedte van een paneel): "Zelfde hoogte als A" maakt er een nieuw onderdeel van
 // met dezelfde code als A, en zet de hoogtelijn van A erbij (zelfde maat, op dezelfde hoogte in de foto).
@@ -3849,7 +3878,11 @@ function zetSoort(f, o, soort) {
 async function tikCodeVraag(f, o, soort, maten) {
   const s = V?.s, b = bestekVan(o) || (BINNEN.test(String(s?.naam || '').toLowerCase()) || BINNEN.test(String(f.map || '').toLowerCase()) ? 'ONI' : 'ONB');
   let vorige = {}; try { vorige = JSON.parse(localStorage.getItem('bc_soortcode') || '{}'); } catch (e) {}
-  const c = await kiesBestekCode(b, `${b}-code voor ${o.letter} ${o.naam || soort}${maten ? ` (${maten})` : ''}`, vorige[b + ' ' + soort] || '');
+  // De vorige keer dat je dit soort (bij buiten of binnen) deed? Dan dezelfde code, zonder vraag. Wijzigen kan via het onderdeel.
+  const onthouden = vorige[b + ' ' + soort];
+  if (onthouden) { o.codes = [{ code: onthouden, bestek: b }]; o.bestek = b; const ook0 = codeNaarGelijke(f, o, onthouden, b); bewaar(); if (V) tekenUI();
+    toast(`${ondTonen(o)} ${ondKortNaam(o) || soort}: ${b} ${onthouden}${maten ? ` (${maten})` : ''}. Andere code? Tik op het onderdeel.${gelijkeTekst(ook0)}`, 5000); return; }
+  const c = await kiesBestekCode(b, `${b}-code voor ${o.letter} ${o.naam || soort}${maten ? ` (${maten})` : ''}`, '');
   if (!c) return;
   o.codes = [{ code: c, bestek: b }]; o.bestek = b; const ook = codeNaarGelijke(f, o, c, b); bewaar(); if (V) tekenUI();
   try { vorige[b + ' ' + soort] = c; localStorage.setItem('bc_soortcode', JSON.stringify(vorige)); } catch (e) {}
@@ -4213,7 +4246,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.13-7';
+const APP_VERSIE = '2026.11.13-9';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
@@ -7245,14 +7278,15 @@ async function verkleindBeeld(blob, maxB) {
   return { bron: img, w: Math.round(img.naturalWidth * k), h: Math.round(img.naturalHeight * k), klaar: () => URL.revokeObjectURL(img.src) };
 }
 async function fotoMetLijnen(foto, maxB = PDF_FOTO_MAX, zonderLetters = false) {
-  const sleutel = foto.id + '|' + JSON.stringify([foto.lijnen, foto.opmerkingen, zonderLetters ? null : foto.labels, maxB, zonderLetters, foto.gevel ? foto.onderdelen : null]);
+  const sleutel = foto.id + '|' + JSON.stringify([foto.lijnen, foto.opmerkingen, zonderLetters ? null : foto.labels, maxB, zonderLetters, foto.gevel ? foto.onderdelen : null, schoneFoto(foto) ? foto.onderdelen : null]);
   if (PDF_BEELD.has(sleutel)) return PDF_BEELD.get(sleutel);
   const blob = await fotoLaad(foto.id); if (!blob) return null;
   const bb = await verkleindBeeld(blob, maxB), w = bb.w, h = bb.h;
   const c = document.createElement('canvas'); c.width = w; c.height = h;
   const g = c.getContext('2d'); g.drawImage(bb.bron, 0, 0, w, h); bb.klaar();
   const s = w / 600; // lijndikte en tekst schalen mee met de foto
-  for (const l of telLijnen(foto))
+  // Onderdelen met een letter (ONB enz.): geen lijnen en maten op de foto, die staan in de lijst. Alleen de letter.
+  for (const l of schoneFoto(foto) ? [] : telLijnen(foto))
     canvasPijl(g, l.x1 * w, l.y1 * h, l.x2 * w, l.y2 * h, zonderLetters ? lijnLabel({ ...l, kozijn: null }) : lijnLabel(l, foto), l.maat == null ? '#FFA726' : l.stenenOk === false ? '#FF9800' : '#FFFFFF', s);
   try { gvKadersCanvas(g, foto, w, h, s); } catch (e) { console.warn(e); }
   try { if (!gvAan(foto)) for (const o of ondVan(foto).filter(o => !o.kader && !o.in && !isWand(o))) { const pl = ondLetterPlek(foto, o); if (!pl) continue;
