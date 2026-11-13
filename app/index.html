@@ -2524,6 +2524,23 @@ function tekenUI() {
     if (!ln && !gezien) { st.className = 'status uitleg'; st.innerHTML = `<div class="vuitleg">Tik op Lijn en trek een lijn over het kozijn. ${V.p.simpel ? 'Tik daarna op de lijn om de maat in te vullen' : 'Spreek daarna de maat in'}.</div><div class="vst" hidden></div>`; }
     (st.querySelector('.vst') || st).textContent = `${ln} ${ln === 1 ? 'lijn' : 'lijnen'}${open ? ` (${open} open)` : ''} • ` + (Laser.status === 'verbonden' && open ? 'Druk op de lasermeter voor de volgende open lijn' : { bekijken: 'Tik op een lijn om de maat in te vullen',
       lijn: 'Sleep over de foto: liggend = breedte, staand = hoogte', opmerking: 'Tik op de foto waar de opmerking moet komen' }[V.modus]);
+    // Net een onderdeel gekozen (bijv. Deur): eerst de breedte, dan de hoogte. Of de maten zelf typen.
+    const oNu = V.modus === 'lijn' && V.ond ? ondVan(f).find(x => x.letter === V.ond) : null;
+    if (oNu && !isWand(oNu)) {
+      const eigen = f.lijnen.filter(l => !l.ref && l.kozijn === oNu.letter), heeftB = eigen.some(l => l.richting === 'horizontaal'), heeftH = eigen.some(l => l.richting === 'verticaal');
+      if (!heeftB || !heeftH) {
+        const naamO = `${oNu.letter}${oNu.naam ? ' ' + oNu.naam : ''}`;
+        st.className = 'status uitleg';
+        st.innerHTML = `<div class="vuitleg"><b>${esc(naamO)}</b>: ${!heeftB && !heeftH ? 'trek eerst de <b>breedte</b> (liggend), dan de <b>hoogte</b> (staand)' : !heeftB ? 'trek nu de <b>breedte</b> (liggend)' : 'trek nu de <b>hoogte</b> (staand)'}. De app rekent de maat uit de foto, met je lasermaten als schaal.</div>
+          <div style="display:flex;gap:8px;margin-top:6px"><button class="ghost" id="ondtype" style="color:var(--gold)">Maten zelf typen</button></div>`;
+        $('#ondtype', st).onclick = () => {
+          const L = oNu.letter, nieuw = [];
+          if (!heeftB) nieuw.push({ id: nieuwId(), kozijn: L, richting: 'horizontaal', x1: .35, y1: .5, x2: .65, y2: .5, maat: null, ...(opKantoorNu() ? { kant: true } : {}) });
+          if (!heeftH) nieuw.push({ id: nieuwId(), kozijn: L, richting: 'verticaal', x1: .5, y1: .3, x2: .5, y2: .7, maat: null, ...(opKantoorNu() ? { kant: true } : {}) });
+          f.lijnen.push(...nieuw); V.modus = 'bekijken'; V.sel = nieuw[0].id; bewaar(); tekenUI();
+        };
+      }
+    }
   }
   // Simpel project: foto markeren om op kantoor verder uit te werken (bijv. waar je niet bij kunt).
   const vx = $('#vextra', V.el);
@@ -2612,7 +2629,9 @@ function tekenUI() {
     // Meteen de code erbij (mag ook later of nooit: Annuleren).
     const c = await kiesBestekCode(b, `${b}-code voor ${L}${n ? ' ' + n : ''}`, o?.codes?.[0]?.code || '');
     if (c && o) { o.codes = [{ code: c, bestek: b }]; bewaar(); tekenUI(); }
-    toast(`Lijnen die je nu trekt horen bij ${L}${n ? ' ' + n : ''}${c ? ` (${b} ${c})` : ` (${b})`}.`);
+    // Meteen in Lijn-stand: breedte en hoogte trekken (of zelf typen, zie de balk).
+    V.modus = 'lijn'; V.sel = null; V.ond = L; tekenUI();
+    toast(`Trek de breedte en de hoogte van ${L}${n ? ' ' + n : ''}${c ? ` (${b} ${c})` : ` (${b})`}. Lasermaten blijven referentie.`);
   };
   vx.querySelectorAll('[data-plusb]').forEach(k => k.onclick = () => plusOnderdeel(k.dataset.plusb));
   // ＋ Wand: meteen een wand (m²), zonder eerst ONB/ONI. Bestek volgt de map (binnen = ONI), code = de vorige wandcode.
@@ -4180,7 +4199,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.13-2';
+const APP_VERSIE = '2026.11.13-3';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
