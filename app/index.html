@@ -2451,7 +2451,8 @@ function tekenUI() {
         ${lijn.stenen ? `<button data-smin aria-label="Minder">−</button><input data-snum inputmode="decimal" style="width:3.6em;text-align:center" value="${String(lijn.stenen).replace('.', ',')}"><button data-splus aria-label="Meer">+</button>`
           : `<button class="ghost" data-sauto style="color:var(--gold);font-weight:600;white-space:nowrap">Tel automatisch</button>`}</div>` : ''}
       ${lijn && (lijn.ref || lijn.telt) ? `<div class="teller"><span>Lasermaat</span><button class="ondchip${lijn.ref ? ' on' : ''}" data-lref="1" style="width:auto;padding:4px 10px;font-size:13px;color:#81D4FA">Alleen referentie</button><button class="ondchip${!lijn.ref ? ' on' : ''}" data-lref="0" style="width:auto;padding:4px 10px;font-size:13px">Telt mee</button></div>` : ''}
-      ${lijn && isWand(ondVan(f).find(o => o.letter === lijn.kozijn)) ? `<div class="teller"><span>Deze lijn</span><button class="ondchip${!lijn.aftrek ? ' on' : ''}" data-aftrek="0" style="width:auto;padding:4px 10px;font-size:13px">Telt mee</button><button class="ondchip${lijn.aftrek ? ' on' : ''}" data-aftrek="1" style="width:auto;padding:4px 10px;font-size:13px;color:#FF8A50">− Eraf</button></div>
+      ${lijn && isWand(ondVan(f).find(o => o.letter === lijn.kozijn)) ? `<div class="teller"><span>Deze lijn</span><button class="ondchip${!lijn.aftrek && !lijn.hoek ? ' on' : ''}" data-aftrek="0" style="width:auto;padding:4px 10px;font-size:13px">Telt mee</button><button class="ondchip${lijn.aftrek ? ' on' : ''}" data-aftrek="1" style="width:auto;padding:4px 10px;font-size:13px;color:#FF8A50">− Eraf</button><button class="ondchip${lijn.hoek ? ' on' : ''}" data-aftrek="2" style="width:auto;padding:4px 10px;font-size:13px;color:#FF8A50">◣ Schuine hoek eraf</button></div>
+        ${lijn.hoek ? `<div style="font-size:12px;padding:0 4px;color:${lijn.hoekB ? '#57E0D2' : '#FFA726'}">${lijn.hoekB ? `≈ ${Math.round(lijn.hoekB * 100)} cm breed × ${Math.round(lijn.hoekD * 100)} cm diep, schatting uit de foto. De driehoek (breed × diep ÷ 2) gaat van de wand af.` : 'Nog geen maat: meet eerst met de laser een breedte of hoogte op deze foto, dan rekent de app de schuine hoek uit. Trek de lijn precies langs de schuine rand.'}</div>` : ''}
         ${wandAantal(ondVan(f).find(o => o.letter === lijn.kozijn)) > 1 ? `<div class="teller"><span>Zelfde wanden <small style="color:var(--muted)">(aantal)</small></span><button data-wmin aria-label="Minder">−</button><input data-wnum type="number" inputmode="numeric" min="1" max="50" value="${wandAantal(ondVan(f).find(o => o.letter === lijn.kozijn))}"><button data-wplus aria-label="Meer">+</button></div>` : ''}
         ${wandMaten(f, lijn.kozijn) ? wandHtml(wandMaten(f, lijn.kozijn), true) : '<div style="font-size:12px;color:var(--muted);padding:0 4px">Wand: trek de breedte en één of twee hoogtes. Plint, lambrisering, raam of deur: lijn trekken en op Eraf zetten.</div>'}`
       : lijn && lijn !== richtingLijn(lijn.richting) ? `<div class="teller"><span>Soort stuk</span><button class="ondchip${stukSoort(lijn) === 'stijl' ? ' on' : ''}" data-soort="stijl" style="width:auto;padding:4px 10px;font-size:13px">↕ Stijl</button><button class="ondchip${stukSoort(lijn) === 'dorpel' ? ' on' : ''}" data-soort="dorpel" style="width:auto;padding:4px 10px;font-size:13px">↔ Dorpel</button></div>
@@ -2471,7 +2472,12 @@ function tekenUI() {
     if ($('[data-wmin]', st)) { const wo = ondVan(f).find(o => o.letter === lijn.kozijn), zet = n => { const v = Math.max(1, Math.min(50, Math.round(+n || 1))); if (v > 1) wo.aantal = v; else delete wo.aantal; bewaar(); tekenUI(); };
       $('[data-wmin]', st).onclick = () => zet(wandAantal(wo) - 1); $('[data-wplus]', st).onclick = () => zet(wandAantal(wo) + 1); $('[data-wnum]', st).onchange = e => zet(e.target.value); }
     st.querySelectorAll('[data-lref]').forEach(b => b.onclick = () => { if (b.dataset.lref === '1') { lijn.ref = true; delete lijn.telt; } else { delete lijn.ref; lijn.telt = true; } bewaar(); tekenUI(); });
-    st.querySelectorAll('[data-aftrek]').forEach(b => b.onclick = () => { if (b.dataset.aftrek === '1') lijn.aftrek = true; else delete lijn.aftrek; bewaar(); tekenUI(); });
+    st.querySelectorAll('[data-aftrek]').forEach(b => b.onclick = () => {
+      const k = b.dataset.aftrek;
+      if (k === '2') { delete lijn.aftrek; lijn.hoek = true; lijn.richting = 'schuin'; delete lijn.stenen; if (!lijn.uitRef) { lijn.uitRef = true; lijn.bron = 'foto'; lijn.maat = null; } herrekenRef(foto()); hoekBereken(foto(), lijn); }
+      else { if (lijn.hoek) { delete lijn.hoek; delete lijn.hoekB; delete lijn.hoekD; lijn.richting = Math.abs(lijn.x2 - lijn.x1) * (V.w || 1) >= Math.abs(lijn.y2 - lijn.y1) * (V.h || 1) ? 'horizontaal' : 'verticaal'; }
+        if (k === '1') lijn.aftrek = true; else delete lijn.aftrek; }
+      bewaar(); tekenUI(); });
     for (const r of ['verticaal', 'horizontaal']) { const l = richtingLijn(r); if (!l || !$(`[data-xmin=${r}]`, st)) continue;
       $(`[data-xmin=${r}]`, st).onclick = () => zetAantal(l, lijnAantal(l) - 1);
       $(`[data-xplus=${r}]`, st).onclick = () => zetAantal(l, lijnAantal(l) + 1);
@@ -2643,7 +2649,7 @@ const ligtLijn = l => { const w = V?.w || 1, h = V?.h || 1; return Math.abs((l.x
 const STEEN_CM = l => ligtLijn(l) ? STEEN_LANG : (laagProject() || STEEN_LAAG);
 const stenenTekst = l => ligtLijn(l)
   ? `${String(Math.floor(l.stenen)).replace(/^0$/, '')}${l.stenen % 1 ? '½' : ''} ${l.stenen === 1 ? 'steen' : 'stenen'}` : `${l.stenen} ${l.stenen === 1 ? 'laag' : 'lagen'}`;
-const lijnLabel = l => (V && afwijking(foto(), l) != null ? '⚠ ' : '') + (l.aftrek ? '− ' : '') + (l.kozijn ? l.kozijn + ' ' : '') + (l.uitRef && l.maat != null ? '≈' : '') + (l.uitRef && l.maat == null ? 'foto' : l.maat === 0 && l.bron === 'geen' ? 'geen' : maatLabel(l.maat)) + (l.stenenOk === true ? ' ✓' : l.stenenOk === false ? ' ⚠' : '') + (lijnAantal(l) >= 1 ? ` (x${lijnAantal(l)})` : '');
+const lijnLabel = l => l.hoek ? `◣ ${l.hoekB ? `≈${Math.round(l.hoekB * 100)}×${Math.round(l.hoekD * 100)}` : 'hoek'}` : (V && afwijking(foto(), l) != null ? '⚠ ' : '') + (l.aftrek ? '− ' : '') + (l.kozijn ? l.kozijn + ' ' : '') + (l.uitRef && l.maat != null ? '≈' : '') + (l.uitRef && l.maat == null ? 'foto' : l.maat === 0 && l.bron === 'geen' ? 'geen' : maatLabel(l.maat)) + (l.stenenOk === true ? ' ✓' : l.stenenOk === false ? ' ⚠' : '') + (lijnAantal(l) >= 1 ? ` (x${lijnAantal(l)})` : '');
 // "4 stijlen", "vier stijlen", "2 tussendorpels" uit een ingesproken of getypte tekst.
 function splitsAantal(tekst) {
   const woorden = { een: 1, 'één': 1, twee: 2, drie: 3, vier: 4, vijf: 5, zes: 6, zeven: 7, acht: 8, negen: 9, tien: 10 };
@@ -3231,7 +3237,8 @@ function berekenVlak(f, img) {
 function fotoMeter(f) {
   const ref = refVan(f);
   if (ref) return { soort: 'ref', L: ref.L, maat: l => { if (l === ref.b || l === ref.h) return null;
-    const [ax, ay] = hPunt(ref.M, l.x1, l.y1), [bx, by] = hPunt(ref.M, l.x2, l.y2); return Math.hypot(bx - ax, by - ay); } };
+    const [ax, ay] = hPunt(ref.M, l.x1, l.y1), [bx, by] = hPunt(ref.M, l.x2, l.y2); return Math.hypot(bx - ax, by - ay); },
+    delen: l => { const [ax, ay] = hPunt(ref.M, l.x1, l.y1), [bx, by] = hPunt(ref.M, l.x2, l.y2); return [Math.abs(bx - ax), Math.abs(by - ay)]; } };
   const vl = VLAK.get(f?.id); if (!vl?.ok) return null;
   const gemeten = f.lijnen.filter(l => l.maat != null && !l.uitRef && l.bron !== 'foto');
   const d = l => vlakD(vl, l);
@@ -3242,10 +3249,10 @@ function fotoMeter(f) {
     // Geen gemeten maat op deze foto: de lagen stenen als schaal, met de laaghoogte uit je andere foto's van dit project.
     const lg = laagProject(f); if (!vl.laag || !lg) return null;
     const k = lg / 100 / vl.laag;
-    return { soort: 'stenen', laag: lg, kantel: vl.kantel, maat: l => { const [dx, dy] = d(l); return Math.hypot(dx * k, dy * k); } };
+    return { soort: 'stenen', laag: lg, kantel: vl.kantel, maat: l => { const [dx, dy] = d(l); return Math.hypot(dx * k, dy * k); }, delen: l => { const [dx, dy] = d(l); return [dx * k, dy * k]; } };
   }
   const kx = sx ?? sy, ky = sy ?? sx;
-  return { soort: 'auto', kantel: vl.kantel, maat: l => { if (gemeten.includes(l)) return null; const [dx, dy] = d(l); return Math.hypot(dx * kx, dy * ky); } };
+  return { soort: 'auto', kantel: vl.kantel, maat: l => { if (gemeten.includes(l)) return null; const [dx, dy] = d(l); return Math.hypot(dx * kx, dy * ky); }, delen: l => { const [dx, dy] = d(l); return [dx * kx, dy * ky]; } };
 }
 const vlakD = (vl, l) => { const a = vl.punt(l.x1, l.y1), b = vl.punt(l.x2, l.y2); return [Math.abs(b[0] - a[0]), Math.abs(b[1] - a[1])]; };
 const mediaan = a => { a = a.filter(v => isFinite(v) && v > 0).sort((x, y) => x - y); return a.length ? a[a.length >> 1] : null; };
@@ -3293,7 +3300,15 @@ function herrekenRef(f) {
   const lc = laagVanFoto(f); if (f && lc && lc !== f.laagCm) { f.laagCm = lc; bewaar(); }
   const m = fotoMeter(f); if (!m) return;
   for (const l of f.lijnen) if (l.uitRef) { const v = refMaat(f, l, m); if (v != null) l.maat = v; }
+  for (const l of f.lijnen) if (l.hoek) hoekBereken(f, l, m);
   try { gvControle(f); } catch (e) { console.warn(e); }
+}
+// Schuine hoek eraf: een lijn langs de schuine rand. Hoe breed en hoe diep de hoek eraf gaat, rekent de app uit de foto
+// (dezelfde schaal als de andere lijnen). Alleen een schatting: boven bereik meet je dit toch niet met de laser.
+function hoekBereken(f, l, m = fotoMeter(f)) {
+  const dl = m?.delen?.(l);
+  if (dl && isFinite(dl[0]) && isFinite(dl[1]) && dl[0] > 0.05 && dl[1] > 0.05 && dl[0] < 50 && dl[1] < 50) { l.hoekB = Math.round(dl[0] * 100) / 100; l.hoekD = Math.round(dl[1] * 100) / 100; }
+  else { delete l.hoekB; delete l.hoekD; }
 }
 function refSvg(f, W, H) {
   const pts = V.hoeken ? V.hoeken.p : f.ref?.p; if (!pts?.length) return '';
@@ -3335,7 +3350,7 @@ const matenOpen = () => { try { return localStorage.getItem('bc_matenOpen') === 
 function maatOverzicht(f) {
   const tl = telLijnen(f); if (!tl.length) return '';
   const groepen = [...new Set(tl.map(l => l.kozijn || null))];
-  const rij = l => `<button class="ghost" data-lsel="${l.id}" style="display:flex;justify-content:space-between;width:100%;padding:4px 6px;font-size:13px;color:var(--text)"><span>${f.lijnen.find(x => (x.kozijn || null) === (l.kozijn || null) && x.richting === l.richting && (x.maat != null || x === l)) !== l ? isWand(ondVan(f).find(o => o.letter === l.kozijn)) ? (l.aftrek ? `<span style="color:#FF8A50">− eraf ${l.richting === 'horizontaal' ? '(breedte)' : '(hoogte)'}</span>` : l.richting === 'horizontaal' ? '↔ breedte' : '↕ hoogte 2') : `${stukSoort(l) === 'dorpel' ? '↔' : '↕'} ${stukNaam(l)}${stukAantal(l) !== 1 ? ` <small style="color:var(--muted)">(${stukAantal(l)}x)</small>` : ''}` : l.richting === 'horizontaal' ? '↔ breedte' : '↕ hoogte'}${lijnAantal(l) ? ` <small style="color:var(--muted)">(+${lijnAantal(l)} ${l.richting === 'horizontaal' ? 'dorpels' : 'stijlen'})</small>` : ''}${l.stenen ? ` <small style="color:var(--muted)">${stenenTekst(l)}</small>` : ''}</span><b style="color:${l.maat == null ? 'var(--open)' : 'var(--text)'}">${maatLabel(l.maat)}</b></button>`;
+  const rij = l => `<button class="ghost" data-lsel="${l.id}" style="display:flex;justify-content:space-between;width:100%;padding:4px 6px;font-size:13px;color:var(--text)"><span>${f.lijnen.find(x => (x.kozijn || null) === (l.kozijn || null) && x.richting === l.richting && (x.maat != null || x === l)) !== l ? isWand(ondVan(f).find(o => o.letter === l.kozijn)) ? (l.hoek ? `<span style="color:#FF8A50">◣ schuine hoek eraf</span>` : l.aftrek ? `<span style="color:#FF8A50">− eraf ${l.richting === 'horizontaal' ? '(breedte)' : '(hoogte)'}</span>` : l.richting === 'horizontaal' ? '↔ breedte' : '↕ hoogte 2') : `${stukSoort(l) === 'dorpel' ? '↔' : '↕'} ${stukNaam(l)}${stukAantal(l) !== 1 ? ` <small style="color:var(--muted)">(${stukAantal(l)}x)</small>` : ''}` : l.richting === 'horizontaal' ? '↔ breedte' : '↕ hoogte'}${lijnAantal(l) ? ` <small style="color:var(--muted)">(+${lijnAantal(l)} ${l.richting === 'horizontaal' ? 'dorpels' : 'stijlen'})</small>` : ''}${l.stenen ? ` <small style="color:var(--muted)">${stenenTekst(l)}</small>` : ''}</span><b style="color:${l.maat == null ? 'var(--open)' : 'var(--text)'}">${maatLabel(l.maat)}</b></button>`;
   // Ingeklapt: de foto blijft groot. Tik op de kop om de lijst te openen (schuift binnen het onderste deel).
   const open = matenOpen();
   const kop = `<button class="ghost" id="vmatenkop" style="display:flex;justify-content:space-between;align-items:center;width:100%;padding:8px 6px;font-size:13px;font-weight:700;color:var(--text)"><span>MATEN OP DEZE FOTO (${groepen.filter(Boolean).length} ${groepen.filter(Boolean).length === 1 ? 'onderdeel' : 'onderdelen'})</span><span style="font-size:16px">${open ? '▾ inklappen' : '▸ openen'}</span></button>`;
@@ -3630,7 +3645,7 @@ function koppelGebaren(surf) {
       const [nx, ny] = volgRichting(h, ax, ay, x, y);
       if (V.greep === 1) { sel.x1 = nx / V.w; sel.y1 = ny / V.h; } else { sel.x2 = nx / V.w; sel.y2 = ny / V.h; }
       if (sel.rol) sel.verplaatst = true;
-      if (sel.uitRef) { const m = refMaat(foto(), sel); if (m != null) sel.maat = m; }
+      if (sel.uitRef) { const m = refMaat(foto(), sel); if (m != null) sel.maat = m; } if (sel.hoek) hoekBereken(foto(), sel);
       toonLoep(nx, ny, ax, ay, e, sel.maat != null ? maatLabel(sel.maat) : '');
       tekenLijnen(); return;
     }
@@ -4165,7 +4180,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.12-14';
+const APP_VERSIE = '2026.11.13-1';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
@@ -6318,7 +6333,8 @@ function wandMaten(f, L, basis = false) {
     if (!w || !lh) return null;
     return { o, B: w.B, hs: [lh.maat], Hg: lh.maat, bruto: w.B * lh.maat, aftrek: [], netto: w.B * lh.maat, los: 0, lamb: true, corr: 0 };
   }
-  const eigen = f.lijnen.filter(l => !l.ref && (l.kozijn || null) === L && l.maat != null);
+  const eigen = f.lijnen.filter(l => !l.ref && !l.hoek && (l.kozijn || null) === L && l.maat != null);
+  const hoeken = f.lijnen.filter(l => !l.ref && l.hoek && (l.kozijn || null) === L && l.hoekB && l.hoekD);
   // Rechte stukken (x, y) bij een trapwand zijn geen breedte en geen hoogte: die gaan in de correctie.
   const tel = eigen.filter(l => !l.aftrek && !SJ_RECHT.has(l.rol)), hor = tel.find(l => l.richting === 'horizontaal'), telV = tel.filter(l => l.richting === 'verticaal');
   let hs = telV.map(l => l.maat);
@@ -6385,7 +6401,8 @@ function wandMaten(f, L, basis = false) {
   // De lambrisering (eigen onderdeel met eigen code) gaat van de wand af.
   const lo = !basis && ondVan(f).find(x => x.lambVan === L), lh = lo && f.lijnen.find(l => !l.ref && l.kozijn === lo.letter && l.rol === 'L' && l.maat > 0);
   if (lh) aftrek.push({ soort: 'lambrisering', b: B, h: lh.maat, L: lo.letter });
-  aftrek.forEach(a => a.m2 = a.b * a.h);
+  for (const l of hoeken) aftrek.push({ soort: 'hoek', b: l.hoekB, h: l.hoekD });
+  aftrek.forEach(a => a.m2 = a.soort === 'hoek' ? a.b * a.h / 2 : a.b * a.h);
   const bruto = B * Hg + corr, netto = Math.max(0, bruto - aftrek.reduce((t, a) => t + a.m2, 0));
   return { o, B, hs, Hg, bruto, aftrek, netto, los, corr, rx, ry, opPlek, kort, ongelijk, binnenIn, hoogStrook, extra };
 }
@@ -6397,7 +6414,7 @@ function wandHtml(w, kort = false) {
   return `<div style="font-size:13px;line-height:1.6;margin:2px 6px 6px">
     ${rij(`Breedte ${cmT(w.B)} × ${hoog}`, m2(w.bruto - (w.corr || 0)))}
     ${w.corr ? rij(`${w.corr > 0 ? '+' : '−'} rechte stukken (beneden ${cmT(w.ry)} − boven ${cmT(w.rx)}) × ${cmT(Math.abs(w.hs[0] - w.hs[1]) / 2)}`, `${w.corr > 0 ? '+' : '−'} ${m2(Math.abs(w.corr))}`) : ''}
-    ${w.aftrek.map(a => rij(`− ${a.soort === 'lambrisering' ? `lambrisering ${a.L}` : a.soort === 'strook' ? 'onderkant' : 'raam/deur'} (${cmT(a.b)} × ${a.n > 1 ? 'gem. ' : ''}${cmT(a.h)})`, '− ' + m2(a.m2), 'color:#FF8A50')).join('')}
+    ${w.aftrek.map(a => a.soort === 'hoek' ? rij(`− schuine hoek ≈ (${cmT(a.b)} × ${cmT(a.h)}) ÷ 2 <small>(schatting uit de foto)</small>`, '− ' + m2(a.m2), 'color:#FF8A50') : rij(`− ${a.soort === 'lambrisering' ? `lambrisering ${a.L}` : a.soort === 'strook' ? 'onderkant' : 'raam/deur'} (${cmT(a.b)} × ${a.n > 1 ? 'gem. ' : ''}${cmT(a.h)})`, '− ' + m2(a.m2), 'color:#FF8A50')).join('')}
     ${w.los ? '<div style="font-size:12px;color:#FFA726">Er is een lijn "eraf" zonder hoogte: trek er nog een staande lijn bij.</div>' : ''}
     ${w.kort != null ? `<div style="font-size:12px;color:#FFA726">⚠ De lijn van ${cmT(w.kort)} telt mee als hoogte van de wand. Is dat de lambrisering of de plint? Tik de lijn aan en zet hem op Eraf. <button class="ghost" data-wandok="${w.o.letter}" style="display:inline;width:auto;padding:0 4px;font-size:12px;color:var(--gold);text-decoration:underline">Klopt, schuine wand</button></div>` : ''}
     ${w.hoogStrook != null ? `<div style="font-size:12px;color:#FFA726">⚠ Er gaat een strook van ${cmT(w.hoogStrook)} over de hele breedte af. Is dat de hoogte van een raam of deur? Laat de hoogtelijn dan op de breedtelijn van het raam of de deur beginnen.</div>` : ''}
@@ -7539,10 +7556,7 @@ function nietMee(p) {
       if (maten.length && !w) bij(`${naam}: wand mist een breedte of een hoogte`);
       if (w?.los) bij(`${naam}: lijn op Eraf zonder hoogte, gaat er niet af`);
     }
-    // Een lasermaat is houvast als er op deze foto lijnen staan die hun maat uit de foto krijgen (≈): die telt niet mee en hoort dat ook niet te doen.
-    const alsHouvast = f.lijnen.some(l => l.uitRef);
-    const losse = f.lijnen.filter(l => !l.ref && !l.kozijn && l.maat != null && !(alsHouvast && isLasermaat(l))).length;
-    if (losse) bij(`${losse === 1 ? '1 maat hoort' : losse + ' maten horen'} bij geen onderdeel`);
+    // Maten zonder onderdeel zijn referentie (bijv. lasermaten op de foto): die tellen niet mee en hoeven nergens aan gekoppeld te worden.
   }));
   return uit;
 }
