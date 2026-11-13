@@ -2603,7 +2603,7 @@ function tekenUI() {
         const n = Math.max(1, Math.min(999, Math.round(+String(v).replace(',', '.') || 1))); o.aantal = n; bewaar(); tekenUI(); toast(`${o.letter}${o.naam ? ' ' + o.naam : ''} telt nu ${n}× in de Topcalc-lijst.`); }],
       ['plus', 'Soort wijzigen (kozijn, deur…)', () => menu(SOORTEN.map(sn => ['plus', sn, () => zetSoort(f, o, sn)]))],
       ...(!isWand(o) && ['ONB', 'ONI'].includes(ob) ? [['ruler', ob === 'ONI' ? 'Omzetten naar buiten (ONB)' : 'Omzetten naar binnen (ONI)', async () => { const nb = ob === 'ONI' ? 'ONB' : 'ONI';
-        for (const x of [o, ...ondKinderen(f, o.letter)]) { const sd = SOORTEN.find(sn => String(x.naam || '').startsWith(sn)) || '';
+        for (const x of [o, ...ondKinderen(f, o.letter)]) { const sd = String(x.naam || '').replace(/ in [A-Z]+\b.*$/, '').replace(/ \d+$/, '');
           let mem = {}; try { mem = JSON.parse(localStorage.getItem('bc_soortcode') || '{}'); } catch (e) {}
           x.bestek = nb; const c0 = mem[nb + ' ' + sd]; if (c0) x.codes = [{ code: c0, bestek: nb }]; else delete x.codes; }
         bewaar(); tekenUI();
@@ -3806,6 +3806,7 @@ function lijnPaarVraag(f, a, b) {
     menu([...(ouder ? [] : [['ruler', bt === 'ONB' ? 'Buiten (ONB), tik voor Binnen (ONI)' : 'Binnen (ONI), tik voor Buiten (ONB)', () => { f.tikBestek = bt === 'ONB' ? 'ONI' : 'ONB'; bewaar(); setTimeout(toonMenu, 60); }]]),
       ['plus', 'Kozijn', () => maak('Kozijn', bt)], ['plus', 'Draairaam', () => maak('Draairaam', bt)], ['plus', 'Paneel', () => maak('Paneel', bt)], ['plus', 'Luik', () => maak('Luik', bt)],
       ['plus', 'Deur', () => maak('Deur', bt)], ['plus', 'Vast raam (glas)', () => maak('Vast raam', bt)],
+      ['edit', 'Anders… (zelf typen, bijv. Garagedeur)', async () => { const t = (await vraagTekst('Wat is het?', 'Naam van het onderdeel', 'bijv. Garagedeur, Dakkapel, Rolluik', '', ['Garagedeur', 'Dakkapel', 'Rolluik', 'Voordeur', 'Achterdeur']) || '').trim(); if (t) maak(t, bt); else toonMenu(); }],
       ['close', 'Niks, gewoon twee lijnen', () => { V.tikVoorstel = null; V.modus = 'bekijken'; tekenUI(); }]]); };
   toonMenu();
 }
@@ -4246,7 +4247,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.13-9';
+const APP_VERSIE = '2026.11.13-10';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
