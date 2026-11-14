@@ -2527,17 +2527,17 @@ function tekenUI() {
     // Net een onderdeel gekozen (bijv. Deur): eerst de breedte, dan de hoogte. Of de maten zelf typen.
     const oNu = V.modus === 'lijn' && V.ond ? ondVan(f).find(x => x.letter === V.ond) : null;
     if (oNu && !isWand(oNu)) {
-      const eigen = f.lijnen.filter(l => !l.ref && l.kozijn === oNu.letter), heeftB = eigen.some(l => l.richting === 'horizontaal'), heeftH = eigen.some(l => l.richting === 'verticaal');
+      const eigen = f.lijnen.filter(l => !l.ref && l.kozijn === oNu.letter), lengte = isLengte(oNu), heeftB = eigen.some(l => l.richting === 'horizontaal'), heeftH = lengte || eigen.some(l => l.richting === 'verticaal');
       if (!heeftB || !heeftH) {
         const naamO = `${ondTonen(oNu)}${oNu.naam ? ' ' + ondKortNaam(oNu) : ''}`;
         st.className = 'status uitleg';
-        st.innerHTML = `<div class="vuitleg"><b>${esc(naamO)}</b>: ${!heeftB && !heeftH ? 'trek eerst de <b>breedte</b> (liggend), dan de <b>hoogte</b> (staand)' : !heeftB ? 'trek nu de <b>breedte</b> (liggend)' : 'trek nu de <b>hoogte</b> (staand)'}. De app rekent de maat uit de foto, met je lasermaten als schaal.</div>
-          <div style="display:flex;gap:8px;margin-top:6px"><button class="ghost" id="ondtype" style="color:var(--gold)">Maten zelf typen</button></div>`;
+        st.innerHTML = `<div class="vuitleg"><b>${esc(naamO)}</b>: ${lengte ? 'trek de <b>lengte</b> (liggend), of typ hem zelf in. Alleen de strekkende meters tellen, een hoogte is niet nodig' : !heeftB && !heeftH ? 'trek eerst de <b>breedte</b> (liggend), dan de <b>hoogte</b> (staand)' : !heeftB ? 'trek nu de <b>breedte</b> (liggend)' : 'trek nu de <b>hoogte</b> (staand)'}. De app rekent de maat uit de foto, met je lasermaten als schaal.</div>
+          <div style="display:flex;gap:8px;margin-top:6px"><button class="ghost" id="ondtype" style="color:var(--gold)">${lengte ? 'Lengte zelf typen' : 'Maten zelf typen'}</button></div>`;
         $('#ondtype', st).onclick = () => {
           const L = oNu.letter, nieuw = [];
           if (!heeftB) nieuw.push({ id: nieuwId(), kozijn: L, richting: 'horizontaal', x1: .35, y1: .5, x2: .65, y2: .5, maat: null, ...(opKantoorNu() ? { kant: true } : {}) });
           if (!heeftH) nieuw.push({ id: nieuwId(), kozijn: L, richting: 'verticaal', x1: .5, y1: .3, x2: .5, y2: .7, maat: null, ...(opKantoorNu() ? { kant: true } : {}) });
-          f.lijnen.push(...nieuw); V.modus = 'bekijken'; V.sel = nieuw[0].id; bewaar(); tekenUI();
+          f.lijnen.push(...nieuw); V.modus = 'bekijken'; V.sel = nieuw[0].id; bewaar(); tekenUI(); maatSheet(nieuw[0]);
         };
       }
     }
@@ -3377,7 +3377,7 @@ const matenOpen = () => { try { return localStorage.getItem('bc_matenOpen') === 
 function maatOverzicht(f) {
   const tl = telLijnen(f); if (!tl.length) return '';
   const groepen = [...new Set(tl.map(l => l.kozijn || null))];
-  const rij = l => `<button class="ghost" data-lsel="${l.id}" style="display:flex;justify-content:space-between;width:100%;padding:4px 6px;font-size:13px;color:var(--text)"><span>${f.lijnen.find(x => (x.kozijn || null) === (l.kozijn || null) && x.richting === l.richting && (x.maat != null || x === l)) !== l ? isWand(ondVan(f).find(o => o.letter === l.kozijn)) ? (l.hoek ? `<span style="color:#FF8A50">◣ schuine hoek eraf</span>` : l.aftrek ? `<span style="color:#FF8A50">− eraf ${l.richting === 'horizontaal' ? '(breedte)' : '(hoogte)'}</span>` : l.richting === 'horizontaal' ? '↔ breedte' : '↕ hoogte 2') : `${stukSoort(l) === 'dorpel' ? '↔' : '↕'} ${stukNaam(l)}${stukAantal(l) !== 1 ? ` <small style="color:var(--muted)">(${stukAantal(l)}x)</small>` : ''}` : l.richting === 'horizontaal' ? '↔ breedte' : '↕ hoogte'}${lijnAantal(l) ? ` <small style="color:var(--muted)">(${lijnAantal(l) < 0 ? 'geen ' + (l.richting === 'horizontaal' ? 'onderdorpel' : 'stijl') : '+' + lijnAantal(l) + ' ' + (l.richting === 'horizontaal' ? 'dorpels' : 'stijlen')})</small>` : ''}${l.stenen ? ` <small style="color:var(--muted)">${stenenTekst(l)}</small>` : ''}</span><b style="color:${l.maat == null ? 'var(--open)' : 'var(--text)'}">${maatLabel(l.maat)}</b></button>`;
+  const rij = l => `<button class="ghost" data-lsel="${l.id}" style="display:flex;justify-content:space-between;width:100%;padding:4px 6px;font-size:13px;color:var(--text)"><span>${f.lijnen.find(x => (x.kozijn || null) === (l.kozijn || null) && x.richting === l.richting && (x.maat != null || x === l)) !== l ? isWand(ondVan(f).find(o => o.letter === l.kozijn)) ? (l.hoek ? `<span style="color:#FF8A50">◣ schuine hoek eraf</span>` : l.aftrek ? `<span style="color:#FF8A50">− eraf ${l.richting === 'horizontaal' ? '(breedte)' : '(hoogte)'}</span>` : l.richting === 'horizontaal' ? '↔ breedte' : '↕ hoogte 2') : `${stukSoort(l) === 'dorpel' ? '↔' : '↕'} ${stukNaam(l)}${stukAantal(l) !== 1 ? ` <small style="color:var(--muted)">(${stukAantal(l)}x)</small>` : ''}` : l.richting === 'horizontaal' ? (isLengte(ondVan(f).find(o => o.letter === l.kozijn)) ? '↔ lengte' : '↔ breedte') : '↕ hoogte'}${lijnAantal(l) ? ` <small style="color:var(--muted)">(${lijnAantal(l) < 0 ? 'geen ' + (l.richting === 'horizontaal' ? 'onderdorpel' : 'stijl') : '+' + lijnAantal(l) + ' ' + (l.richting === 'horizontaal' ? 'dorpels' : 'stijlen')})</small>` : ''}${l.stenen ? ` <small style="color:var(--muted)">${stenenTekst(l)}</small>` : ''}</span><b style="color:${l.maat == null ? 'var(--open)' : 'var(--text)'}">${maatLabel(l.maat)}</b></button>`;
   // Ingeklapt: de foto blijft groot. Tik op de kop om de lijst te openen (schuift binnen het onderste deel).
   const open = matenOpen();
   const kop = `<button class="ghost" id="vmatenkop" style="display:flex;justify-content:space-between;align-items:center;width:100%;padding:8px 6px;font-size:13px;font-weight:700;color:var(--text)"><span>MATEN OP DEZE FOTO (${groepen.filter(Boolean).length} ${groepen.filter(Boolean).length === 1 ? 'onderdeel' : 'onderdelen'})</span><span style="font-size:16px">${open ? '▾ inklappen' : '▸ openen'}</span></button>`;
@@ -4247,7 +4247,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.14-1';
+const APP_VERSIE = '2026.11.14-2';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
@@ -7277,9 +7277,25 @@ function gvNietZelfde(f, doel) {
   doel.zelfdeKaders?.pop(); if (!doel.zelfdeKaders?.length) delete doel.zelfdeKaders; if (!doel.zelfdeOnd.length) delete doel.zelfdeOnd;
   f.onderdelen.push(o);
 }
+// Een lijst-onderdeel (daklijst, goot, boeideel, plint…) met alleen m1-codes: alleen de lengte telt (strekkende meters).
+// Eén liggende lijn is dan genoeg; een hoogte hoeft niet.
+const LENGTE_NAAM = /(daklijst|goot|boei|windve|overstek|lijst|plint|dorpel|vensterbank|muurplank|trim|kolom)/i;
+const LENGTE_OBJ = new Set(['025', '046', '076', '077', '089', '090', '125', '225', '325', '525', '625']);
+function isLengte(o) {
+  if (!o || isWand(o) || !o.codes?.length) return false;
+  const z = o.codes.map(c => zoekCode(String(c.code || '')));
+  if (!z.every(x => x?.[1]?.eenheid === 'M1')) return false;
+  return LENGTE_NAAM.test(ondKortNaam(o)) || z.some(x => LENGTE_OBJ.has(x[0].code));
+}
 function kozijnMaten(f, letter = null) {
   const eigen = f.lijnen.filter(l => !l.ref && !l.zelfde && (l.kozijn || null) === letter);
   const hor = eigen.find(l => l.richting === 'horizontaal' && l.maat != null), ver = eigen.find(l => l.richting === 'verticaal' && l.maat != null);
+  if (hor && letter && isLengte(ondVan(f).find(o => o.letter === letter))) {
+    const extra = [];
+    for (const l of eigen) if (l !== hor && l !== ver && l.maat != null && stukAantal(l) > 0) extra.push({ naam: 'Extra stuk', aantal: stukAantal(l), m: l.maat, lijn: true });
+    const ex = extra.reduce((a, d) => a + d.aantal * d.m, 0);
+    return { B: hor.maat, H: ver?.maat ?? 0, st: 0, dp: 0, extra, ex, totaal: hor.maat + ex, lengte: true };
+  }
   if (!hor || !ver) return null;
   const B = hor.maat, H = ver.maat, st = lijnAantal(ver), dp = lijnAantal(hor);
   // Bij een kozijn met letter: extra stijlen en dorpels uit de notitie, wel meegeteld maar niet op de foto getekend.
@@ -7704,12 +7720,12 @@ function tcVanOnderdeel(f, o, c) {
   const bestek = bestekVan(o, c), dk = hor?.maat != null ? diktekant(o, bestek) : 0;
   // Met diktekant telt de strekkend met de bredere maat (2 × 85 + 2 × 118), net als wanneer je 85 in Topcalc typt.
   // De diktekant komt ook bij elke extra dorpel (die loopt over dezelfde, bredere maat).
-  const st = z && z[1].eenheid === 'M1' && k ? String(cmOp(k.totaal) + (2 + (k.dp || 0)) * dk) : '';
+  const st = z && z[1].eenheid === 'M1' && k ? String(k.lengte ? cmOp(k.totaal) : cmOp(k.totaal) + (2 + (k.dp || 0)) * dk) : '';
   const w = wandMaten(f, o.letter);
   // Hoogte zo dat Topcalc (hele cm) breedte × hoogte = de m² van de wand geeft.
   // Wand: breedte naar boven, en de hoogte zo dat breedte × hoogte nooit minder m² geeft dan gemeten.
   if (w) { const bc = cmOp(w.B); return { code, type, oms: ondKortNaam(o) || `Onderdeel ${o.letter}`, b: String(bc), h: bc ? String(Math.ceil(+(w.netto * 1e4 / bc).toFixed(6))) : '', st: '', stAuto: false, bestek, dikte: 0, n: String(wandAantal(o)) }; }
-  return { code, type, oms: ondKortNaam(o) || `Onderdeel ${o.letter}`, b: hor?.maat != null ? String(cmOp(hor.maat) + dk) : '', h: cm(ver?.maat), st, stAuto: false, bestek, dikte: dk, ...(o.aantal != null ? { n: String(o.aantal) } : {}) };
+  return { code, type, oms: ondKortNaam(o) || `Onderdeel ${o.letter}`, b: hor?.maat != null ? String(cmOp(hor.maat) + (k?.lengte ? 0 : dk)) : '', h: k?.lengte ? '' : cm(ver?.maat), st, stAuto: false, bestek, dikte: k?.lengte ? 0 : dk, ...(o.aantal != null ? { n: String(o.aantal) } : {}) };
 }
 function tcVanFotos(s) {
   const lijst = s.tc, gezien = new Set();
