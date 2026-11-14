@@ -4286,7 +4286,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.14-6';
+const APP_VERSIE = '2026.11.14-7';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
@@ -8154,7 +8154,8 @@ function reinigCodes() {
     for (const x of s.tc || []) if (rijBestek(x, s) === 'RDO' && !x.bron) plus(`${x.code || ''} ${x.type || ''}`); } } catch {}
   return [...tel].sort((a, b) => b[1] - a[1]).map(x => x[0]);
 }
-const kiesBestekCode = (b, titel, huidig = '') => b === 'RDO' ? kiesReinigCode(titel, huidig) : b === 'RCB' ? kiesVoegCode(titel, huidig) : codeKiezer(titel, huidig, false, b);
+// RDO: gewoon de Topcalc-codelijst, met 903 Reinigingswerkzaamheden al open (je mag ook een andere code kiezen).
+const kiesBestekCode = (b, titel, huidig = '') => b === 'RDO' ? codeKiezer(titel, huidig || '903', false, 'RDO') : b === 'RCB' ? kiesVoegCode(titel, huidig) : codeKiezer(titel, huidig, false, b);
 // Voegwerk (RCB): code zelf typen zoals in Topcalc; eerder gebruikte voegwerkcodes komen als voorstel.
 function voegCodes() {
   const tel = new Map(), plus = c => { c = String(c || '').trim().toUpperCase(); if (c) tel.set(c, (tel.get(c) || 0) + 1); };
