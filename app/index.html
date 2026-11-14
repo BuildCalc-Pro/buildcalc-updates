@@ -385,6 +385,7 @@ table.form td[data-ncode] { cursor: pointer; text-decoration: underline dotted v
 .lgdet { padding: 0 8px 8px 22px; }
 .lgdet .ghost { font-size: 13px !important; }
 .lgrond { width: 28px; height: 28px; border-radius: 50%; flex: none; border: none; background: color-mix(in srgb, var(--gold) 18%, transparent); color: var(--gold); font: inherit; font-weight: 700; font-size: 16px; line-height: 1; padding: 0; }
+.lgmist { display: flex; justify-content: space-between; align-items: center; width: 100%; margin: 4px 0 2px; padding: 8px 12px; border-radius: 10px; background: color-mix(in srgb, var(--open) 14%, transparent); color: var(--text); font-size: 13px; font-weight: 600; text-align: left; }
 .lgrond.min { background: var(--surface-high); color: var(--text); }
 .vkant { flex: none; padding: 5px 10px; border-radius: 999px; border: 1px solid var(--gold-dark); background: none; color: var(--a2); font-size: 13px; font-weight: 600; margin-right: 6px; }
 .vkant.on { background: color-mix(in srgb, var(--a2) 22%, transparent); border-color: var(--a2); }
@@ -937,10 +938,28 @@ function mapMenu(p, s) {
     const naar = gid => { if (mappenIn(p, gid).some(x => x !== s && x.naam.toLowerCase() === s.naam.toLowerCase())) return toast(`Daar staat al een map "${s.naam}". Geef deze map eerst een andere naam.`);
       if (gid) s.groep = gid; else delete s.groep; ordenMappen(p); bewaar(); render(); };
     setTimeout(() => menu([...p.groepen.filter(g => g.id !== nu).map(g => ['folder', esc(g.naam), () => naar(g.id)]), ...(nu ? [['folder', 'Geen straat (losse map)', () => naar(null)]] : [])]), 50);
-  }]] : []), ['trash', 'Map verwijderen', async () => {
+  }]] : []), ['folderPlus', 'Map kopiëren (bijv. flat 2 is hetzelfde)', () => mapKopieer(p, s)], ['trash', 'Map verwijderen', async () => {
     if (!await bevestig('Map verwijderen?', s.fotos.length ? `"${volNaam(p, s)}" en de foto's erin worden verwijderd.` : `"${volNaam(p, s)}" wordt verwijderd.`)) return;
     p.submappen = p.submappen.filter(x => x !== s); bewaar(); fotoWeg(s.fotos.map(f => f.id)); render();
   }]]);
+}
+// Map kopiëren: foto's, onderdelen, codes, maten en aantallen. Naar dit project of een ander project.
+async function mapKopieer(p, s) {
+  const naar = await new Promise(res => { const andere = projecten.filter(x => x !== p && x.simpel === p.simpel);
+    if (!andere.length) return res(p);
+    setTimeout(() => menu([['folder', `In dit project (${esc(p.adres || p.naam || '')})`, () => res(p)], ...andere.map(x => ['folder', esc(x.adres || x.naam || 'Project'), () => res(x)])]), 50); });
+  if (!naar) return;
+  const bestaand = new Set(naar.submappen.map(x => x.naam.toLowerCase()));
+  let naam = s.naam + (naar === p ? ' 2' : ''); for (let i = 3; bestaand.has(naam.toLowerCase()); i++) naam = `${s.naam} ${i}`;
+  naam = (await vraagTekst('Map kopiëren', 'Naam van de nieuwe map', 'Bijv. Voorgevel flat 2', naam))?.trim(); if (!naam) return;
+  if (bestaand.has(naam.toLowerCase())) return toast(`Er staat al een map "${naam}". Kies een andere naam.`);
+  // Nieuwe id's voor de map en de foto's (ook in verwijzingen, zoals "ook hier" en de Topcalc-regels).
+  let json = JSON.stringify(s); const ids = new Map([[s.id, nieuwId()], ...s.fotos.map(f => [f.id, nieuwId()])]);
+  for (const [oud, nw] of ids) json = json.split(oud).join(nw);
+  const kopie = JSON.parse(json); kopie.naam = naam; if (naar !== p) delete kopie.groep;
+  for (const f of s.fotos) { try { const d = await fotoData(f.id); if (d) await fotoBewaar(ids.get(f.id), d); } catch (e) { console.warn(e); } }
+  naar.submappen.splice(naar === p ? naar.submappen.indexOf(s) + 1 : naar.submappen.length, 0, kopie);
+  bewaar(); render(); toast(`"${naam}" staat klaar${naar !== p ? ` in ${naar.adres || 'het andere project'}` : ''}: alles is gekopieerd. Pas alleen aan wat anders is.`);
 }
 // Op locatie: per map snel foto's maken. Op kantoor: per map zien wat nog uitgewerkt moet worden.
 // Open = nog werk te doen: gemarkeerd voor kantoor, of een lijn zonder maat. Een foto zonder lijnen is gewoon een foto (niet elke foto hoeft gemeten).
@@ -2652,6 +2671,9 @@ function tekenUI() {
         verwijderOnderdeel(f, o.letter); V.ond = null; bewaar(); tekenUI();
         ongedaanToast(`Onderdeel ${o.letter} weg, met zijn lijnen. Je lasermaten blijven staan.`, () => { f.lijnen = oud.lijnen; f.onderdelen = oud.ond; V.ond = o.letter; bewaar(); tekenUI(); }); }]]);
   });
+  if ($('#vmist', vx)) $('#vmist', vx).onclick = () => menu(mistInMap(V.s).map(({ gi, o, wat }) => [wat === 'code' ? 'hash' : 'ruler',
+    `${esc(ondKortNaam(o) || o.letter)} · foto ${gi + 1}: ${wat === 'code' ? 'code kiezen' : 'maten invullen'}`,
+    async () => { if (V.i !== gi) await naarFoto(gi); if (!V) return; V.ond = o.letter; V.alles = false; V.sel = null; tekenUI(); }]));
   if ($('#valles', vx)) $('#valles', vx).onclick = () => { V.alles = !V.alles; V.sel = null; tekenUI(); };
   if ($('#vref', vx)) $('#vref', vx).onclick = () => { V.refTonen = !V.refTonen; V.sel = null; tekenUI(); };
   // ＋ ONB, ＋ ONI, ＋ RDO, ＋ GOB, ＋ GOI: een nieuw onderdeel in dat bestek. De codekiezer toont alleen codes die erbij passen;
@@ -2671,7 +2693,17 @@ function tekenUI() {
   };
   vx.querySelectorAll('[data-plusb]').forEach(k => k.onclick = () => plusOnderdeel(k.dataset.plusb));
   if ($('#vplusond', vx)) $('#vplusond', vx).onclick = () => menu([...BESTEK_KNOPPEN.map(b => ['plus', `${b} · ${BESTEKKEN[b][0]}`, () => plusOnderdeel(b)]),
-    ['plus', 'Wand binnen (m², ONI)', () => wandMenu('ONI')], ['plus', 'Wand buiten (m², ONB)', () => wandMenu('ONB')]]);
+    ['plus', 'Wand binnen (m², ONI)', () => wandMenu('ONI')], ['plus', 'Wand buiten (m², ONB)', () => wandMenu('ONB')],
+    ['ruler', 'Lengte typen (daklijst, goot…), zonder lijn trekken', () => plusLengte()]]);
+  // Lengte (bijv. uit Google Earth): code kiezen, dan meteen de lengte typen. De app zet zelf een lijntje op de foto.
+  const plusLengte = async () => {
+    const c = await codeKiezer('Lengte: welke code?', '025', false, 'ONB'); if (!c) return;
+    const L = volgendeLetter(f), z = zoekCode(c), naam = z ? z[0].naam : '';
+    nieuwOnderdeel(f, L, naam); const o = ondVan(f).find(x => x.letter === L); if (!o) return;
+    o.bestek = 'ONB'; o.codes = [{ code: c, bestek: 'ONB' }];
+    const l = { id: nieuwId(), kozijn: L, richting: 'horizontaal', x1: .3, y1: .12, x2: .7, y2: .12, maat: null };
+    f.lijnen.push(l); V.ond = L; V.alles = false; V.modus = 'bekijken'; V.sel = l.id; bewaar(); tekenUI(); maatSheet(l);
+  };
   // ＋ Wand: meteen een wand (m²), zonder eerst ONB/ONI. Bestek volgt de map (binnen = ONI), code = de vorige wandcode.
   // Ook de sjablonen (lijnen staan klaar, de gouden balk zegt wat je meet), zolang er op deze foto nog geen sjabloon is.
   // Eerst binnen (ONI) of buiten (ONB); daarna welke wand. De mapnaam beslist dat niet meer.
@@ -3419,6 +3451,15 @@ function kozijnSomHtml(o, k) {
 // Lijstje van de hele map (wordt langer met elke foto): onderdelen met een code van de andere foto's.
 // Kom je hetzelfde onderdeel weer tegen, dan tik je hier op + en telt het één keer meer. Niet terug naar die foto.
 const mapLijstOpen = () => { try { return localStorage.getItem('bc_mapLijst') !== '0'; } catch (e) { return true; } };
+// Wat mist er nog in deze map: onderdelen zonder code of zonder maten (per foto).
+function mistInMap(s) {
+  const uit = [];
+  (s?.fotos || []).forEach((g, gi) => ondVan(g).filter(o => !o.in).forEach(o => {
+    if (!o.codes?.length) uit.push({ gi, o, wat: 'code' });
+    else if (isWand(o) ? !wandMaten(g, o.letter) : !kozijnMaten(g, o.letter)) uit.push({ gi, o, wat: 'maat' });
+  }));
+  return uit;
+}
 // Eén lijst per map (voorgevel, achtergevel enz. blijven elk hun eigen map): eerst wat op deze foto staat, met de maten,
 // daaronder de onderdelen van de andere foto's in deze map.
 function mapLijstHtml(f, metMaten = false, vTop = null) {
@@ -3442,7 +3483,9 @@ function mapLijstHtml(f, metMaten = false, vTop = null) {
       <small>${kort(g, o)} · ${o.aantal || 1}× · <button class="ghost" data-ooknaar="${gi}" style="padding:0;font-size:inherit;color:inherit;text-decoration:underline">foto ${gi + 1}</button></small></span>
       ${n ? `<button class="lgrond min" data-ookmin="${key}" aria-label="Eén minder">−</button><b style="min-width:2.6em;text-align:center;font-size:12px">hier ${n}×</b>` : ''}
       <button class="lgrond" data-ookplus="${key}" aria-label="Ook hier">+</button></div>`; }).join('');
-  return `<div class="lgkop"><span>OP DEZE FOTO</span><button class="ghost" id="vplusond" title="Nieuw onderdeel of wand">＋ Onderdeel</button></div>
+  const mist = mistInMap(s), mz = mist.filter(x => x.wat === 'code').length, mm = mist.length - mz;
+  const mistHtml = mist.length ? `<button class="ghost lgmist" id="vmist">⚠ Nog te doen: ${[mz ? `${mz} zonder code` : '', mm ? `${mm} zonder maat` : ''].filter(Boolean).join(' · ')}<span>›</span></button>` : '';
+  return `${mistHtml}<div class="lgkop"><span>OP DEZE FOTO</span><button class="ghost" id="vplusond" title="Nieuw onderdeel of wand">＋ Onderdeel</button></div>
     <div class="lggrp">${hier + losHtml || '<div class="lgit" style="cursor:default"><small style="color:var(--muted)">Nog geen onderdelen. Tik op ＋ Onderdeel.</small></div>'}</div>
     ${rijen.length ? `<div class="lgkop"><span>ANDERE FOTO'S IN DEZE MAP</span><small>ook hier? tik +</small></div><div class="lggrp">${ander}</div>` : ''}`;
 }
@@ -4329,7 +4372,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.14-10';
+const APP_VERSIE = '2026.11.14-11';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
@@ -4855,7 +4898,8 @@ function maatSheet(lijn) {
   const richting = lijn.richting === 'horizontaal' ? 'horizontale' : 'verticale', metMic = !V?.p?.simpel;
   let bron = 'hand', soort = 'cm';
   const kantoorTellen = opKantoorNu();   // stenen of lagen tellen kan alleen op kantoor
-  const s = sheet(`<h2>Maat voor ${richting} lijn</h2>
+  const lengteO = V && lijn.kozijn ? ondVan(foto()).find(o => o.letter === lijn.kozijn) : null;
+  const s = sheet(`<h2>${lengteO && isLengte(lengteO) ? `Lengte ${esc(ondKortNaam(lengteO) || lengteO.letter)} (bijv. uit Google Earth)` : `Maat voor ${richting} lijn`}</h2>
     <div class="seg" id="mSoort" style="margin:0 0 12px"></div>
     <div style="display:flex;gap:16px;align-items:center">
       <label class="field" style="flex:1;margin:0"><span id="mLbl">Maat in cm</span><input id="mt" inputmode="decimal" style="font-size:22px;font-weight:600"
