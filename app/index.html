@@ -2511,9 +2511,11 @@ function tekenUI() {
     }
     $('#lmaat', st).onclick = () => lijn && maatSheet(lijn);
     // Een lijn met een maat gaat nooit weg: alleen aanpassen (verslepen, maat wijzigen, opnieuw laseren). Lege lijnen mogen weg.
-    $('#lweg', st).onclick = () => { const l = f.lijnen.find(x => x.id === V.sel);
-      if (l && l.maat != null) return toast('Een lijn met een maat blijft altijd staan. Versleep hem of pas de maat aan.');
-      f.lijnen = f.lijnen.filter(x => x.id !== V.sel); V.sel = null; bewaar(); tekenUI(); };
+    $('#lweg', st).onclick = async () => { const id = V.sel, l = f.lijnen.find(x => x.id === id);
+      // Met een maat: eerst even vragen, zodat je niet per ongeluk een gemeten maat kwijt bent. Geen "wis maat" meer nodig.
+      if (l && l.maat != null && !await bevestig('Lijn verwijderen?', `De lijn met maat ${maatLabel(l.maat)} wordt verwijderd.`)) return;
+      if (!V) return;
+      f.lijnen = f.lijnen.filter(x => x.id !== id); if (V.sel === id) V.sel = null; bewaar(); tekenUI(); };
     $('#lsluit', st).onclick = () => { V.sel = null; tekenUI(); };
   } else {
     st.className = 'status';
@@ -4284,7 +4286,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.14-5';
+const APP_VERSIE = '2026.11.14-6';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
