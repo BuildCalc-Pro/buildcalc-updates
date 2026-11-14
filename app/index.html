@@ -2560,7 +2560,7 @@ function tekenUI() {
   const vTop = ond.find(x => x.letter === V.ond)?.in || V.ond;
   vx.innerHTML = V.p.simpel && !V.sel && !opLoc ? `${V.paar ? zelfdeHtml(f, f.lijnen.find(l => l.id === V.paar)) : ''}<div class="ondrij">${ond.filter(o => !o.in).map(o => `<button class="ondchip${o.letter === vTop ? ' on' : ''}" style="border-color:${bestekKleur(bestekVan(o))}${o.letter === vTop ? `;background:color-mix(in srgb, ${bestekKleur(bestekVan(o))} 20%, transparent)` : ''}" data-ond="${o.letter}"><b style="color:${bestekKleur(bestekVan(o))}">${ondTonen(o)}</b>${o.naam ? ' ' + esc(ondKortNaam(o)) : ''}${o.codes?.length ? ' ' + codesHtml(o) : ''}${(o.aantal || 1) > 1 ? ` <b>× ${o.aantal}</b>` : ''}</button>`).join('')}<button class="ondchip plus" id="vplusond" title="Nieuw onderdeel: ONB, ONI, RCB, RDO, GOB, GOI" style="color:var(--text);font-weight:700;border:2px solid var(--gold)"><span style="color:var(--gold)">＋</span> Onderdeel ▾</button><button class="ondchip plus" id="vwand" title="Wand opmeten in m²" style="color:var(--text);font-weight:700;border:2px solid var(--gold)"><span style="color:var(--gold)">＋</span> Wand</button>${ond.filter(o => !o.in).length > 1 ? `<button class="ondchip${V.alles ? ' on' : ''}" id="valles">${V.alles ? 'Alleen ' + vTop : 'Alles tonen'}</button>` : ''}${f.lijnen.some(l => l.ref) ? `<button class="ondchip${V.refTonen ? ' on' : ''}" id="vref" style="color:var(--text);font-weight:700;border:2px solid #4FA3D9">${V.refTonen ? '✓ ' : ''}Lasermaten (${f.lijnen.filter(l => l.ref).length})</button>` : ''}</div>${(() => { const kin = ondKinderen(f, vTop); if (!kin.length) return ''; const top = ond.find(x => x.letter === vTop);
       return `<div class="ondrij" style="margin-top:2px"><small style="color:var(--muted);align-self:center">Delen van ${esc(vTop)}:</small>${[top, ...kin].filter(Boolean).map(o => `<button class="ondchip${o.letter === V.ond ? ' on' : ''}" style="border-color:${bestekKleur(bestekVan(o))};padding:3px 9px;font-size:12px" data-ond="${o.letter}">${esc(o.in ? ondKortNaam(o) : (o.naam || 'Kozijn'))}${o.codes?.length ? ' ' + codesHtml(o) : ''}</button>`).join('')}</div>`; })()}
-    ${mapLijstHtml(f)}${opKantoor ? `${maatOverzicht(f)}${f.kantoor ? '<button class="kantoorknop" id="vkantoor">✓ Klaar: markering weghalen</button>' : ''}`
+    ${mapLijstHtml(f, opKantoor)}${opKantoor ? `${f.kantoor ? '<button class="kantoorknop" id="vkantoor">✓ Klaar: markering weghalen</button>' : ''}`
       : `<button class="kantoorknop${f.kantoor ? ' on' : ''}" id="vkantoor">${f.kantoor ? '✓ Op kantoor doen' : 'Op kantoor doen'}</button>`}` : '';
   requestAnimationFrame(() => { if (!V?.maat) return; const hgt = Math.round($('#stage', V.el).getBoundingClientRect().height);
     if (hgt !== V.stageH) { V.stageH = hgt; if ((V.zoom?.s || 1) === 1) schik(); } });
@@ -3391,16 +3391,22 @@ function kozijnSomHtml(o, k) {
 // Lijstje van de hele map (wordt langer met elke foto): onderdelen met een code van de andere foto's.
 // Kom je hetzelfde onderdeel weer tegen, dan tik je hier op + en telt het één keer meer. Niet terug naar die foto.
 const mapLijstOpen = () => { try { return localStorage.getItem('bc_mapLijst') !== '0'; } catch (e) { return true; } };
-function mapLijstHtml(f) {
+// Eén lijst per map (voorgevel, achtergevel enz. blijven elk hun eigen map): eerst wat op deze foto staat, met de maten,
+// daaronder de onderdelen van de andere foto's in deze map.
+function mapLijstHtml(f, metMaten = false) {
   const s = V?.s; if (!s?.fotos) return '';
   const rijen = [];
   s.fotos.forEach((g, gi) => { if (g !== f) ondVan(g).filter(o => !o.in && !isWand(o) && o.codes?.length).forEach(o => rijen.push({ g, gi, o })); });
-  if (!rijen.length) return '';
-  const open = mapLijstOpen();
-  const kop = `<button class="ghost" id="vmaplijstkop" style="display:flex;justify-content:space-between;align-items:center;width:100%;padding:8px 6px;font-size:13px;font-weight:700;color:var(--text)"><span>ONDERDELEN IN DEZE MAP (${rijen.length})</span><span style="font-size:16px">${open ? '▾ inklappen' : '▸ openen'}</span></button>`;
+  const hier = metMaten ? maatOverzicht(f, true) : null;
+  if (!rijen.length && !hier) return '';
+  const nHier = hier ? hier.n : 0, open = mapLijstOpen();
+  const kop = `<button class="ghost" id="vmaplijstkop" style="display:flex;justify-content:space-between;align-items:center;width:100%;padding:8px 6px;font-size:13px;font-weight:700;color:var(--text)"><span>ONDERDELEN IN DEZE MAP (${nHier + rijen.length})</span><span style="font-size:16px">${open ? '▾ inklappen' : '▸ openen'}</span></button>`;
   if (!open) return `<div style="border-top:1px solid var(--surface-high);margin-top:2px">${kop}</div>`;
+  const sub = t => `<div style="font-size:11px;font-weight:700;letter-spacing:.04em;color:var(--muted);margin:6px 6px 2px">${t}</div>`;
+  const deel1 = hier ? sub('OP DEZE FOTO') + hier.html : '';
+  if (!rijen.length) return `<div style="border-top:1px solid var(--surface-high);margin-top:2px">${kop}${deel1}</div>`;
   const knop = 'width:26px;height:26px;border-radius:13px;border:1px solid var(--surface-high);background:none;color:var(--text);font:inherit;line-height:1;padding:0;flex:none';
-  return `<div style="border-top:1px solid var(--surface-high);margin-top:2px">${kop}
+  return `<div style="border-top:1px solid var(--surface-high);margin-top:2px">${kop}${deel1}${hier ? sub('OP ANDERE FOTO\'S') : ''}
     <div style="font-size:12px;color:var(--muted);margin:0 6px 6px">Zie je hier hetzelfde onderdeel nog eens? Tik op <b>+</b>, dan telt het één keer meer.</div>
     ${rijen.map(({ g, gi, o }) => { const k = kozijnMaten(g, o.letter), key = `${g.id}|${o.letter}`;
       const hier = (f.ookHier || []).filter(x => x.foto === g.id && x.letter === o.letter).length;
@@ -3413,11 +3419,16 @@ function mapLijstHtml(f) {
 }
 // Overzicht van alle maten op de foto, per onderdeel. Klik op een maat om die lijn te kiezen.
 const matenOpen = () => { try { return localStorage.getItem('bc_matenOpen') === '1'; } catch (e) { return false; } };
-function maatOverzicht(f) {
-  const tl = telLijnen(f); if (!tl.length) return '';
+function maatOverzicht(f, alleenInhoud = false) {
+  const tl = telLijnen(f); if (!tl.length) return alleenInhoud ? null : '';
   const groepen = [...new Set(tl.map(l => l.kozijn || null))];
   const rij = l => `<button class="ghost" data-lsel="${l.id}" style="display:flex;justify-content:space-between;width:100%;padding:4px 6px;font-size:13px;color:var(--text)"><span>${f.lijnen.find(x => (x.kozijn || null) === (l.kozijn || null) && x.richting === l.richting && (x.maat != null || x === l)) !== l ? isWand(ondVan(f).find(o => o.letter === l.kozijn)) ? (l.hoek ? `<span style="color:#FF8A50">◣ schuine hoek eraf</span>` : l.aftrek ? `<span style="color:#FF8A50">− eraf ${l.richting === 'horizontaal' ? '(breedte)' : '(hoogte)'}</span>` : l.richting === 'horizontaal' ? '↔ breedte' : '↕ hoogte 2') : `${stukSoort(l) === 'dorpel' ? '↔' : '↕'} ${stukNaam(l)}${stukAantal(l) !== 1 ? ` <small style="color:var(--muted)">(${stukAantal(l)}x)</small>` : ''}` : l.richting === 'horizontaal' ? (isLengte(ondVan(f).find(o => o.letter === l.kozijn)) ? '↔ lengte' : '↔ breedte') : '↕ hoogte'}${lijnAantal(l) ? ` <small style="color:var(--muted)">(${lijnAantal(l) < 0 ? 'geen ' + (l.richting === 'horizontaal' ? 'onderdorpel' : 'stijl') : '+' + lijnAantal(l) + ' ' + (l.richting === 'horizontaal' ? 'dorpels' : 'stijlen')})</small>` : ''}${l.stenen ? ` <small style="color:var(--muted)">${stenenTekst(l)}</small>` : ''}</span><b style="color:${l.maat == null ? 'var(--open)' : 'var(--text)'}">${maatLabel(l.maat)}</b></button>`;
   // Ingeklapt: de foto blijft groot. Tik op de kop om de lijst te openen (schuift binnen het onderste deel).
+  const inhoud = () => groepen.map(L => {
+    const o = ondVan(f).find(x => x.letter === L), k = kozijnMaten(f, L);
+    return `<div style="margin-bottom:8px">${L ? `<button class="ghost" ${o && !isWand(o) ? `data-ondkop="${L}"` : ''} style="display:block;width:100%;text-align:left;font-size:13px;margin:0;padding:4px 6px;color:var(--text)"><b style="color:${bestekKleur(bestekVan(o))}">${o ? ondTonen(o) : L}</b> ${esc(o ? ondKortNaam(o) : '')} ${o?.codes?.length ? codesHtml(o) : o ? `<small style="color:var(--text);font-weight:700;border:2px solid ${bestekKleur(bestekVan(o))};border-radius:10px;padding:1px 8px">${bestekVan(o)} ▾</small>` : ''}</button>` : ''}
+      ${tl.filter(l => (l.kozijn || null) === L).map(rij).join('')}${L && wandMaten(f, L) ? wandHtml(wandMaten(f, L)) + aantalRij(o, null) : k ? kozijnSomHtml(o, k) : ''}</div>`; }).join('');
+  if (alleenInhoud) return { n: groepen.filter(Boolean).length, html: inhoud() };
   const open = matenOpen();
   const kop = `<button class="ghost" id="vmatenkop" style="display:flex;justify-content:space-between;align-items:center;width:100%;padding:8px 6px;font-size:13px;font-weight:700;color:var(--text)"><span>MATEN OP DEZE FOTO (${groepen.filter(Boolean).length} ${groepen.filter(Boolean).length === 1 ? 'onderdeel' : 'onderdelen'})</span><span style="font-size:16px">${open ? '▾ inklappen' : '▸ openen'}</span></button>`;
   if (!open) return `<div style="border-top:1px solid var(--surface-high);margin-top:2px">${kop}</div>`;
@@ -4286,7 +4297,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.14-7';
+const APP_VERSIE = '2026.11.14-8';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
