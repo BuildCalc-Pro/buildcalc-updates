@@ -4281,7 +4281,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.14-3';
+const APP_VERSIE = '2026.11.14-4';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
@@ -4835,12 +4835,13 @@ function maatSheet(lijn) {
   const opslaan = () => {
     // "4 stijlen" mag ook, eventueel met een maat ervoor: "120 4 stijlen".
     const { aantal, rest } = splitsAantal(inp.value.trim());
-    // Getypte maat is altijd in cm. Lijkt hij in meters getypt (2,6) of is hij heel groot, dan eerst vragen.
+    // Getypte maat is altijd in cm. Lijkt hij in meters getypt (2,45), dan eerst vragen.
     if (rest && soort === 'cm' && bron === 'hand' && gevraagd !== inp.value) { const v = getal(rest);
       const dec = (/[.,](\d+)\s*$/.exec(rest) || [, ''])[1].length;
       // In meters getypt herken je aan twee of meer cijfers achter de komma (2,45 of 2,453 van de laser), of een heel kleine maat (2,5).
       // Een plint van 7,5 cm is gewoon een maat.
-      const vraag = v == null ? '' : v > 0 && v < 10 && dec && (dec >= 2 || v < 5) ? `${rest} cm is erg klein. Bedoel je ${String(Math.round(v * 100))} cm (${rest} meter)? Typ dan ${String(Math.round(v * 100))}.` : v > 2000 ? `${rest} cm is ${getalNL(v / 100, 1)} meter. Dat is erg groot.` : '';
+      // Geen bovengrens: een daklijst of goot van een flat is zo 25 meter of meer.
+      const vraag = v == null ? '' : v > 0 && v < 10 && dec && (dec >= 2 || v < 5) ? `${rest} cm is erg klein. Bedoel je ${String(Math.round(v * 100))} cm (${rest} meter)? Typ dan ${String(Math.round(v * 100))}.` : '';
       if (vraag) { gevraagd = inp.value; melding.textContent = `${vraag} Klopt ${rest} cm toch, tik dan nog een keer op Opslaan.`; melding.classList.add('fout'); return; } }
     if (aantal != null) lijn.aantal = aantal;
     if (rest) { inp.value = rest; const maat = naarMaat(); if (maat == null) { melding.textContent = soort === 'cm' ? 'Vul een maat in cm in, bijvoorbeeld 120.' : 'Vul een aantal in, bijvoorbeeld 12.'; melding.classList.add('fout'); return; }
