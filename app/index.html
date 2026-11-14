@@ -2558,7 +2558,7 @@ function tekenUI() {
   const vTop = ond.find(x => x.letter === V.ond)?.in || V.ond;
   vx.innerHTML = V.p.simpel && !V.sel && !opLoc ? `${V.paar ? zelfdeHtml(f, f.lijnen.find(l => l.id === V.paar)) : ''}<div class="ondrij">${ond.filter(o => !o.in).map(o => `<button class="ondchip${o.letter === vTop ? ' on' : ''}" style="border-color:${bestekKleur(bestekVan(o))}${o.letter === vTop ? `;background:color-mix(in srgb, ${bestekKleur(bestekVan(o))} 20%, transparent)` : ''}" data-ond="${o.letter}"><b style="color:${bestekKleur(bestekVan(o))}">${ondTonen(o)}</b>${o.naam ? ' ' + esc(ondKortNaam(o)) : ''}${o.codes?.length ? ' ' + codesHtml(o) : ''}${(o.aantal || 1) > 1 ? ` <b>× ${o.aantal}</b>` : ''}</button>`).join('')}<button class="ondchip plus" id="vplusond" title="Nieuw onderdeel: ONB, ONI, RCB, RDO, GOB, GOI" style="color:var(--text);font-weight:700;border:2px solid var(--gold)"><span style="color:var(--gold)">＋</span> Onderdeel ▾</button><button class="ondchip plus" id="vwand" title="Wand opmeten in m²" style="color:var(--text);font-weight:700;border:2px solid var(--gold)"><span style="color:var(--gold)">＋</span> Wand</button>${ond.filter(o => !o.in).length > 1 ? `<button class="ondchip${V.alles ? ' on' : ''}" id="valles">${V.alles ? 'Alleen ' + vTop : 'Alles tonen'}</button>` : ''}${f.lijnen.some(l => l.ref) ? `<button class="ondchip${V.refTonen ? ' on' : ''}" id="vref" style="color:var(--text);font-weight:700;border:2px solid #4FA3D9">${V.refTonen ? '✓ ' : ''}Lasermaten (${f.lijnen.filter(l => l.ref).length})</button>` : ''}</div>${(() => { const kin = ondKinderen(f, vTop); if (!kin.length) return ''; const top = ond.find(x => x.letter === vTop);
       return `<div class="ondrij" style="margin-top:2px"><small style="color:var(--muted);align-self:center">Delen van ${esc(vTop)}:</small>${[top, ...kin].filter(Boolean).map(o => `<button class="ondchip${o.letter === V.ond ? ' on' : ''}" style="border-color:${bestekKleur(bestekVan(o))};padding:3px 9px;font-size:12px" data-ond="${o.letter}">${esc(o.in ? ondKortNaam(o) : (o.naam || 'Kozijn'))}${o.codes?.length ? ' ' + codesHtml(o) : ''}</button>`).join('')}</div>`; })()}
-    ${opKantoor ? `${maatOverzicht(f)}${f.kantoor ? '<button class="kantoorknop" id="vkantoor">✓ Klaar: markering weghalen</button>' : ''}`
+    ${mapLijstHtml(f)}${opKantoor ? `${maatOverzicht(f)}${f.kantoor ? '<button class="kantoorknop" id="vkantoor">✓ Klaar: markering weghalen</button>' : ''}`
       : `<button class="kantoorknop${f.kantoor ? ' on' : ''}" id="vkantoor">${f.kantoor ? '✓ Op kantoor doen' : 'Op kantoor doen'}</button>`}` : '';
   requestAnimationFrame(() => { if (!V?.maat) return; const hgt = Math.round($('#stage', V.el).getBoundingClientRect().height);
     if (hgt !== V.stageH) { V.stageH = hgt; if ((V.zoom?.s || 1) === 1) schik(); } });
@@ -2654,6 +2654,17 @@ function tekenUI() {
   V.el.querySelectorAll('[data-amin]').forEach(b => b.onclick = () => zetAantalO(b.dataset.amin, (ondVan(f).find(x => x.letter === b.dataset.amin)?.aantal || 1) - 1));
   V.el.querySelectorAll('[data-aplus]').forEach(b => b.onclick = () => zetAantalO(b.dataset.aplus, (ondVan(f).find(x => x.letter === b.dataset.aplus)?.aantal || 1) + 1));
   V.el.querySelectorAll('[data-anum]').forEach(i => i.onchange = () => zetAantalO(i.dataset.anum, i.value));
+  // Lijst van de hele map: hetzelfde onderdeel van een andere foto hier nog eens tellen, zonder terug te gaan.
+  const ookVan = k => { const [gid, L] = k.split('|'), g = V.s.fotos.find(x => x.id === gid); return { gid, L, g, o: g && ondVan(g).find(x => x.letter === L) }; };
+  vx.querySelectorAll('[data-ookplus]').forEach(b => b.onclick = () => { const { gid, L, o } = ookVan(b.dataset.ookplus); if (!o) return;
+    o.aantal = (o.aantal || 1) + 1; (f.ookHier ??= []).push({ foto: gid, letter: L }); bewaar(); tekenUI();
+    toast(`${ondKortNaam(o) || L} telt nu ${o.aantal}×.`); });
+  vx.querySelectorAll('[data-ookmin]').forEach(b => b.onclick = () => { const { gid, L, o } = ookVan(b.dataset.ookmin);
+    let i = -1; (f.ookHier || []).forEach((x, j) => { if (x.foto === gid && x.letter === L) i = j; }); if (i < 0) return;
+    f.ookHier.splice(i, 1); if (!f.ookHier.length) delete f.ookHier;
+    if (o) o.aantal = Math.max(1, (o.aantal || 1) - 1); bewaar(); tekenUI(); });
+  vx.querySelectorAll('[data-ooknaar]').forEach(b => b.onclick = () => naarFoto(+b.dataset.ooknaar));
+  if ($('#vmaplijstkop', vx)) $('#vmaplijstkop', vx).onclick = () => { try { localStorage.setItem('bc_mapLijst', mapLijstOpen() ? '0' : '1'); } catch (e) {} tekenUI(); };
   V.el.querySelectorAll('[data-zelfde]').forEach(b => b.onclick = () => { const [id, L] = b.dataset.zelfde.split('|'); const l = f.lijnen.find(x => x.id === id); if (l) maakZelfde(f, l, L); });
   if ($('#vkantoor', vx)) $('#vkantoor', vx).onclick = () => { f.kantoor = !f.kantoor; bewaar(); tekenUI(); toast(f.kantoor ? 'Staat klaar om op kantoor uit te werken.' : 'Niet meer gemarkeerd voor kantoor.'); };
   try { sjBalk(f); } catch (e) { console.warn(e); }
@@ -3371,6 +3382,29 @@ function kozijnSomHtml(o, k) {
   const m2 = `${getalNL(k.B * k.H)} m²`, m1 = `Strekkend ${getalNL(k.totaal)} m1`;
   const delen = eh.size ? [eh.has('M2') ? m2 : '', eh.has('M1') ? m1 : ''].filter(Boolean) : [m1];
   return `${delen.length ? `<div style="${st}">${delen.join(' · ')}</div>` : ''}${o ? aantalRij(o, eh.has('M2') && !eh.has('M1') ? [k.B * k.H, 'm²'] : eh.size && !eh.has('M1') ? null : [k.totaal, 'm1']) : ''}`;
+}
+// Lijstje van de hele map (wordt langer met elke foto): onderdelen met een code van de andere foto's.
+// Kom je hetzelfde onderdeel weer tegen, dan tik je hier op + en telt het één keer meer. Niet terug naar die foto.
+const mapLijstOpen = () => { try { return localStorage.getItem('bc_mapLijst') !== '0'; } catch (e) { return true; } };
+function mapLijstHtml(f) {
+  const s = V?.s; if (!s?.fotos) return '';
+  const rijen = [];
+  s.fotos.forEach((g, gi) => { if (g !== f) ondVan(g).filter(o => !o.in && !isWand(o) && o.codes?.length).forEach(o => rijen.push({ g, gi, o })); });
+  if (!rijen.length) return '';
+  const open = mapLijstOpen();
+  const kop = `<button class="ghost" id="vmaplijstkop" style="display:flex;justify-content:space-between;align-items:center;width:100%;padding:8px 6px;font-size:13px;font-weight:700;color:var(--text)"><span>ONDERDELEN IN DEZE MAP (${rijen.length})</span><span style="font-size:16px">${open ? '▾ inklappen' : '▸ openen'}</span></button>`;
+  if (!open) return `<div style="border-top:1px solid var(--surface-high);margin-top:2px">${kop}</div>`;
+  const knop = 'width:26px;height:26px;border-radius:13px;border:1px solid var(--surface-high);background:none;color:var(--text);font:inherit;line-height:1;padding:0;flex:none';
+  return `<div style="border-top:1px solid var(--surface-high);margin-top:2px">${kop}
+    <div style="font-size:12px;color:var(--muted);margin:0 6px 6px">Zie je hier hetzelfde onderdeel nog eens? Tik op <b>+</b>, dan telt het één keer meer.</div>
+    ${rijen.map(({ g, gi, o }) => { const k = kozijnMaten(g, o.letter), key = `${g.id}|${o.letter}`;
+      const hier = (f.ookHier || []).filter(x => x.foto === g.id && x.letter === o.letter).length;
+      const maat = k ? (k.lengte ? maatLabel(k.B) : `${maatLabel(k.B)} × ${maatLabel(k.H)}`) : 'nog geen maten';
+      return `<div style="display:flex;align-items:center;gap:6px;padding:4px 6px;font-size:13px">
+        <div style="flex:1;min-width:0"><b style="color:${bestekKleur(bestekVan(o))}">${esc(ondKortNaam(o) || o.letter)}</b> ${codesHtml(o)}<br>
+          <small style="color:var(--muted)">${maat} · totaal ${o.aantal || 1}× · <button class="ghost" data-ooknaar="${gi}" style="padding:0;font-size:12px;color:var(--muted);text-decoration:underline">foto ${gi + 1}</button></small></div>
+        ${hier ? `<button data-ookmin="${key}" aria-label="Eén minder" style="${knop}">−</button><b style="min-width:2.4em;text-align:center">hier ${hier}×</b>` : ''}
+        <button data-ookplus="${key}" aria-label="Ook hier" style="${knop}">+</button></div>`; }).join('')}</div>`;
 }
 // Overzicht van alle maten op de foto, per onderdeel. Klik op een maat om die lijn te kiezen.
 const matenOpen = () => { try { return localStorage.getItem('bc_matenOpen') === '1'; } catch (e) { return false; } };
@@ -4247,7 +4281,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.14-2';
+const APP_VERSIE = '2026.11.14-3';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
