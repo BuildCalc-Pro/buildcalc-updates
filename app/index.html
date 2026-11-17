@@ -429,6 +429,27 @@ table.form td[data-ncode] { cursor: pointer; text-decoration: underline dotted v
 .outline { width: 100%; border: 1px solid; border-radius: 22px; padding: 11px; display: flex; gap: 8px; align-items: center; justify-content: center; }
 .selbar { display: flex; align-items: center; gap: 4px; width: 100%; }
 .maatknop { flex: 1; background: var(--select); color: #000; border-radius: 20px; padding: 10px; display: flex; gap: 6px; align-items: center; justify-content: center; font-weight: 600; }
+.klikpad{background:var(--surface);border:1px solid var(--surface-high);border-radius:14px;padding:10px;margin:10px 0 0;width:min(100%,330px)}
+.klikpad.zwevend{position:fixed;z-index:9999;width:320px;box-shadow:0 10px 30px rgba(0,0,0,.35);margin:0}
+.klikpad .padgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.klikpad button{font:600 19px var(--body,inherit);height:46px;border-radius:10px;border:1px solid var(--surface-high);background:var(--bg);color:var(--text);cursor:pointer;padding:0}
+.klikpad button:hover{border-color:var(--a2)}
+.klikpad button.grijs{background:var(--surface-high);font-size:16px}
+.klikpad button.breed{grid-column:span 2}
+.klikpad button.ok{white-space:nowrap;background:var(--a2);color:#fff;border-color:var(--a2);font-size:16px}
+.klikpad .padsnel{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:8px}
+.klikpad .padsnel small{width:100%;color:var(--muted);font-size:12px}
+.klikpad button.snel{height:34px;padding:0 12px;font-size:15px;border-radius:999px}
+.vlosknop{background:none;border:1px solid #555;color:#fff;border-radius:8px;padding:6px 12px;font:inherit;font-size:14px;cursor:pointer;margin-right:4px;white-space:nowrap}
+.vlosknop:hover{background:#2a2a2a}
+.viewer.los .vlosknop{border-color:#FF8A50;color:#FF8A50}
+/* Foto los op het andere scherm: hier alleen de lijst. De foto blijft onzichtbaar buiten beeld (de app rekent er de lijnen mee uit). */
+.viewer.los { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+.viewer.los .stage { position: fixed; left: -20000px; top: 0; width: 1000px; height: 800px; }
+.viewer.los .vbottom { grid-column: 1; grid-row: 2; max-height: none; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; width: 100%; max-width: 1100px; margin: 0 auto; border-left: 0; }
+.lgkop.nu span{color:#FF8A50}
+.lggrp.nu{outline:2px solid #FF8A50;outline-offset:-1px}
+.lgfotokop{display:block;width:100%;text-align:left;font-size:12px;font-weight:700;color:var(--muted);padding:6px 8px 2px}
 </style>
 </head>
 <body>
@@ -1167,7 +1188,7 @@ function vraagNaam(titel, p, huidig, gid) {
   return new Promise(res => {
     const inG = huidig ? groepVan(p, huidig)?.id || null : gid || null;
     const bestaand = new Set(mappenIn(p, inG).filter(s => s !== huidig).map(s => s.naam.toLowerCase()));
-    const sug = huidig ? [] : (p.simpel ? mappenVoor(p.soort) : SUGGESTIES).filter(x => !bestaand.has(x.toLowerCase()));
+    const sug = [...new Set([...(p.simpel ? mappenVoor(p.soort) : SUGGESTIES), ...MAP_KLIK])].filter(x => !bestaand.has(x.toLowerCase()) && x.toLowerCase() !== huidig?.naam?.toLowerCase());
     const d = dialoog(`<h2>${titel}</h2>${veld('naam', 'Naam map', '', huidig?.naam)}
       ${sug.length ? `<div style="color:var(--muted);margin-top:8px">Snelkeuze</div><div class="chips">${sug.map(x => `<button class="chip" data-s="${x}">${x}</button>`).join('')}</div>` : ''}
       <div class="actions"><button id="nee">Annuleren</button><button id="ja">Opslaan</button></div>`, () => res(null));
@@ -1526,10 +1547,14 @@ function koppelBagKaart(m, p) {
       delete p.bag; bewaar(); render(); }]]);
   m.querySelectorAll('[data-type]').forEach(b => b.onclick = () => bagTypeSheet(p, b.dataset.type));
 }
+const MAP_KLIK = ['Voorgevel', 'Achtergevel', 'Zijgevel links', 'Zijgevel rechts', 'Kopgevel', 'Galerijgevel', 'Balkongevel', 'Dak', 'Trappenhuis', 'Bergingen'];
 function vraagTekst(titel, label, hint, waarde = '', voorstellen = null) {
+  if (!voorstellen && /^(Nieuwe map|Gevel toevoegen|Map kopiëren)$/.test(titel)) voorstellen = MAP_KLIK;
+  const padSnel = /Diktekant/.test(titel) ? '3,4,5,6,8' : /^Aantal/.test(label) ? '1,2,3,4,5,6,8,10' : '';
   return new Promise(res => {
     const d = dialoog(`<h2>${titel}</h2>${veld('t', label, hint, waarde)}${voorstellen ? '<div class="vtips" style="display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 2px"></div>' : ''}<div class="actions"><button id="nee">Annuleren</button><button id="ja">OK</button></div>`, () => res(null));
     const inp = $('input', d), klaar = v => { sluit(d); res(v); };
+    if (/cm|meter|^Aantal|Hoeveel/i.test(label)) { inp.dataset.pad = '1'; inp.inputMode = 'decimal'; if (padSnel) inp.dataset.snel = padSnel; }
     $('#ja', d).onclick = () => klaar(inp.value.trim()); $('#nee', d).onclick = () => klaar(null);
     if (voorstellen) koppelVoorstellen(inp, $('.vtips', d), voorstellen, klaar);
     inp.onkeydown = e => { if (e.key === 'Enter') klaar(inp.value.trim()); };
@@ -1551,7 +1576,7 @@ function onderdeelNamen() {
   return [...eigen, ...ONDERDEEL_NAMEN.filter(n => !gezien.has(n.toLowerCase()))];
 }
 function koppelVoorstellen(inp, vak, lijst, klaar) {
-  const past = t => { t = t.trim().toLowerCase(); if (!t) return lijst.slice(0, 6);
+  const past = t => { t = t.trim().toLowerCase(); if (!t) return lijst.slice(0, 10);
     return [...lijst.filter(n => n.toLowerCase().startsWith(t)), ...lijst.filter(n => !n.toLowerCase().startsWith(t) && n.toLowerCase().includes(t))].slice(0, 6); };
   const toon = () => { const t = inp.value.slice(0, inp.selectionStart ?? inp.value.length);
     vak.innerHTML = past(t).map(n => `<button class="chip" type="button" style="padding:4px 10px;font-size:13px">${esc(n)}</button>`).join('');
@@ -2303,7 +2328,7 @@ let V = null; // { p, s, i, modus, sel, el, maat, nieuw, greep }
 function openViewer(p, s, i) {
   const el = document.createElement('div'); el.className = 'viewer';
   el.innerHTML = `<div class="vbar"><button class="iconbtn" id="vsluit" aria-label="Sluiten">${ic('close')}</button>
-      <div class="t" id="vtitel"></div><i class="ldot" id="vldot" hidden></i><button class="vkant" id="vkantTop" hidden></button><button class="iconbtn" id="vweg" aria-label="Foto verwijderen">${ic('trash')}</button></div>
+      <div class="t" id="vtitel"></div><i class="ldot" id="vldot" hidden></i><button class="vkant" id="vkantTop" hidden></button>${Native ? '' : '<button class="vlosknop" id="vlos" title="De foto in een eigen venster, dat je naar je andere scherm sleept">🖥️ Foto naar ander scherm</button>'}<button class="iconbtn" id="vweg" aria-label="Foto verwijderen">${ic('trash')}</button></div>
     <div class="stage" id="stage"><div class="surface" id="surf"><img id="vimg" alt=""><svg id="vsvg"></svg></div>
       <div class="loep" id="vloep"><div class="li"><img alt=""><svg></svg></div><svg class="kruis" viewBox="0 0 100 100">
         <g stroke="rgba(0,0,0,.55)" stroke-width="3.2" stroke-linecap="round"><path d="M50 26V43M50 57V74M26 50H43M57 50H74"/></g>
@@ -2396,6 +2421,16 @@ function openViewer(p, s, i) {
   Laser.auto(); laserMeld();
   $('#vprev', el).onclick = () => naarFoto(V.i - 1);
   $('#vnext', el).onclick = () => naarFoto(V.i + 1);
+  // Pc: de foto los in een eigen venster (naar je tweede scherm). Hier blijft de lijst van de map breed staan.
+  // Vorige/volgende in dat venster neemt dit scherm mee, en andersom.
+  if ($('#vlos', el)) $('#vlos', el).onclick = () => {
+    if (V.los && FS.win && !FS.win.closed) { try { FS.win.close(); } catch (e) {} losUit(); return; }
+    const fotos = V.s.fotos.map((f, fi) => ({ f, s: V.s, fi, rijen: [] }));
+    if (!fotoScherm(V.p, fotos, V.i)) return toast('Het venster werd tegengehouden. Sta pop-ups toe voor deze pagina en probeer het opnieuw.');
+    FS.opGa = n => { if (V?.los) naarFoto(n); };
+    V.los = true; V.el.classList.add('los'); tekenUI(); requestAnimationFrame(() => V && schik());
+    clearInterval(FS.wacht); FS.wacht = setInterval(() => { if (!V?.los) return clearInterval(FS.wacht); if (!FS.win || FS.win.closed) { clearInterval(FS.wacht); losUit(); } }, 1000);
+  };
   $('#vweg', el).onclick = async () => {
     if (!await bevestig('Foto verwijderen?', `Deze foto wordt uit "${s.naam}" verwijderd.`)) return;
     const f = s.fotos[V.i]; s.fotos.splice(V.i, 1); bewaar(); fotoWeg([f.id]);
@@ -2435,10 +2470,12 @@ function laserOpLijn(m) {
   if (afw != null) return toast(`${formatMeter(m)} opgeslagen. Let op: volgens de foto is dit ongeveer ${formatMeter(afw)}, klopt dat?`);
   toast(`${formatMeter(m)} opgeslagen` + (volgende ? `. Nu de ${volgende.richting === 'horizontaal' ? 'horizontale' : 'verticale'} lijn` : '. Alle lijnen op deze foto zijn gemeten'));
 }
+function losUit() { if (!V) return; V.los = false; V.el.classList.remove('los'); tekenUI(); requestAnimationFrame(() => V && schik()); }
 function sluitViewer() { try { Spraak.stop(); } catch (e) { console.warn(e); } Laser.opMeting = null; window.removeEventListener('resize', schik); V?.el.remove(); V = null; render(); }
 async function naarFoto(i) {
   if (!V || i < 0 || i >= V.s.fotos.length) return;
   V.i = i; V.sel = null; V.maat = null; V.w = 0;
+  if (V.los && FS.win && !FS.win.closed && FS.i !== i && FS.fotos?.[i]?.s === V.s) { FS.i = i; toonFotoScherm(); }
   const img = $('#vimg', V.el), wegEl = $('#vweg2', V.el); img.removeAttribute('src'); wegEl.hidden = true; $('#vsvg', V.el).innerHTML = '';
   tekenUI();
   const u = await fotoUrl(V.s.fotos[i].id);
@@ -2463,6 +2500,11 @@ function schik() {
 }
 const foto = () => V.s.fotos[V.i];
 function tekenUI() {
+  tekenUI2();
+  if (V?.los) { if (FS.win && !FS.win.closed && FS.i === V.i) toonFotoScherm();
+    if (V.losGezien !== V.i) { V.losGezien = V.i; requestAnimationFrame(() => $('.lgkop.nu', V?.el)?.scrollIntoView({ block: 'start', behavior: 'smooth' })); } }
+}
+function tekenUI2() {
   const n = V.s.fotos.length, f = foto(), ln = f.lijnen.length;
   lasermatenNaarRef(f);
   $('#vtitel', V.el).textContent = `${volNaam(V.p, V.s)} • ${V.i + 1} / ${n}`;
@@ -3465,7 +3507,7 @@ function mistInMap(s) {
 function mapLijstHtml(f, metMaten = false, vTop = null) {
   const s = V?.s; if (!s?.fotos) return '';
   const rijen = [];
-  s.fotos.forEach((g, gi) => { if (g !== f) ondVan(g).filter(o => !o.in && !isWand(o) && o.codes?.length).forEach(o => rijen.push({ g, gi, o })); });
+  s.fotos.forEach((g, gi) => { if (g !== f) ondVan(g).filter(o => !o.in && (V.los || (!isWand(o) && o.codes?.length))).forEach(o => rijen.push({ g, gi, o })); });
   const tops = ondVan(f).filter(o => !o.in), mo = metMaten ? maatOverzicht(f, true) : null;
   const los = mo && mo.groepen.includes(null);
   const kort = (g, o) => { if (isWand(o)) return wandMaten(g, o.letter) ? 'wand' : 'nog geen maten';
@@ -3482,12 +3524,21 @@ function mapLijstHtml(f, metMaten = false, vTop = null) {
     return `<div class="lgit">${dot(o)}<span class="lgnaam"><b>${esc(ondKortNaam(o) || o.letter)}</b> <small>${code(o)}</small><br>
       <small>${kort(g, o)} · ${o.aantal || 1}× · <button class="ghost" data-ooknaar="${gi}" style="padding:0;font-size:inherit;color:inherit;text-decoration:underline">foto ${gi + 1}</button></small></span>
       ${n ? `<button class="lgrond min" data-ookmin="${key}" aria-label="Eén minder">−</button><b style="min-width:2.6em;text-align:center;font-size:12px">hier ${n}×</b>` : ''}
-      <button class="lgrond" data-ookplus="${key}" aria-label="Ook hier">+</button></div>`; }).join('');
+      <button class="lgrond" data-ookplus="${key}" aria-label="Ook hier">+</button></div>`; }).join('\u0001');
   const mist = mistInMap(s), mz = mist.filter(x => x.wat === 'code').length, mm = mist.length - mz;
   const mistHtml = mist.length ? `<button class="ghost lgmist" id="vmist">⚠ Nog te doen: ${[mz ? `${mz} zonder code` : '', mm ? `${mm} zonder maat` : ''].filter(Boolean).join(' · ')}<span>›</span></button>` : '';
-  return `${mistHtml}<div class="lgkop"><span>OP DEZE FOTO</span><button class="ghost" id="vplusond" title="Nieuw onderdeel of wand">＋ Onderdeel</button></div>
-    <div class="lggrp">${hier + losHtml || '<div class="lgit" style="cursor:default"><small style="color:var(--muted)">Nog geen onderdelen. Tik op ＋ Onderdeel.</small></div>'}</div>
-    ${rijen.length ? `<div class="lgkop"><span>ANDERE FOTO'S IN DEZE MAP</span><small>ook hier? tik +</small></div><div class="lggrp">${ander}</div>` : ''}`;
+  const hierBlok = `<div class="lgkop${V.los ? ' nu' : ''}"><span>${V.los ? `FOTO ${V.i + 1} · OP JE ANDERE SCHERM` : 'OP DEZE FOTO'}</span><button class="ghost" id="vplusond" title="Nieuw onderdeel of wand">＋ Onderdeel</button></div>
+    <div class="lggrp${V.los ? ' nu' : ''}">${hier + losHtml || '<div class="lgit" style="cursor:default"><small style="color:var(--muted)">Nog geen onderdelen. Tik op ＋ Onderdeel.</small></div>'}</div>`;
+  if (V.los) {
+    // Per foto een kopje; klik op het kopje = die foto (ook op je andere scherm).
+    const perFoto = lijst => { let vorige = -1; return lijst.map(r => { const kop = r.gi !== vorige ? `<button class="ghost lgfotokop" data-ooknaar="${r.gi}">Foto ${r.gi + 1} ›</button>` : ''; vorige = r.gi;
+      return kop + ander.split('\u0001')[rijen.indexOf(r)]; }).join(''); };
+    const voor = rijen.filter(r => r.gi < V.i), na = rijen.filter(r => r.gi > V.i);
+    return `${mistHtml}${voor.length ? `<div class="lgkop"><span>EERDER IN ${esc((s.naam || 'DEZE MAP').toUpperCase())}</span><small>ook hier? tik +</small></div><div class="lggrp">${perFoto(voor)}</div>` : ''}
+      ${hierBlok}${na.length ? `<div class="lgkop"><span>VERDER IN DEZE MAP</span></div><div class="lggrp">${perFoto(na)}</div>` : ''}`;
+  }
+  return `${mistHtml}${hierBlok}
+    ${rijen.length ? `<div class="lgkop"><span>ANDERE FOTO'S IN DEZE MAP</span><small>ook hier? tik +</small></div><div class="lggrp">${ander.split('\u0001').join('')}</div>` : ''}`;
 }
 // Overzicht van alle maten op de foto, per onderdeel. Klik op een maat om die lijn te kiezen.
 const matenOpen = () => { try { return localStorage.getItem('bc_matenOpen') === '1'; } catch (e) { return false; } };
@@ -3533,7 +3584,8 @@ function gvNummers(f, W, H, nuId, rh) {
       + `<text x="${x}" y="${y + r * .36}" text-anchor="middle" font-size="${r * 1.1}" font-weight="700" fill="#12110D" font-family="sans-serif">${i + 1}</text></g>`;
   }).join('');
 }
-function tekenLijnen() {
+function tekenLijnen() { tekenLijnen2(); if (V?.los) FS.teken?.(); }
+function tekenLijnen2() {
   if (!V?.w) return;
   const W = V.w, H = V.h, svg = $('#vsvg', V.el);
   const ander = l => !V.alles && ondVan(foto()).length && V.ond && (l.kozijn || null) !== V.ond && !l.rol;
@@ -3563,7 +3615,7 @@ function tekenLijnen() {
 }
 // Vegen naar de vorige of volgende foto, zoals in ImageMeter. Alleen bij Bekijken zonder geselecteerde lijn,
 // zodat het tekenen van lijnen er nooit last van heeft.
-const magVegen = () => V && V.modus === 'bekijken' && !V.sel && V.s.fotos.length > 1 && V.zoom.s === 1 && !V.knijp;
+const magVegen = () => V && !FS.door && V.modus === 'bekijken' && !V.sel && V.s.fotos.length > 1 && V.zoom.s === 1 && !V.knijp;
 // In- en uitzoomen op de foto: knijpen met twee vingers (in elke stand), met één vinger schuiven als je
 // bij Bekijken bent ingezoomd, en dubbeltikken om in of weer helemaal uit te zoomen. Lijnen tekenen kan ook ingezoomd.
 const ZOOM_MAX = 6;
@@ -4372,7 +4424,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.14-11';
+const APP_VERSIE = '2026.11.17-4';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
@@ -7945,7 +7997,14 @@ function markeerTcRij(id) {
 function tcFotos(p) {
   return p.submappen.flatMap(s => s.fotos.map((f, fi) => ({ f, s, fi, rijen: [] })));
 }
+function losDoor(type, nx, ny) {
+  if (!V?.los || !V.w) return; const surf = $('#surf', V.el), r = surf.getBoundingClientRect();
+  FS.door = true;
+  try { surf.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, clientX: r.left + nx * r.width, clientY: r.top + ny * r.height, pointerId: 77, pointerType: 'mouse', isPrimary: true, button: 0, buttons: type === 'pointerup' ? 0 : 1 })); }
+  finally { FS.door = false; }
+}
 function fotoScherm(p, fotos, i) {
+  FS.opGa = null;
   if (!fotos.length) return true;
   let w = FS.win;
   if (!w || w.closed) {
@@ -7959,7 +8018,8 @@ function fotoScherm(p, fotos, i) {
       .kop{display:flex;align-items:center;gap:12px;padding:10px 14px;background:#1c1c1c;border-bottom:1px solid #333}
       .kop b{font-size:18px}.kop small{color:#aaa;font-size:14px}.kop .sp{flex:1}
       button{font:inherit;font-size:15px;padding:8px 14px;border-radius:8px;border:1px solid #555;background:#2a2a2a;color:#eee;cursor:pointer}
-      button:hover{background:#383838}button:disabled{opacity:.35;cursor:default}
+      button:hover{background:#383838}button:disabled{opacity:.35;cursor:default}button.aan{background:#FF8A50;border-color:#FF8A50;color:#111}
+      img{touch-action:none;user-select:none;-webkit-user-drag:none}body.teken img{cursor:crosshair}
       .maten{white-space:pre-line;padding:8px 14px;background:#181818;color:#D4AF37;font-size:16px;font-weight:600;border-bottom:1px solid #2a2a2a}
       .vlak{flex:1;position:relative;overflow:hidden}
       .doos{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:10px}
@@ -7969,8 +8029,8 @@ function fotoScherm(p, fotos, i) {
       .tip{color:#888;font-size:13px}
     </style></head><body>
       <div class="kop"><div><b id="titel"></b><br><small id="sub"></small></div><span class="sp"></span>
-        <span class="tip">Pijltjestoetsen: vorige / volgende</span>
-        <button id="vorige">◀ Vorige</button><button id="volgende">Volgende ▶</button></div>
+        <span class="tip">Pijltjes: vorige / volgende · klik een lijn aan voor de maat</span>
+        <button id="lijnknop" hidden>✏️ Lijn trekken</button><button id="vorige">◀ Vorige</button><button id="volgende">Volgende ▶</button></div>
       <div class="maten" id="maten"></div>
       <div class="vlak"><div class="doos"><div class="houder"><img id="img" alt=""><svg id="svg"></svg></div></div></div>
     </body></html>`);
@@ -7990,7 +8050,7 @@ async function toonFotoScherm() {
   d.getElementById('maten').textContent = !r.rijen.length ? (telLijnen(r.f).filter(l => l.maat != null).map(l => `${l.richting === 'horizontaal' ? '↔' : '↕'} ${maatLabel(l.maat)}${lijnAantal(l) ? ` (x${lijnAantal(l)})` : ''}`).join('   ·   ') || 'Geen maten op deze foto') : r.rijen.map(x => `${x.st.L ? x.st.L + ' ' : ''}${x.st.naam ? x.st.naam + ': ' : ''}${x.code}  ·  ${x.k ? `${maatLabel(x.k.B)} × ${maatLabel(x.k.H)}  ·  ` : ''}${hoeveelTekst(x.hoeveel, x.eenheid)}`).join('\n');
   const vor = d.getElementById('vorige'), vol = d.getElementById('volgende');
   vor.disabled = i <= 0; vol.disabled = i >= fotos.length - 1;
-  const ga = n => { if (n < 0 || n >= FS.fotos.length) return; FS.i = n; toonFotoScherm(); };
+  const ga = n => { if (n < 0 || n >= FS.fotos.length) return; FS.i = n; toonFotoScherm(); FS.opGa?.(n); };
   vor.onclick = () => ga(FS.i - 1); vol.onclick = () => ga(FS.i + 1);
   w.onkeydown = e => { if (e.key === 'ArrowLeft') ga(FS.i - 1); if (e.key === 'ArrowRight') ga(FS.i + 1); };
   const img = d.getElementById('img'), svg = d.getElementById('svg');
@@ -7999,10 +8059,23 @@ async function toonFotoScherm() {
     // Iets grotere letters dan in de app, want het venster is groot.
     const k = Math.max(1, img.clientWidth / 700), W = img.clientWidth / k, H = img.clientHeight / k, f = r.f;
     svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
-    svg.innerHTML = telLijnen(f).map(l => svgPijl(l.x1 * W, l.y1 * H, l.x2 * W, l.y2 * H, lijnLabel(l), l.maat == null ? '#FFA726' : '#FFFFFF')).join('')
+    const hier = FS.opGa && V?.los && V.w && foto() === f;
+    svg.innerHTML = telLijnen(f).map(l => svgPijl(l.x1 * W, l.y1 * H, l.x2 * W, l.y2 * H, lijnLabel(l), hier && l.id === V.sel ? '#FF8A50' : l.maat == null ? '#FFA726' : '#FFFFFF')).join('')
+      + (hier && V.nieuw ? svgPijl(V.nieuw[0] / V.w * W, V.nieuw[1] / V.h * H, V.nieuw[2] / V.w * W, V.nieuw[3] / V.h * H, '', '#FF8A50') : '')
       + ballonnenSvg(f, W, H) + labelsSvg(f, W, H);
   };
-  img.onload = teken; w.onresize = teken;
+  img.onload = teken; w.onresize = teken; FS.teken = teken;
+  // Vanuit het fotoscherm: op de grote foto lijnen trekken, aanklikken en verslepen. De app doet het werk, dit venster stuurt de muis door.
+  const lk = d.getElementById('lijnknop'), vanViewer = !!FS.opGa && V?.los;
+  lk.hidden = !vanViewer; lk.classList.toggle('aan', vanViewer && V.modus === 'lijn'); d.body.classList.toggle('teken', vanViewer && V.modus === 'lijn');
+  lk.textContent = vanViewer && V.modus === 'lijn' ? '✏️ Trek nu een lijn op de foto' : '✏️ Lijn trekken';
+  lk.onclick = () => { if (!V?.los) return; V.modus = V.modus === 'lijn' ? 'bekijken' : 'lijn'; V.sel = null; tekenUI(); };
+  const nrm = ev => { const b = img.getBoundingClientRect(); return [(ev.clientX - b.left) / b.width, (ev.clientY - b.top) / b.height]; };
+  let neer = false;
+  img.ondragstart = ev => ev.preventDefault();
+  img.onpointerdown = ev => { if (!FS.opGa || !V?.los || foto() !== r.f) return; ev.preventDefault(); neer = true; try { img.setPointerCapture(ev.pointerId); } catch (x) {} losDoor('pointerdown', ...nrm(ev)); };
+  img.onpointermove = ev => { if (neer) losDoor('pointermove', ...nrm(ev)); };
+  img.onpointerup = ev => { if (!neer) return; neer = false; losDoor('pointerup', ...nrm(ev)); };
   svg.innerHTML = '';
   const u = await fotoUrl(r.f.id);
   if (FS.id !== r.f.id) return;
@@ -8056,7 +8129,7 @@ function renderTopcalc(m) {
   const rijHtml = (r, b) => `<tr data-id="${r ? r.id : ''}"${r?.bron ? ' class="tcvanfoto"' : ''}>${TC_VELDEN.map(([k, , w]) => `<td${k === 'b' && r?.dikte ? ' style="position:relative"' : ''}><input data-v="${k}" value="${esc(r?.[k] ?? '')}" style="width:${w}" autocomplete="off" spellcheck="false"${r?.bron && k !== 'n' ? ' readonly tabindex="-1"' : ''}${k === 'b' && r?.dikte ? ` title="Inclusief ${r.dikte} cm diktekant"` : ''}>${k === 'b' && r?.dikte ? `<small class="dkbadge">+${r.dikte}</small>` : ''}</td>`).join('')}<td class="tcuit" style="text-align:right;white-space:nowrap;font-weight:700;font-size:13px;padding-left:8px">${tcUitkomstHtml(r)}</td><td>${r?.bron
     ? `<button class="tcweg" data-tcfoto="${esc(r.foto || '')}" title="Van de foto: maten pas je aan op de foto" tabindex="-1">📷</button>` : '<button class="tcweg" data-weg title="Regel verwijderen" tabindex="-1">✕</button>'}</td></tr>`;
   m.innerHTML = `<div class="pad" style="padding-bottom:40px">
-    <div style="color:var(--muted);font-size:14px;margin:0 2px 12px">Vul per map de regels in, net als in Topcalc. Kijk ondertussen naar je foto's en Google Maps. <b>Tab</b> = volgend vakje, <b>Enter</b> = volgende regel. Strekkend rekent zichzelf uit bij een m1-code; pas het aan als er stijlen bij of af moeten. Weet je de code niet? Klik met de rechtermuisknop (of dubbelklik) op Code of Type om te zoeken.</div>
+    <div style="color:var(--muted);font-size:14px;margin:0 2px 12px">Vul per map de regels in, net als in Topcalc. Kijk ondertussen naar je foto's en Google Maps. <b>Tab</b> = volgend vakje, <b>Enter</b> = volgende regel. Strekkend rekent zichzelf uit bij een m1-code; pas het aan als er stijlen bij of af moeten. Weet je de code niet? Klik op Code of Type om een code te kiezen. Bij een maat of aantal komt er een cijferblok bij, bij Omschrijving knopjes met namen.</div>
     ${nietMeeHtml(nietMee(p), x => `data-tcopen="${x.f.id}"`)}
     ${tcStraatHtml(p)}
     ${(() => { const mp = topcalcMappen(p).bestekken; return mp.length ? `<div class="card" style="margin:0 0 10px;padding:10px 12px"><div style="font-weight:700;margin-bottom:4px">Maak eerst deze mappen in Topcalc</div>
@@ -8115,6 +8188,8 @@ function renderTopcalc(m) {
     const zoekCode2 = async tr => { if (rijVan(tr)?.bron) return toast('Deze regel komt van een foto. Kies de code op de foto.'); const r = maakEcht(tr);
       const c = await codeKiezer(r.oms || `${s.naam}: code`, `${r.code} ${r.type}`.trim(), false, rijBestek(r, s)); if (!c) return;
       [r.code, r.type] = c.split(' '); $('[data-v=code]', tr).value = r.code; $('[data-v=type]', tr).value = r.type || ''; bewaar(); toonInfo(tr); $('[data-v=oms]', tr).focus(); };
+    body.addEventListener('mousedown', e => { const i = e.target.closest('[data-v=code],[data-v=type]'); if (!i || i.readOnly || Native) return;
+      e.preventDefault(); zoekCode2(i.closest('tr')); });
     const zetUitkomst = tr => { const c = tr.querySelector('.tcuit'), r = tr.dataset.id ? rijVan(tr) : null; if (c) c.innerHTML = tcUitkomstHtml(r); };
     body.addEventListener('input', e => { const inp = e.target, tr = inp.closest('tr'); if (!inp.dataset.v) return;
       if (inp.dataset.v === 'type') { const pos = inp.selectionStart; inp.value = inp.value.toUpperCase(); inp.setSelectionRange?.(pos, pos); }
@@ -9405,6 +9480,57 @@ document.addEventListener('visibilitychange', () => {
   laatsteUpdateCheck = Date.now(); setTimeout(zoekUpdate, 1500);
 });
 
+
+// ===== Klik-cijferblok =====
+// Op de laptop: klik je in een vak voor een maat of aantal, dan komt er een cijferblok bij. Typen kan ook nog gewoon.
+const PAD_RECENT = 'bc_klikmaten';
+const padRecent = () => { try { return JSON.parse(localStorage.getItem(PAD_RECENT) || '[]'); } catch { return []; } };
+const padOnthoud = v => { v = String(v).trim(); if (!/^\d+([.,]\d+)?$/.test(v)) return; const l = [v, ...padRecent().filter(x => x !== v)].slice(0, 8); try { localStorage.setItem(PAD_RECENT, JSON.stringify(l)); } catch {} };
+let padEl = null, padInp = null;
+const padVelden = '#mt, input[data-pad], .tcgrid input[data-v=b], .tcgrid input[data-v=h], .tcgrid input[data-v=st], .tcgrid input[data-v=n], .tcgrid input[data-v=oms]';
+function padZet(inp, v, vervang) {
+  if (vervang) inp.value = v;
+  else { const a = inp.selectionStart ?? inp.value.length, b = inp.selectionEnd ?? a; inp.value = inp.value.slice(0, a) + v + inp.value.slice(b); inp.setSelectionRange?.(a + v.length, a + v.length); }
+  inp.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: v }));
+}
+function padToets(k) {
+  const inp = padInp; if (!inp) return;
+  if (k === 'del') { const a = inp.selectionStart ?? inp.value.length, b = inp.selectionEnd ?? a;
+    if (a !== b) inp.value = inp.value.slice(0, a) + inp.value.slice(b); else if (a > 0) { inp.value = inp.value.slice(0, a - 1) + inp.value.slice(a); inp.setSelectionRange?.(a - 1, a - 1); }
+    inp.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'deleteContentBackward' })); return; }
+  if (k === 'wis') { inp.value = ''; inp.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'deleteContent' })); return; }
+  if (k === 'ok') { padOnthoud(inp.value); inp.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); return; }
+  if (k === 'volg') { const tr = inp.closest('tr'); const alle = tr ? [...tr.closest('tbody, table').querySelectorAll('input[data-v]')].filter(x => !x.readOnly) : [];
+    const n = alle[alle.indexOf(inp) + 1]; padOnthoud(inp.value); if (n) { n.focus(); n.select?.(); } return; }
+  if (k.startsWith('=')) { padZet(inp, k.slice(1), true); return; }
+  padZet(inp, k);
+}
+function padHtml(inp) {
+  const tt = (k, l, c = '') => `<button type="button" data-pk="${k}" class="${c}">${esc(l)}</button>`;
+  if (inp.dataset.v === 'oms') return `<div class="padsnel"><small>Kies een naam (of typ zelf)</small>${onderdeelNamen().slice(0, 16).map(n => tt('=' + n, n, 'snel')).join('')}</div><div class="padgrid">${tt('wis', 'Wis', 'grijs breed')}${tt('volg', 'Volgende ›', 'ok breed')}</div>`;
+  const tabel = !!inp.closest('.tcgrid'), snel = inp.dataset.snel ? inp.dataset.snel.split(',') : /meter|Aantal/i.test(inp.closest('label')?.textContent || '') || inp.dataset.v === 'n' ? [] : padRecent();
+  const t = (k, l, c = '') => `<button type="button" data-pk="${k}" class="${c}">${l}</button>`;
+  return (snel.length ? `<div class="padsnel"><small>${inp.dataset.snel ? 'Kies' : 'Laatst gebruikt'}</small>${snel.map(v => t('=' + v, v, 'snel')).join('')}</div>` : '')
+    + `<div class="padgrid">${['7', '8', '9'].map(c => t(c, c)).join('')}${t('del', '⌫', 'grijs')}${['4', '5', '6'].map(c => t(c, c)).join('')}${t('wis', 'Wis', 'grijs')}${['1', '2', '3'].map(c => t(c, c)).join('')}${tabel ? t('+', '+', 'grijs') : t(',', ',', 'grijs')}`
+    + `${t('0', '0', 'breed')}${tabel ? t(',', ',', 'grijs') : ''}${tabel ? t('volg', 'Volgende ›', 'ok') : t('ok', 'OK', 'ok breed')}</div>`;
+}
+function padToon(inp) {
+  if (padInp === inp && padEl?.isConnected) return; padWeg(); padInp = inp;
+  padEl = document.createElement('div'); padEl.className = 'klikpad'; padEl.innerHTML = padHtml(inp);
+  padEl.addEventListener('mousedown', e => e.preventDefault());
+  padEl.addEventListener('click', e => { const b = e.target.closest('[data-pk]'); if (b) padToets(b.dataset.pk); });
+  const lab = inp.closest('label.field');
+  if (lab) { padEl.classList.add('inline'); (inp.id === 'mt' ? lab.parentElement : lab).insertAdjacentElement('afterend', padEl); }
+  else { padEl.classList.add('zwevend'); document.body.appendChild(padEl); const r = inp.getBoundingClientRect(), h = padEl.offsetHeight, w = padEl.offsetWidth;
+    padEl.style.left = Math.max(8, Math.min(innerWidth - w - 8, r.left)) + 'px';
+    padEl.style.top = (r.bottom + h + 8 < innerHeight ? r.bottom + 4 : Math.max(8, r.top - h - 4)) + 'px'; }
+}
+function padWeg() { padEl?.remove(); padEl = null; padInp = null; }
+document.addEventListener('focusin', e => { if (Native) return; const t = e.target;
+  if (t.matches?.(padVelden) && !t.readOnly) padToon(t); else if (!t.closest?.('.klikpad')) padWeg(); });
+document.addEventListener('focusout', () => setTimeout(() => { const a = document.activeElement; if (padInp && a !== padInp && !a?.closest?.('.klikpad')) padWeg(); }, 120));
+document.addEventListener('click', e => { if (e.target.closest?.('#mOk')) { const m = $('#mt'); if (m && $('#mLbl')?.textContent === 'Maat in cm') padOnthoud(m.value); } }, true);
+addEventListener('scroll', () => { if (padEl?.classList.contains('zwevend')) padWeg(); }, true);
 </script>
 </body>
 </html>
