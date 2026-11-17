@@ -450,6 +450,7 @@ table.form td[data-ncode] { cursor: pointer; text-decoration: underline dotted v
 .lgkop.nu span{color:#FF8A50}
 .lggrp.nu{outline:2px solid #FF8A50;outline-offset:-1px}
 .lgfotokop{display:block;width:100%;text-align:left;font-size:12px;font-weight:700;color:var(--muted);padding:6px 8px 2px}
+.codes button.nu{outline:2px solid var(--gold);outline-offset:-2px}
 </style>
 </head>
 <body>
@@ -514,7 +515,7 @@ try { projecten = JSON.parse(localStorage.getItem(KEY) || '[]'); } catch { proje
 projecten.forEach(p => p.submappen.forEach(s => { s.notities ??= []; }));
 // Alle projecten werken simpel: mappen en foto's, zonder stappenplan of Kadaster. Het oude plan blijft in de gegevens bewaard.
 const zetSimpel = p => { if (p.simpel) return; p.simpel = true;
-  if (!p.submappen.length) p.submappen = ['Voorgevel', 'Achtergevel'].map(naam => ({ id: nieuwId(), naam, aangemaakt: new Date().toISOString(), fotos: [], notities: [] })); };
+  if (!p.submappen.length) p.submappen = ['Voorgevel', 'Achtergevel', 'Zijgevel'].map(naam => ({ id: nieuwId(), naam, aangemaakt: new Date().toISOString(), fotos: [], notities: [] })); };
 
 function bewaar() { const pg = stapel[0] && vind(stapel[0]); if (pg) pg.gewijzigd = new Date().toISOString(); try { localStorage.setItem(KEY, JSON.stringify(projecten)); localStorage.setItem('buildcalc.gewijzigdOp', String(Date.now())); } catch (e) { toast('Opslaan mislukt: ' + e.message); } }
 let teller = 0;
@@ -763,11 +764,11 @@ async function toonFotoOpslag(m) {
 }
 
 // Mappen per soort klus; bij een nieuw project vink je aan welke je wilt.
-const MAPPEN_BUITEN = ['Voorgevel', 'Achtergevel', 'Linkergevel', 'Rechtergevel'];
+const MAPPEN_BUITEN = ['Voorgevel', 'Achtergevel', 'Zijgevel', 'Linkergevel', 'Rechtergevel'];
 const MAPPEN_BINNEN = ['Hal en trap', 'Woonkamer', 'Keuken', 'Slaapkamers', 'Badkamer'];
 const mappenVoor = soort => soort === 'buiten' ? MAPPEN_BUITEN : soort === 'binnen' ? MAPPEN_BINNEN : [...MAPPEN_BUITEN, ...MAPPEN_BINNEN];
 function projectForm(p) {
-  let soort = 'buiten', gekozen = new Set(['Voorgevel', 'Achtergevel']);
+  let soort = 'buiten', gekozen = new Set(['Voorgevel', 'Achtergevel', 'Zijgevel']);
   const s = sheet(`<h2>${p ? 'Project wijzigen' : 'Nieuw project'}</h2>
     ${veld('adres', 'Adres', 'Bijv. Dorpsstraat 12, Utrecht', p?.adres)}
     ${veld('werknummer', 'Werknummer', 'Bijv. 2026-014', p?.werknummer)}
@@ -783,7 +784,7 @@ function projectForm(p) {
   if (!p) {
     keuzes();
     $('#soort', s).onclick = e => { const b = e.target.closest('[data-soort]'); if (!b) return; soort = b.dataset.soort;
-      gekozen = new Set(soort === 'binnen' ? ['Hal en trap', 'Woonkamer'] : ['Voorgevel', 'Achtergevel']); keuzes(); };
+      gekozen = new Set(soort === 'binnen' ? ['Hal en trap', 'Woonkamer'] : ['Voorgevel', 'Achtergevel', 'Zijgevel']); keuzes(); };
     $('#mapKeus', s).onclick = e => { const b = e.target.closest('[data-mapnaam]'); if (!b) return; const n = b.dataset.mapnaam;
       gekozen.has(n) ? gekozen.delete(n) : gekozen.add(n); keuzes(); };
   }
@@ -1069,7 +1070,7 @@ function renderSimpelProject(m, p) {
     if (straatBestaat(naam)) return toast(`${naam} bestaat al`);
     const g = { id: nieuwId(), naam }; (p.groepen ||= []).push(g);
     // Zelfde begin als bij een nieuw project; weghalen of bijmaken kan daarna.
-    for (const n of p.soort === 'binnen' ? ['Hal en trap', 'Woonkamer'] : ['Voorgevel', 'Achtergevel']) p.submappen.push(nieuweMap(n, g.id));
+    for (const n of p.soort === 'binnen' ? ['Hal en trap', 'Woonkamer'] : ['Voorgevel', 'Achtergevel', 'Zijgevel']) p.submappen.push(nieuweMap(n, g.id));
     ordenMappen(p); bewaar(); render(); toast(`${naam} gemaakt met ${p.soort === 'binnen' ? 'Hal en trap en Woonkamer' : 'Voorgevel en Achtergevel'}. Meer mappen? Tik op ＋ Map in ${naam}.`, 6000);
   };
   m.querySelectorAll('[data-gopt]').forEach(b => b.onclick = () => { const g = (p.groepen || []).find(x => x.id === b.dataset.gopt); if (!g) return;
@@ -1174,7 +1175,7 @@ function adressenSheet(p, over = []) {
     delete p.adressen; bewaar(); sluit(s); render(); };
   if ($('#adStraten', s)) $('#adStraten', s).onclick = () => {
     for (const naam of nieuweStraten) { const g = { id: nieuwId(), naam }; (p.groepen ||= []).push(g);
-      for (const n of p.soort === 'binnen' ? ['Hal en trap', 'Woonkamer'] : ['Voorgevel', 'Achtergevel']) p.submappen.push({ id: nieuwId(), naam: n, aangemaakt: new Date().toISOString(), fotos: [], notities: [], groep: g.id }); }
+      for (const n of p.soort === 'binnen' ? ['Hal en trap', 'Woonkamer'] : ['Voorgevel', 'Achtergevel', 'Zijgevel']) p.submappen.push({ id: nieuwId(), naam: n, aangemaakt: new Date().toISOString(), fotos: [], notities: [], groep: g.id }); }
     ordenMappen(p); bewaar(); sluit(s); render(); toast(`${nieuweStraten.length === 1 ? '1 straat' : nieuweStraten.length + ' straten'} aangemaakt, elk met ${p.soort === 'binnen' ? 'Hal en trap en Woonkamer' : 'Voorgevel en Achtergevel'}.`, 5000); };
 }
 const adresRijHtml = (p, altijd = false) => !altijd && !(p.adressen || []).length && !(p.groepen || []).length ? '' : `<div class="card" style="margin-top:12px"><button class="srij" id="adOpen"><span class="sico">${ic('huis')}</span><span class="t"><b>Adressen van het complex</b><small>${esc(adresKort(p)) || 'Plak de lijst uit Excel: aantal woningen per type'}</small></span><span class="pijl">▸</span></button></div>`;
@@ -4424,7 +4425,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.17-4';
+const APP_VERSIE = '2026.11.17-5';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
@@ -5458,6 +5459,9 @@ function codeKiezer(titel, huidig = '', metStandaard = false, bestek = null) {
     };
     let blad = null; // groep [van, tot] of objectcode bij bladeren
     let filter = !!bestek && bestek !== 'RDO'; // alleen codes die bij het bestek passen (ONB, ONI, GOB, GOI)
+    // Staat er al een code (bijv. 005 B), dan meteen de andere varianten van die groep (005 D enz.). Zoeken in alle codes kan altijd.
+    const huidigZ = zoekCode(huidig), huidigCode = huidigZ ? `${huidigZ[0].code} ${huidigZ[1].code}` : '';
+    if (huidigZ && TC.get(huidigZ[0].code)) { blad = huidigZ[0].code; inp.value = ''; inp.placeholder = 'Zoek in alle codes, bijv. 005 D of kozijn'; }
     const toon = () => {
       const q = inp.value.trim(), z = zoekCode(q);
       const nieuw = !z && /^([0-9A-Z]{3})[\s\-./]+([0-9A-Z]{1,3})$/i.exec(q);
@@ -5471,7 +5475,7 @@ function codeKiezer(titel, huidig = '', metStandaard = false, bestek = null) {
           : '<div style="padding:12px 16px;color:var(--muted)">Niets gevonden</div>';
       } else if (typeof blad === 'string') {
         const o = TC.get(blad);
-        lijst.innerHTML = `<button data-terug="groep"><span>← ${esc(o.naam)}</span><b>${esc(o.code)}</b></button>` + [...o.onderdelen.values()].map(ot => regel({ o, ot, code: `${o.code} ${ot.code}` })).join('');
+        lijst.innerHTML = `<button data-zoekalles><span style="color:var(--gold)">🔍 Zoek in alle codes</span></button><button data-terug="groep"><span>← ${esc(o.naam)}</span><b>${esc(o.code)}</b></button>` + [...o.onderdelen.values()].map(ot => regel({ o, ot, code: `${o.code} ${ot.code}` })).join('');
       } else if (blad) {
         const objecten = [...TC.values()].filter(o => o.code >= blad[0] && o.code <= blad[1] && (!filter || codePastBij(o.code, bestek))).sort((a, b) => a.code.localeCompare(b.code));
         lijst.innerHTML = `<button data-terug="alles"><span>← ${esc(blad[2])}</span></button>` + objecten.map(o => `<button data-object="${esc(o.code)}"><span>${esc(o.naam)}</span><b>${esc(o.code)}</b></button>`).join('');
@@ -5484,6 +5488,8 @@ function codeKiezer(titel, huidig = '', metStandaard = false, bestek = null) {
       }
       lijst.querySelectorAll('[data-code]').forEach(b => b.onclick = () => kies(b.dataset.code));
       lijst.querySelectorAll('[data-allecodes]').forEach(b => b.onclick = () => { filter = false; toon(); });
+      lijst.querySelectorAll('[data-zoekalles]').forEach(b => b.onclick = () => { blad = null; filter = false; toon(); inp.focus(); });
+      if (huidigCode) lijst.querySelectorAll('[data-code]').forEach(b => { if (b.dataset.code === huidigCode) b.classList.add('nu'); });
       lijst.querySelectorAll('[data-groep]').forEach(b => b.onclick = () => { blad = TC_GROEPEN[+b.dataset.groep]; toon(); lijst.scrollTop = 0; });
       lijst.querySelectorAll('[data-object]').forEach(b => b.onclick = () => { blad = b.dataset.object; toon(); lijst.scrollTop = 0; });
       lijst.querySelectorAll('[data-terug]').forEach(b => b.onclick = () => { blad = b.dataset.terug === 'groep' ? TC_GROEPEN.find(g => blad >= g[0] && blad <= g[1]) : null; toon(); lijst.scrollTop = 0; });
@@ -7577,10 +7583,11 @@ async function maakTopcalcPdf(p) {
   if (p.klant) { pdf.tekst(M, y + 8, p.klant, 10, { kleur: '#555555' }); y += 14; }
   pdf.lijn(M, y + 4, M + B, y + 4, '#212121', 1.2); y += 16;
   // Kolommen: code, type, omschrijving, breedte, hoogte, strekkend, aantal, totaal
-  const kol = [34, 30, 0, 46, 46, 54, 40, 72], rechts = [false, false, false, true, true, true, true, true];
+  const kol = [34, 30, 0, 46, 46, 54, 40, 44, 72], rechts = [false, false, false, true, true, true, true, false, true];
   kol[2] = B - kol.reduce((a, b) => a + b, 0);
-  const kopTekst = ['Code', 'Type', 'Omschrijving', 'Breedte', 'Hoogte', 'Strekkend', 'Aantal', 'Totaal'];
+  const kopTekst = ['Code', 'Type', 'Omschrijving', 'Breedte', 'Hoogte', 'Strekkend', 'Aantal', 'Bestek', 'Totaal'];
   const rij = (cellen, { vet = false, kleur = '#212121', grijs = false, h = 15 } = {}) => {
+    if (cellen.length === 8) cellen = [...cellen.slice(0, 7), '', cellen[7]];
     if (grijs) pdf.rect(M, y, B, h, '#EEF0EC');
     let x = M; cellen.forEach((t, c) => { if (t !== '' && t != null) pdf.tekst(rechts[c] ? x + kol[c] - 4 : x + 4, y + 10.5, String(t), 8.5, { vet: vet || c < 2, rechts: rechts[c], kleur }); x += kol[c]; });
     y += h; pdf.lijn(M, y, M + B, y, '#DDDDDD', 0.5);
@@ -7604,7 +7611,7 @@ async function maakTopcalcPdf(p) {
       ruimte(15 * oms.length, kop);
       const totaal = r.hoeveel == null ? null : r.hoeveel;
       const [code, type, , b, h, st, n] = r.vakken;
-      rij([code, type, oms[0] || '', b === '0' ? '' : b, h === '0' ? '' : h, st === '0' ? '' : st, String(getal(n) ?? 1), somTekst(totaal, r.eenheid)], { kleur: totaal == null ? '#E65100' : '#212121' });
+      rij([code, type, oms[0] || '', b === '0' ? '' : b, h === '0' ? '' : h, st === '0' ? '' : st, String(getal(n) ?? 1), rijVariant(r.r || {}), somTekst(totaal, r.eenheid)], { kleur: totaal == null ? '#E65100' : '#212121' });
       for (const extra of oms.slice(1)) { y -= 0; rij(['', '', extra, '', '', '', '', '']); }
       if (totaal != null) for (const m of [som, projectSom]) { const t = m.get(r.code) || { r, v: 0 }; t.v += totaal; m.set(r.code, t); }
     }
@@ -8126,7 +8133,7 @@ function renderTopcalc(m) {
   const p = vind(RP.projectId); if (!p) return;
   const fotos = tcFotos(p);
   // Regels van een foto: alleen het aantal is hier aan te passen; de rest komt van de foto (📷 opent die foto).
-  const rijHtml = (r, b) => `<tr data-id="${r ? r.id : ''}"${r?.bron ? ' class="tcvanfoto"' : ''}>${TC_VELDEN.map(([k, , w]) => `<td${k === 'b' && r?.dikte ? ' style="position:relative"' : ''}><input data-v="${k}" value="${esc(r?.[k] ?? '')}" style="width:${w}" autocomplete="off" spellcheck="false"${r?.bron && k !== 'n' ? ' readonly tabindex="-1"' : ''}${k === 'b' && r?.dikte ? ` title="Inclusief ${r.dikte} cm diktekant"` : ''}>${k === 'b' && r?.dikte ? `<small class="dkbadge">+${r.dikte}</small>` : ''}</td>`).join('')}<td class="tcuit" style="text-align:right;white-space:nowrap;font-weight:700;font-size:13px;padding-left:8px">${tcUitkomstHtml(r)}</td><td>${r?.bron
+  const rijHtml = (r, b) => `<tr data-id="${r ? r.id : ''}"${r?.bron ? ' class="tcvanfoto"' : ''}>${TC_VELDEN.map(([k, , w]) => `<td${k === 'b' && r?.dikte ? ' style="position:relative"' : ''}><input data-v="${k}" value="${esc(r?.[k] ?? '')}" style="width:${w}" autocomplete="off" spellcheck="false"${r?.bron && k !== 'n' && k !== 'bv' ? ' readonly tabindex="-1"' : ''}${k === 'b' && r?.dikte ? ` title="Inclusief ${r.dikte} cm diktekant"` : ''}>${k === 'b' && r?.dikte ? `<small class="dkbadge">+${r.dikte}</small>` : ''}</td>`).join('')}<td class="tcuit" style="text-align:right;white-space:nowrap;font-weight:700;font-size:13px;padding-left:8px">${tcUitkomstHtml(r)}</td><td>${r?.bron
     ? `<button class="tcweg" data-tcfoto="${esc(r.foto || '')}" title="Van de foto: maten pas je aan op de foto" tabindex="-1">📷</button>` : '<button class="tcweg" data-weg title="Regel verwijderen" tabindex="-1">✕</button>'}</td></tr>`;
   m.innerHTML = `<div class="pad" style="padding-bottom:40px">
     <div style="color:var(--muted);font-size:14px;margin:0 2px 12px">Vul per map de regels in, net als in Topcalc. Kijk ondertussen naar je foto's en Google Maps. <b>Tab</b> = volgend vakje, <b>Enter</b> = volgende regel. Strekkend rekent zichzelf uit bij een m1-code; pas het aan als er stijlen bij of af moeten. Weet je de code niet? Klik op Code of Type om een code te kiezen. Bij een maat of aantal komt er een cijferblok bij, bij Omschrijving knopjes met namen.</div>
@@ -8276,7 +8283,7 @@ const BESTEKKEN = { GOB: ['Glas buiten', '#3FC9C0'], GOI: ['Glas binnen', '#A99B
 const BESTEK_LIJST = Object.keys(BESTEKKEN);
 // De code die in Topcalc in het vakje Bestek komt. ONB = OHD03; de andere volgen nog.
 const BESTEK_CODES = { ONB: 'OHD03', ONI: '', RCB: '', RDO: '', GOB: '', GOI: '' };
-const rijVariant = (r, b) => BESTEK_CODES[b] || '';
+const rijVariant = r => String(r.bv || '').trim(); // wat je zelf in het vakje Bestek typt (bijv. HA 05); niets vooraf ingevuld
 // Welke mappen je vooraf in Topcalc aanmaakt: project (straatnaam), daarin per bestek de mappen (Voorgevel, Achtergevel).
 const kaalMap = n => n.replace(/\b(RDO|ONB|ONI|GOB|GOI|RCB)\b|reiniging/gi, '').replace(/\s+/g, ' ').trim();
 // Zoals in Topcalc: bestek > straatnaam > gevel (bijv. ONB > Dorpsstraat 12 > Voorgevel).
@@ -8344,7 +8351,7 @@ function autoStrekkend(r, tr) {
   r.st = nieuw; r.stAuto = !!nieuw;
   const inp = $('[data-v=st]', tr); if (inp && inp.value !== nieuw) inp.value = nieuw;
 }
-const TC_VELDEN = [['code', 'Code', '4.2em'], ['type', 'Type', '3.4em'], ['oms', 'Omschrijving', '100%'], ['b', 'Breedte', '4.6em'], ['h', 'Hoogte', '4.6em'], ['st', 'Strekkend', '5em'], ['n', 'Aantal', '3.8em']];
+const TC_VELDEN = [['code', 'Code', '4.2em'], ['type', 'Type', '3.4em'], ['oms', 'Omschrijving', '100%'], ['b', 'Breedte', '4.6em'], ['h', 'Hoogte', '4.6em'], ['st', 'Strekkend', '5em'], ['n', 'Aantal', '3.8em'], ['bv', 'Bestek', '5em']];
 // AutoHotkey-script (v2) voor de pc: typt de regels in Topcalc, met Tab tussen de vakken en Enter na elke regel.
 // Zo voer je in Topcalc één regel in (getest op kantoor): Code (3 tekens, springt zelf door, dus geen Tab),
 // Type (2 tekens springt zelf door, 1 teken: Tab), Omschrijving Tab, Breedte Tab, Hoogte Tab, Strekkend Tab, Aantal Tab,
@@ -9487,7 +9494,7 @@ const PAD_RECENT = 'bc_klikmaten';
 const padRecent = () => { try { return JSON.parse(localStorage.getItem(PAD_RECENT) || '[]'); } catch { return []; } };
 const padOnthoud = v => { v = String(v).trim(); if (!/^\d+([.,]\d+)?$/.test(v)) return; const l = [v, ...padRecent().filter(x => x !== v)].slice(0, 8); try { localStorage.setItem(PAD_RECENT, JSON.stringify(l)); } catch {} };
 let padEl = null, padInp = null;
-const padVelden = '#mt, input[data-pad], .tcgrid input[data-v=b], .tcgrid input[data-v=h], .tcgrid input[data-v=st], .tcgrid input[data-v=n], .tcgrid input[data-v=oms]';
+const padVelden = '#mt, input[data-pad], .tcgrid input[data-v=b], .tcgrid input[data-v=h], .tcgrid input[data-v=st], .tcgrid input[data-v=n], .tcgrid input[data-v=oms], .tcgrid input[data-v=bv]';
 function padZet(inp, v, vervang) {
   if (vervang) inp.value = v;
   else { const a = inp.selectionStart ?? inp.value.length, b = inp.selectionEnd ?? a; inp.value = inp.value.slice(0, a) + v + inp.value.slice(b); inp.setSelectionRange?.(a + v.length, a + v.length); }
@@ -9507,6 +9514,8 @@ function padToets(k) {
 }
 function padHtml(inp) {
   const tt = (k, l, c = '') => `<button type="button" data-pk="${k}" class="${c}">${esc(l)}</button>`;
+  if (inp.dataset.v === 'bv') { const al = [...new Set(projecten.flatMap(pp => pp.submappen.flatMap(sm => (sm.tc || []).map(r => String(r.bv || '').trim().toUpperCase()))).filter(Boolean))].sort().slice(0, 24);
+    return `<div class="padsnel"><small>${al.length ? 'Eerder gebruikt (of typ zelf, bijv. HA 05)' : 'Typ de bestekcode, bijv. HA 05'}</small>${al.map(n => tt('=' + n, n, 'snel')).join('')}</div><div class="padgrid">${tt('wis', 'Wis', 'grijs breed')}${tt('volg', 'Volgende ›', 'ok breed')}</div>`; }
   if (inp.dataset.v === 'oms') return `<div class="padsnel"><small>Kies een naam (of typ zelf)</small>${onderdeelNamen().slice(0, 16).map(n => tt('=' + n, n, 'snel')).join('')}</div><div class="padgrid">${tt('wis', 'Wis', 'grijs breed')}${tt('volg', 'Volgende ›', 'ok breed')}</div>`;
   const tabel = !!inp.closest('.tcgrid'), snel = inp.dataset.snel ? inp.dataset.snel.split(',') : /meter|Aantal/i.test(inp.closest('label')?.textContent || '') || inp.dataset.v === 'n' ? [] : padRecent();
   const t = (k, l, c = '') => `<button type="button" data-pk="${k}" class="${c}">${l}</button>`;
