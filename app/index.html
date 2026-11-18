@@ -81,6 +81,19 @@ nav.tabs .ico { position: relative; }
 .inmpak { background: none; border: 0; padding: 6px 0 0; color: var(--a2); font-weight: 600; font-size: 14px; }
 .inmpak.mijn { color: var(--ok); }
 .inmtc { flex: none; border: 1.5px solid var(--gold); color: var(--gold); background: none; border-radius: 999px; padding: 8px 12px; font-weight: 600; white-space: nowrap; }
+.inmkop { margin: 14px 2px 6px; font-size: 13px; font-weight: 700; letter-spacing: .04em; color: var(--muted); text-transform: uppercase; }
+.inmc.beurt { border: 2px solid var(--gold); margin-bottom: 0; border-radius: 12px 12px 0 0; }
+.inmc.beurt.los { border-radius: 12px; margin-bottom: 8px; }
+.inmwhy { font-size: 14px; font-weight: 600; color: var(--gold); margin: 0 2px 6px; }
+.card.inmbuurt { border: 2px solid var(--gold); border-top: 0; border-radius: 0 0 12px 12px; padding: 8px 12px 12px 14px; margin-bottom: 8px; }
+.inmbuurt .k { font-size: 14px; color: var(--muted); margin-bottom: 4px; }
+.inmbr { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-top: 1px solid var(--surface-high); }
+.inmbr .inmt .a { font-size: 15px; }
+.inmbr .inmpak { padding: 0 2px; flex: none; }
+.inmverd { display: block; width: 100%; text-align: left; background: none; border: 0; padding: 2px 2px 6px; color: var(--muted); font-size: 14px; }
+.inmverd b { color: var(--text); font-weight: 600; }
+.inmvt { width: 100%; border-collapse: collapse; font-size: 15px; } .inmvt td, .inmvt th { padding: 8px 4px; text-align: right; border-bottom: 1px solid var(--surface-high); } .inmvt td:first-child, .inmvt th:first-child { text-align: left; }
+.inmvt th { font-size: 13px; color: var(--muted); font-weight: 600; } .inmbar { height: 6px; border-radius: 3px; background: var(--surface-high); margin-top: 4px; overflow: hidden; } .inmbar i { display: block; height: 100%; background: var(--gold); }
 .inmdag { display: flex; justify-content: space-between; align-items: baseline; margin: 16px 2px 8px; font-size: 16px; }
 .inmdag a { color: var(--a2); font-weight: 600; text-decoration: none; }
 .lijstkop { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px 4px; }
@@ -4425,7 +4438,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.18-4';
+const APP_VERSIE = '2026.11.18-5';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
@@ -9154,10 +9167,56 @@ const inmIk = () => INM.cfg.naam || (INM.cfg.soort === 'demo' ? 'Dave' : '');
 const inmCollega = () => INM.lijst.filter(x => x.status !== 'ingemeten' && x.door && x.door !== inmIk());
 const inmWeekAantal = () => inmGekoppeld() ? inmPlan().week.length : 0;
 
-function inmItem(v) {
+// Beurtregel (staat gelijk in de app en in de inmeetlijst voor de collega, inmeten/index.html).
+// Per werkvoorbereider tellen alleen de rondes (zelfde werkvoorbereider + zelfde deadline) waar nog iets open staat; afgeronde rondes vallen weg.
+// Gedaan = ingemeten of al door iemand gepakt. Het volgende adres komt van wie procentueel het verst achterloopt; geen weekaantal.
+// Spoed (klaar binnen 7 dagen of te laat) gaat altijd voor. In de buurt: vrije adressen binnen 2 km, van welke werkvoorbereider ook.
+const BEURT_KM = 2, BEURT_SPOED = 7;
+function beurtDagen(dl) { if (!dl) return 999; const n = new Date(); n.setHours(0, 0, 0, 0); return Math.round((new Date(String(dl).slice(0, 10) + 'T00:00:00') - n) / 864e5); }
+const beurtWvb = x => String(x.wvb || '').trim() || 'Onbekend';
+function beurtVerdeling(items) {
+  const open = x => x.status !== 'ingemeten', ronde = x => beurtWvb(x) + '|' + String(x.deadline || '').slice(0, 10);
+  const actief = new Set(items.filter(open).map(ronde)), tel = {};
+  items.filter(x => actief.has(ronde(x))).forEach(x => {
+    const t = tel[beurtWvb(x)] ??= { naam: beurtWvb(x), tot: 0, klaar: 0, bezig: 0, deadline: '' };
+    t.tot++;
+    if (!open(x)) t.klaar++;
+    else { if (x.door) t.bezig++; const d = String(x.deadline || '').slice(0, 10); if (d && (!t.deadline || d < t.deadline)) t.deadline = d; }
+  });
+  return tel;
+}
+function beurtVolgorde(items) {
+  const tel = beurtVerdeling(items), gedaan = {};
+  Object.values(tel).forEach(t => gedaan[t.naam] = t.klaar + t.bezig);
+  const pct = w => gedaan[w] / tel[w].tot;
+  const opDatum = (a, b) => beurtDagen(a.deadline) - beurtDagen(b.deadline) || String(a.adres).localeCompare(String(b.adres), 'nl', { numeric: true });
+  const rest = items.filter(x => x.status !== 'ingemeten' && !x.door), uit = [];
+  while (rest.length) {
+    const spoed = rest.filter(x => beurtDagen(x.deadline) <= BEURT_SPOED);
+    let x, why;
+    if (spoed.length) { x = spoed.sort((a, b) => beurtDagen(a.deadline) - beurtDagen(b.deadline) || pct(beurtWvb(a)) - pct(beurtWvb(b)) || opDatum(a, b))[0]; why = 'spoed'; }
+    else {
+      const w = [...new Set(rest.map(beurtWvb))].sort((a, b) => pct(a) - pct(b) || tel[a].deadline.localeCompare(tel[b].deadline) || a.localeCompare(b))[0];
+      x = rest.filter(y => beurtWvb(y) === w).sort(opDatum)[0]; why = 'beurt';
+    }
+    uit.push({ x, why, pct: pct(beurtWvb(x)) });
+    gedaan[beurtWvb(x)]++; rest.splice(rest.indexOf(x), 1);
+  }
+  return { volgorde: uit, tel };
+}
+// Wat ligt er bij x in de buurt? km(a, b) geeft 99 als de plek onbekend is; dan telt dezelfde straat in dezelfde plaats.
+function beurtBuurt(x, kandidaten, km, straat) {
+  return kandidaten.filter(y => y !== x).map(y => ({ y, km: km(x, y) }))
+    .filter(o => o.km < BEURT_KM || (o.km === 99 && straat(o.y) === straat(x)))
+    .sort((a, b) => a.km - b.km).slice(0, 12);
+}
+const beurtAfstand = km => km === 99 ? 'zelfde straat' : km < 1 ? Math.max(50, Math.round(km * 20) * 50) + ' m' : km.toFixed(1).replace('.', ',') + ' km';
+
+
+function inmItem(v, klasse = '') {
   const x = v.x, spoed = v.why === 'spoed', heeft = INM.proj[x.id] && vind(INM.proj[x.id]);
   const mijn = x.door && x.door === inmIk();
-  return `<div class="card inmc"><div class="inml"><button class="inmt" data-inm="${esc(x.id)}">
+  return `<div class="card inmc${klasse}"><div class="inml"><button class="inmt" data-inm="${esc(x.id)}">
       <div class="a">${esc(String(x.adres).split(',')[0])}</div>
       <div class="m">${esc([inmPlaats(x), x.opdrachtgever, String(x.wvb || '').split(' ')[0]].filter(Boolean).join(' · '))}${heeft ? ' · <span style="color:var(--a2)">project ✓</span>' : ''}</div>
       <div class="d" style="${spoed ? 'color:var(--danger);font-weight:600' : ''}">${x.deadline ? (spoed ? 'Moet deze week, klaar ' : 'Klaar voor ') + inmDatum(x.deadline) : 'Geen datum'}${v.why === 'buurt' ? ' · <span style="color:var(--a2)">ligt in de buurt</span>' : ''}</div></button>
@@ -9175,17 +9234,33 @@ function renderInmeten(m) {
     $('#inmDemo', m).onclick = () => { INM.cfg = { ...INM.cfg, soort: 'demo' }; inmBewaarCfg(); localStorage.removeItem(INM_DEMO_KEY); inmHaal(); };
     return;
   }
-  // Eén lijst: eerst wat deze week moet (met wat ernaast ligt), daarna de rest op datum.
-  const pl = inmPlan(), op = l => [...l].sort((a, b) => pl.dl(a.x) - pl.dl(b.x));
-  const lijst = [...op(pl.week), ...op([...pl.maand, ...pl.later])].map(inmItem).join('') || `<div class="empty" style="padding:24px 0">Niets meer in te meten.${INM.lijst.length || inmIsCol() ? '' : `<br><br><small>Nieuwe werkvoorbereider? Voeg hem toe en deel zijn link, dan kan hij adressen sturen.</small><br>
+  // Volgorde met de beurtregel: eerst wat jij al gepakt hebt, dan wie er nu aan de beurt is (met wat ernaast ligt), daarna de rest in beurtvolgorde.
+  const ik = inmIk(), { volgorde, tel } = beurtVolgorde(INM.lijst);
+  const spoedOf = x => x.deadline && beurtDagen(x.deadline) <= BEURT_SPOED ? 'spoed' : '';
+  const mijnOpen = ik ? INM.lijst.filter(x => x.status !== 'ingemeten' && x.door === ik).sort((a, b) => beurtDagen(a.deadline) - beurtDagen(b.deadline)) : [];
+  const beurt = volgorde[0], buurt = beurt ? beurtBuurt(beurt.x, volgorde.slice(1).map(v => v.x), inmKm, x => inmStraat(x.adres) + '|' + inmPlaats(x)) : [];
+  const inBuurt = new Set(buurt.map(o => o.y.id)), daarna = volgorde.slice(1).filter(v => !inBuurt.has(v.x.id));
+  const naam = x => String(beurtWvb(x)).split(' ')[0];
+  const reden = beurt && (beurt.why === 'spoed' ? `Spoed: ${beurt.x.deadline && beurtDagen(beurt.x.deadline) < 0 ? 'te laat' : 'klaar voor ' + inmDatum(beurt.x.deadline)}`
+    : Object.keys(tel).length > 1 ? `${naam(beurt.x)} loopt het meest achter (${Math.round(beurt.pct * 100)}% gedaan)` : `Volgende van ${naam(beurt.x)}`);
+  const verd = Object.values(tel).filter(t => t.tot > t.klaar).sort((a, b) => a.klaar / a.tot - b.klaar / b.tot);
+  const lijst = (mijnOpen.length ? `<div class="inmkop">Van jou (${mijnOpen.length})</div>` + mijnOpen.map(x => inmItem({ x, why: spoedOf(x) })).join('') : '')
+    + (beurt ? `<div class="inmkop">Nu aan de beurt</div><div class="inmwhy">${esc(reden)}</div>${inmItem(beurt, buurt.length ? ' beurt' : ' beurt los')}`
+      + (buurt.length ? `<div class="card inmbuurt"><div class="k">In de buurt, pak je mee:</div>${buurt.map(o => `<div class="inmbr"><button class="inmt" data-inm="${esc(o.y.id)}">
+          <div class="a">${esc(String(o.y.adres).split(',')[0])}</div><div class="m">${esc(naam(o.y))} · ${beurtAfstand(o.km)}</div></button>
+          <button class="inmpak" data-pak="${esc(o.y.id)}">Ik pak dit</button></div>`).join('')}
+        <button class="primary" id="inmPakAlles" style="margin-top:8px">Ik pak dit + ${buurt.length} in de buurt</button></div>` : '') : '')
+    + (daarna.length ? `<div class="inmkop">Daarna</div>` + daarna.map(v => inmItem(v)).join('') : '')
+    || `<div class="empty" style="padding:24px 0">Niets meer in te meten.${INM.lijst.length || inmIsCol() ? '' : `<br><br><small>Nieuwe werkvoorbereider? Voeg hem toe en deel zijn link, dan kan hij adressen sturen.</small><br>
       <button class="outline" id="inmWvbLeeg" style="color:var(--a2);width:auto;padding:8px 16px;margin:10px auto 0;display:inline-block">＋ Werkvoorbereider toevoegen</button>`}</div>`;
   const klaar = INM.lijst.filter(x => x.status === 'ingemeten').length, col = inmCollega();
-  m.innerHTML = `<div class="lijstkop"><div class="count">${pl.week.length + pl.maand.length + pl.later.length} in te meten</div>
+  m.innerHTML = `<div class="lijstkop"><div class="count">${mijnOpen.length + volgorde.length} in te meten</div>
       <div style="display:flex;gap:4px;align-items:center">${inmIsCol() ? '' : `<button class="ghost" id="inmWvbNieuw" style="color:var(--a2)" aria-label="Werkvoorbereider toevoegen">＋<span class="wvbtxt"> Werkvoorbereider</span></button>`}
       <button class="ghost" id="inmVerv" style="color:var(--a2)" aria-label="Lijst bijwerken">${INM.laden ? 'Bijwerken…' : '↻ Bijwerken'}</button></div></div>
     <div class="pad" style="padding-top:4px">
       ${INM.cfg.soort === 'demo' ? '<div class="card" style="padding:8px 12px;font-size:13px;color:var(--muted);margin-bottom:8px">Voorbeeld met verzonnen adressen. Echte aanvragen koppel je in Instellingen.</div>' : ''}
       ${INM.fout ? `<div class="card" style="padding:8px 12px;font-size:13px;color:var(--danger);margin-bottom:8px">Bijwerken lukte niet: ${esc(INM.fout)}${INM.gehaald ? '. Je ziet de lijst van de laatste keer.' : ''}</div>` : ''}
+      ${verd.length > 1 ? `<button class="inmverd" id="inmVerd">Gedaan: ${verd.map(t => `<b>${esc(t.naam.split(' ')[0])}</b> ${Math.round(t.klaar / t.tot * 100)}%`).join(' · ')} ▸</button>` : ''}
       ${lijst}
       ${col.length ? `<button class="ghost" id="inmCol" style="margin-top:14px;color:var(--muted);width:100%">${col.length} bij een collega ▸</button>` : ''}
       ${klaar ? `<button class="ghost" id="inmKlaar" style="margin-top:${col.length ? 2 : 14}px;color:var(--muted);width:100%">${klaar} ingemeten ▸</button>` : ''}</div>`;
@@ -9197,6 +9272,8 @@ function renderInmeten(m) {
   if ($('#inmKlaar', m)) $('#inmKlaar', m).onclick = inmKlaarLijst;
   if ($('#inmCol', m)) $('#inmCol', m).onclick = inmColLijst;
   m.querySelectorAll('[data-pak]').forEach(b => b.onclick = () => inmPak(INM.lijst.find(x => x.id === b.dataset.pak)));
+  if ($('#inmPakAlles', m)) $('#inmPakAlles', m).onclick = () => inmPakAlles([beurt.x, ...buurt.map(o => o.y)]);
+  if ($('#inmVerd', m)) $('#inmVerd', m).onclick = () => inmVerdeling(tel);
   if (Date.now() - INM.gehaald > 5 * 60e3 && !INM.laden && !INM.fout) inmHaal(true);
 }
 // Tik op een adres: het project bestaat al (open het) of wordt nu gemaakt met adres en opdrachtgever. Mappen kies je in het project.
@@ -9242,6 +9319,26 @@ async function inmPak(x) {
   const los = x.door === inmIk();
   try { await inmApi('pak', { id: x.id, door: los ? '' : inmIk() }); x.door = los ? '' : inmIk(); zetJ(INM_LIJST_KEY, INM.lijst); renderTabs(); render(); toast(los ? 'Losgelaten' : 'Staat op jouw naam'); }
   catch (e) { toast('Lukt niet: ' + (e.message || e)); inmHaal(true); }
+}
+// Het hoofdadres en alles in de buurt in één keer op jouw naam. Wat een ander net pakte, slaat hij over.
+async function inmPakAlles(l) {
+  if (!inmIk()) {
+    const n = ((await vraagTekst('Jouw naam', 'Hoe heet je? Je collega ziet dit bij de adressen die jij pakt.', 'Bijv. Dave')) || '').trim(); if (!n) return;
+    INM.cfg.naam = n; inmBewaarCfg();
+  }
+  let ok = 0, mis = 0;
+  for (const x of l) { try { await inmApi('pak', { id: x.id, door: inmIk() }); x.door = inmIk(); ok++; } catch { mis++; } }
+  zetJ(INM_LIJST_KEY, INM.lijst); renderTabs(); render();
+  toast(`${ok} op jouw naam${mis ? `, ${mis} lukte niet (al gepakt?)` : ''}`);
+  if (mis) inmHaal(true);
+}
+// Overzicht per werkvoorbereider: wat staat er nog open van de lopende rondes en hoeveel is al ingemeten.
+function inmVerdeling(tel) {
+  const l = Object.values(tel).sort((a, b) => a.klaar / a.tot - b.klaar / b.tot);
+  sheet(`<h2>Per werkvoorbereider</h2><div style="color:var(--muted);font-size:13px;margin-bottom:8px">Wie het verst achterloopt, is als eerste aan de beurt. Rondes die helemaal klaar zijn, tellen niet meer mee.</div>
+    <div class="card" style="padding:4px 12px"><table class="inmvt"><tr><th>Werkvoorbereider</th><th>Open</th><th>Ingemeten</th><th>Klaar</th></tr>
+    ${l.map(t => `<tr><td>${esc(t.naam)}${t.deadline ? `<div style="font-size:12px;color:var(--muted)">klaar voor ${inmDatum(t.deadline)}</div>` : ''}<div class="inmbar"><i style="width:${Math.round(t.klaar / t.tot * 100)}%"></i></div></td>
+      <td>${t.tot - t.klaar}</td><td>${t.klaar}</td><td><b>${Math.round(t.klaar / t.tot * 100)}%</b></td></tr>`).join('')}</table></div>`);
 }
 function inmColLijst() {
   const l = inmCollega();

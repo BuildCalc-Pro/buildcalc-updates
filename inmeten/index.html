@@ -42,6 +42,13 @@ input{width:100%;font:16px inherit;font-family:inherit;padding:11px;border:1px s
 .sh h2{margin:0 0 8px;font-size:21px}.sh p{color:var(--muted);margin:0 0 12px}
 .mail{background:var(--zacht);border-radius:12px;padding:12px;font-size:14px;white-space:pre-wrap;overflow-wrap:anywhere}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(16px + env(safe-area-inset-bottom));background:var(--ink);color:var(--bg);padding:12px 16px;border-radius:12px;max-width:calc(100% - 32px);z-index:9}
+.beurtkop{margin:16px 2px 6px;font-size:13px;font-weight:700;letter-spacing:.04em;color:var(--muted);text-transform:uppercase}
+.why{font-size:14px;font-weight:700;color:var(--olijf);margin:0 2px 6px}
+.k.beurt{border:2px solid var(--olijf)}
+.buurt{margin-top:10px;border-top:1px solid var(--lijn);padding-top:6px}.buurt .t{font-size:14px;color:var(--muted)}
+.br{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--lijn)}.br:last-of-type{border-bottom:0}
+.br .s{flex:1;min-width:0}.br .s a{font-weight:700;color:var(--link);text-decoration:none}.br .s div{color:var(--muted);font-size:13px}
+.br button{flex:none;border-radius:999px;padding:7px 12px;font:700 14px inherit;font-family:inherit;border:1.5px solid var(--olijf);background:none;color:var(--olijf);cursor:pointer}
 :focus-visible{outline:3px solid var(--link);outline-offset:2px}
 </style>
 </head>
@@ -55,6 +62,7 @@ const zet = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
 let P = new URLSearchParams(location.hash.slice(1));
 if (P.get('b')) zet('il_link', P.toString()); else P = new URLSearchParams(lees('il_link', ''));
 const B = P.get('b'), U = P.get('u') || '', K = P.get('k') || '', SL = P.get('s') || '';
+let GEO = {}; try { GEO = JSON.parse(lees('il_geo', '{}')) || {}; } catch {}
 const S = { naam: lees('il_naam', ''), items: [], tab: lees('il_tab', 'alles'), fout: '', laden: true, tijd: null, bezig: '' };
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const app = document.getElementById('app');
@@ -95,7 +103,73 @@ async function laad() {
   try { const j = await api('lijst'); S.items = (j.items || []).map(x => ({ ...x, id: String(x.id), door: x.door || '' })); S.fout = ''; S.tijd = new Date(); }
   catch (e) { S.fout = e.message || String(e); }
   S.laden = false; teken();
+  if (await geo()) teken();
 }
+// Adres naar plek op de kaart via PDOK (gratis adressendienst van de overheid), één keer per adres. Nodig voor "in de buurt".
+async function geo() {
+  const nieuw = S.items.filter(x => x.status !== 'ingemeten' && x.lat == null && !GEO[x.adres]).slice(0, 60);
+  for (const x of nieuw) {
+    try {
+      const r = await fetch('https://api.pdok.nl/bzk/locatieserver/search/v3_1/free?rows=1&fq=type:adres&fl=centroide_ll,woonplaatsnaam&q=' + encodeURIComponent(x.adres));
+      const d = (await r.json())?.response?.docs?.[0], n = d?.centroide_ll?.match(/-?[\d.]+/g)?.map(Number);
+      GEO[x.adres] = n ? { lat: n[1], lng: n[0], plaats: d.woonplaatsnaam || '' } : {};
+    } catch { break; }
+  }
+  zet('il_geo', JSON.stringify(GEO)); return nieuw.length > 0;
+}
+const plek = x => x.lat != null ? x : (GEO[x.adres] || {});
+function km(a, b) {
+  const p = plek(a), q = plek(b); if (p.lat == null || q.lat == null) return 99;
+  const r = Math.PI / 180, dLa = (q.lat - p.lat) * r, dLo = (q.lng - p.lng) * r;
+  const h = Math.sin(dLa / 2) ** 2 + Math.cos(p.lat * r) * Math.cos(q.lat * r) * Math.sin(dLo / 2) ** 2;
+  return 12742 * Math.asin(Math.sqrt(h));
+}
+
+// Beurtregel (staat gelijk in de app en in de inmeetlijst voor de collega, inmeten/index.html).
+// Per werkvoorbereider tellen alleen de rondes (zelfde werkvoorbereider + zelfde deadline) waar nog iets open staat; afgeronde rondes vallen weg.
+// Gedaan = ingemeten of al door iemand gepakt. Het volgende adres komt van wie procentueel het verst achterloopt; geen weekaantal.
+// Spoed (klaar binnen 7 dagen of te laat) gaat altijd voor. In de buurt: vrije adressen binnen 2 km, van welke werkvoorbereider ook.
+const BEURT_KM = 2, BEURT_SPOED = 7;
+function beurtDagen(dl) { if (!dl) return 999; const n = new Date(); n.setHours(0, 0, 0, 0); return Math.round((new Date(String(dl).slice(0, 10) + 'T00:00:00') - n) / 864e5); }
+const beurtWvb = x => String(x.wvb || '').trim() || 'Onbekend';
+function beurtVerdeling(items) {
+  const open = x => x.status !== 'ingemeten', ronde = x => beurtWvb(x) + '|' + String(x.deadline || '').slice(0, 10);
+  const actief = new Set(items.filter(open).map(ronde)), tel = {};
+  items.filter(x => actief.has(ronde(x))).forEach(x => {
+    const t = tel[beurtWvb(x)] ??= { naam: beurtWvb(x), tot: 0, klaar: 0, bezig: 0, deadline: '' };
+    t.tot++;
+    if (!open(x)) t.klaar++;
+    else { if (x.door) t.bezig++; const d = String(x.deadline || '').slice(0, 10); if (d && (!t.deadline || d < t.deadline)) t.deadline = d; }
+  });
+  return tel;
+}
+function beurtVolgorde(items) {
+  const tel = beurtVerdeling(items), gedaan = {};
+  Object.values(tel).forEach(t => gedaan[t.naam] = t.klaar + t.bezig);
+  const pct = w => gedaan[w] / tel[w].tot;
+  const opDatum = (a, b) => beurtDagen(a.deadline) - beurtDagen(b.deadline) || String(a.adres).localeCompare(String(b.adres), 'nl', { numeric: true });
+  const rest = items.filter(x => x.status !== 'ingemeten' && !x.door), uit = [];
+  while (rest.length) {
+    const spoed = rest.filter(x => beurtDagen(x.deadline) <= BEURT_SPOED);
+    let x, why;
+    if (spoed.length) { x = spoed.sort((a, b) => beurtDagen(a.deadline) - beurtDagen(b.deadline) || pct(beurtWvb(a)) - pct(beurtWvb(b)) || opDatum(a, b))[0]; why = 'spoed'; }
+    else {
+      const w = [...new Set(rest.map(beurtWvb))].sort((a, b) => pct(a) - pct(b) || tel[a].deadline.localeCompare(tel[b].deadline) || a.localeCompare(b))[0];
+      x = rest.filter(y => beurtWvb(y) === w).sort(opDatum)[0]; why = 'beurt';
+    }
+    uit.push({ x, why, pct: pct(beurtWvb(x)) });
+    gedaan[beurtWvb(x)]++; rest.splice(rest.indexOf(x), 1);
+  }
+  return { volgorde: uit, tel };
+}
+// Wat ligt er bij x in de buurt? km(a, b) geeft 99 als de plek onbekend is; dan telt dezelfde straat in dezelfde plaats.
+function beurtBuurt(x, kandidaten, km, straat) {
+  return kandidaten.filter(y => y !== x).map(y => ({ y, km: km(x, y) }))
+    .filter(o => o.km < BEURT_KM || (o.km === 99 && straat(o.y) === straat(x)))
+    .sort((a, b) => a.km - b.km).slice(0, 12);
+}
+const beurtAfstand = km => km === 99 ? 'zelfde straat' : km < 1 ? Math.max(50, Math.round(km * 20) * 50) + ' m' : km.toFixed(1).replace('.', ',') + ' km';
+
 
 const nu = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; };
 const dagen = s => s ? Math.round((new Date(String(s).slice(0, 10) + 'T00:00:00') - nu()) / 864e5) : 999;
@@ -104,13 +178,14 @@ const straat = x => String(x.adres).split(',')[0].trim();
 const plaats = x => (String(x.adres).split(',')[1] || '').trim();
 const voornaam = s => String(s || '').split(' ')[0];
 const mijn = x => S.naam && x.door === S.naam;
+const straatNaam = x => straat(x).replace(/\s+\d.*$/, '') + '|' + (plek(x).plaats || plaats(x));
 
-function kaart(x) {
+function kaart(x, klasse = '', extra = '') {
   const n = dagen(x.deadline), spoed = x.deadline && n <= 7;
   const dl = !x.deadline ? 'Geen datum' : n < 0 ? `Te laat, moest ${datum(x.deadline)}` : `${spoed ? 'Spoed, klaar voor ' : 'Klaar voor '}${datum(x.deadline)}`;
   const vraag = x.email ? `mailto:${encodeURIComponent(x.email)}?subject=${encodeURIComponent('Vraag over ' + x.adres)}&body=${encodeURIComponent(`Hoi ${voornaam(x.wvb)},\n\n`)}` : '';
   const b = S.bezig === x.id ? 'disabled' : '';
-  return `<div class="k${mijn(x) ? ' mijn' : ''}">
+  return `<div class="k${mijn(x) ? ' mijn' : ''}${klasse}">
     <a class="a" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(x.adres)}" target="_blank" rel="noopener">${esc(straat(x))}</a>
     <div class="m">${esc([plaats(x), x.opdrachtgever].filter(Boolean).join(' · '))}</div>
     <div class="d${spoed ? ' spoed' : ''}">${esc(dl)}</div>
@@ -118,6 +193,7 @@ function kaart(x) {
     ${x.door ? `<span class="door">${mijn(x) ? '✓ Jij meet dit in' : esc(x.door) + ' meet dit in'}</span>` : ''}
     ${!x.door ? `<div class="knoppen"><button data-pak="${esc(x.id)}" ${b}>Ik pak dit</button></div>`
       : mijn(x) ? `<div class="knoppen"><button data-los="${esc(x.id)}" ${b}>Loslaten</button><button class="vol" data-klaar="${esc(x.id)}" ${b}>Klaar</button></div>` : ''}
+    ${extra}
   </div>`;
 }
 
@@ -135,19 +211,39 @@ function teken() {
   const open = S.items.filter(x => x.status !== 'ingemeten')
     .sort((a, b) => dagen(a.deadline) - dagen(b.deadline) || String(a.adres).localeCompare(String(b.adres), 'nl', { numeric: true }));
   const telM = open.filter(mijn).length, telV = open.filter(x => !x.door).length;
-  const l = S.tab === 'mijn' ? open.filter(mijn) : S.tab === 'vrij' ? open.filter(x => !x.door) : open;
+  // Beurtregel: bovenaan wie er nu aan de beurt is, met wat ernaast ligt; daarna de rest in beurtvolgorde.
+  const { volgorde, tel } = beurtVolgorde(S.items), beurt = volgorde[0];
+  const buurt = beurt ? beurtBuurt(beurt.x, volgorde.slice(1).map(v => v.x), km, straatNaam) : [];
+  const inBuurt = new Set(buurt.map(o => o.y.id)), daarna = volgorde.slice(1).filter(v => !inBuurt.has(v.x.id)).map(v => v.x);
+  S.pakAlles = beurt ? [beurt.x, ...buurt.map(o => o.y)] : [];
+  const reden = beurt && (beurt.why === 'spoed' ? 'Spoed, moet het eerst' : Object.keys(tel).length > 1 ? `${voornaam(beurtWvb(beurt.x))} loopt het meest achter (${Math.round(beurt.pct * 100)}% gedaan)` : `Volgende van ${voornaam(beurtWvb(beurt.x))}`);
+  const buurtHtml = buurt.length ? `<div class="buurt"><div class="t">In de buurt, pak je mee:</div>${buurt.map(o => `<div class="br"><div class="s">
+      <a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(o.y.adres)}" target="_blank" rel="noopener">${esc(straat(o.y))}</a>
+      <div>${esc(voornaam(beurtWvb(o.y)))} · ${beurtAfstand(o.km)}</div></div><button data-pak="${esc(o.y.id)}" ${S.bezig ? 'disabled' : ''}>Ik pak dit</button></div>`).join('')}
+    <div class="knoppen"><button class="vol" id="pakAlles" ${S.bezig ? 'disabled' : ''}>Ik pak dit + ${buurt.length} in de buurt</button></div></div>` : '';
+  const kop = t => `<div class="beurtkop">${t}</div>`;
+  const vrijL = (beurt ? [beurt.x] : []).concat(volgorde.slice(1).map(v => v.x));
+  const alles = () => {
+    const m = open.filter(mijn), anders = open.filter(x => x.door && !mijn(x));
+    return (m.length ? kop(`Van jou (${m.length})`) + m.map(x => kaart(x)).join('') : '')
+      + (beurt ? kop('Nu aan de beurt') + `<div class="why">${esc(reden)}</div>` + kaart(beurt.x, ' beurt', buurtHtml) : '')
+      + (daarna.length ? kop('Daarna') + daarna.map(x => kaart(x)).join('') : '')
+      + (anders.length ? kop(`Bij een collega (${anders.length})`) + anders.map(x => kaart(x)).join('') : '');
+  };
+  const l = S.tab === 'mijn' ? open.filter(mijn) : S.tab === 'vrij' ? vrijL : open;
   const tijd = S.tijd ? S.tijd.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' }) : '';
   app.innerHTML = `<div class="kop"><h1>Inmeten</h1><button id="ververs" aria-label="Verversen">${esc(S.naam)}${tijd ? ' · ververst ' + tijd : ''} ↻</button></div>
     ${S.fout ? `<div class="melding">${esc(S.fout)}</div>` : ''}
     ${B === 'demo' ? '<p class="hint">Voorbeeld met verzonnen adressen.</p>' : ''}
     <div class="tabs">${[['alles', `Alles (${open.length})`], ['mijn', `Van mij (${telM})`], ['vrij', `Vrij (${telV})`]].map(([t, n]) => `<button data-tab="${t}" aria-pressed="${S.tab === t}">${n}</button>`).join('')}</div>
-    ${S.laden ? '<p class="hint">Laden…</p>' : l.map(kaart).join('') || `<div class="leeg">${S.tab === 'mijn' ? 'Je hebt nog niets gepakt. Kies een adres bij Alles of Vrij.' : 'Niets meer in te meten.'}</div>`}
+    ${S.laden ? '<p class="hint">Laden…</p>' : (S.tab === 'alles' ? alles() : l.map(x => kaart(x)).join('')) || `<div class="leeg">${S.tab === 'mijn' ? 'Je hebt nog niets gepakt. Kies een adres bij Alles of Vrij.' : 'Niets meer in te meten.'}</div>`}
     <button class="kop" id="naamWeg" style="border:0;background:none;color:var(--muted);font-size:13px;margin-top:20px;cursor:pointer;font-family:inherit">Niet ${esc(S.naam)}? Naam wijzigen</button>`;
   document.getElementById('ververs').onclick = () => { S.laden = true; teken(); laad(); };
   document.getElementById('naamWeg').onclick = () => { S.naam = ''; zet('il_naam', ''); teken(); };
   app.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { S.tab = b.dataset.tab; zet('il_tab', S.tab); teken(); });
   app.querySelectorAll('[data-pak]').forEach(b => b.onclick = () => pak(b.dataset.pak, S.naam));
   app.querySelectorAll('[data-los]').forEach(b => b.onclick = () => pak(b.dataset.los, ''));
+  if (document.getElementById('pakAlles')) document.getElementById('pakAlles').onclick = pakAlles;
   app.querySelectorAll('[data-klaar]').forEach(b => b.onclick = () => klaar(S.items.find(x => x.id === b.dataset.klaar)));
 }
 
@@ -157,6 +253,15 @@ async function pak(id, door) {
   try { await api('pak', { id: B === 'sb' ? +id : id, door }); x.door = door; toast(door ? 'Staat op jouw naam' : 'Losgelaten'); }
   catch (e) { toast(e.message || String(e)); laad(); }
   S.bezig = ''; teken();
+}
+
+// Het adres dat aan de beurt is en alles in de buurt in één keer op jouw naam. Wat een ander net pakte, slaat hij over.
+async function pakAlles() {
+  const l = S.pakAlles || []; if (!l.length) return;
+  S.bezig = 'alles'; teken(); let ok = 0, mis = 0;
+  for (const x of l) { try { await api('pak', { id: B === 'sb' ? +x.id : x.id, door: S.naam }); x.door = S.naam; ok++; } catch { mis++; } }
+  S.bezig = ''; teken(); toast(`${ok} op jouw naam${mis ? `, ${mis} lukte niet (al gepakt?)` : ''}`);
+  if (mis) laad();
 }
 
 function mailTekst(x) {
