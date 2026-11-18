@@ -82,10 +82,9 @@ nav.tabs .ico { position: relative; }
 .inmpak.mijn { color: var(--ok); }
 .inmtc { flex: none; border: 1.5px solid var(--gold); color: var(--gold); background: none; border-radius: 999px; padding: 8px 12px; font-weight: 600; white-space: nowrap; }
 .inmkop { margin: 14px 2px 6px; font-size: 13px; font-weight: 700; letter-spacing: .04em; color: var(--muted); text-transform: uppercase; }
-.inmc.beurt { border: 2px solid var(--gold); margin-bottom: 0; border-radius: 12px 12px 0 0; }
-.inmc.beurt.los { border-radius: 12px; margin-bottom: 8px; }
+.card.inmc.beurt { border: 2px solid var(--gold) !important; }
 .inmwhy { font-size: 14px; font-weight: 600; color: var(--gold); margin: 0 2px 6px; }
-.card.inmbuurt { border: 2px solid var(--gold); border-top: 0; border-radius: 0 0 12px 12px; padding: 8px 12px 12px 14px; margin-bottom: 8px; }
+.card.inmbuurt { padding: 8px 12px 6px 14px; margin-bottom: 8px; border-style: dashed !important; }
 .inmbuurt .k { font-size: 14px; color: var(--muted); margin-bottom: 4px; }
 .inmbr { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-top: 1px solid var(--surface-high); }
 .inmbr .inmt .a { font-size: 15px; }
@@ -4438,7 +4437,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.18-5';
+const APP_VERSIE = '2026.11.18-6';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
@@ -9170,8 +9169,8 @@ const inmWeekAantal = () => inmGekoppeld() ? inmPlan().week.length : 0;
 // Beurtregel (staat gelijk in de app en in de inmeetlijst voor de collega, inmeten/index.html).
 // Per werkvoorbereider tellen alleen de rondes (zelfde werkvoorbereider + zelfde deadline) waar nog iets open staat; afgeronde rondes vallen weg.
 // Gedaan = ingemeten of al door iemand gepakt. Het volgende adres komt van wie procentueel het verst achterloopt; geen weekaantal.
-// Spoed (klaar binnen 7 dagen of te laat) gaat altijd voor. In de buurt: vrije adressen binnen 2 km, van welke werkvoorbereider ook.
-const BEURT_KM = 2, BEURT_SPOED = 7;
+// Spoed (klaar binnen 7 dagen of te laat) gaat altijd voor. In de buurt: alleen een tip, de 3 dichtstbijzijnde vrije adressen binnen 2 km (van wie ook); je pakt ze los als je tijd over hebt.
+const BEURT_KM = 2, BEURT_SPOED = 7, BEURT_TIPS = 3;
 function beurtDagen(dl) { if (!dl) return 999; const n = new Date(); n.setHours(0, 0, 0, 0); return Math.round((new Date(String(dl).slice(0, 10) + 'T00:00:00') - n) / 864e5); }
 const beurtWvb = x => String(x.wvb || '').trim() || 'Onbekend';
 function beurtVerdeling(items) {
@@ -9208,7 +9207,7 @@ function beurtVolgorde(items) {
 function beurtBuurt(x, kandidaten, km, straat) {
   return kandidaten.filter(y => y !== x).map(y => ({ y, km: km(x, y) }))
     .filter(o => o.km < BEURT_KM || (o.km === 99 && straat(o.y) === straat(x)))
-    .sort((a, b) => a.km - b.km).slice(0, 12);
+    .sort((a, b) => a.km - b.km).slice(0, BEURT_TIPS);
 }
 const beurtAfstand = km => km === 99 ? 'zelfde straat' : km < 1 ? Math.max(50, Math.round(km * 20) * 50) + ' m' : km.toFixed(1).replace('.', ',') + ' km';
 
@@ -9245,11 +9244,10 @@ function renderInmeten(m) {
     : Object.keys(tel).length > 1 ? `${naam(beurt.x)} loopt het meest achter (${Math.round(beurt.pct * 100)}% gedaan)` : `Volgende van ${naam(beurt.x)}`);
   const verd = Object.values(tel).filter(t => t.tot > t.klaar).sort((a, b) => a.klaar / a.tot - b.klaar / b.tot);
   const lijst = (mijnOpen.length ? `<div class="inmkop">Van jou (${mijnOpen.length})</div>` + mijnOpen.map(x => inmItem({ x, why: spoedOf(x) })).join('') : '')
-    + (beurt ? `<div class="inmkop">Nu aan de beurt</div><div class="inmwhy">${esc(reden)}</div>${inmItem(beurt, buurt.length ? ' beurt' : ' beurt los')}`
-      + (buurt.length ? `<div class="card inmbuurt"><div class="k">In de buurt, pak je mee:</div>${buurt.map(o => `<div class="inmbr"><button class="inmt" data-inm="${esc(o.y.id)}">
+    + (beurt ? `<div class="inmkop">Nu aan de beurt</div><div class="inmwhy">${esc(reden)}</div>${inmItem(beurt, ' beurt')}`
+      + (buurt.length ? `<div class="card inmbuurt"><div class="k">Tijd over? Dit ligt ernaast:</div>${buurt.map(o => `<div class="inmbr"><button class="inmt" data-inm="${esc(o.y.id)}">
           <div class="a">${esc(String(o.y.adres).split(',')[0])}</div><div class="m">${esc(naam(o.y))} · ${beurtAfstand(o.km)}</div></button>
-          <button class="inmpak" data-pak="${esc(o.y.id)}">Ik pak dit</button></div>`).join('')}
-        <button class="primary" id="inmPakAlles" style="margin-top:8px">Ik pak dit + ${buurt.length} in de buurt</button></div>` : '') : '')
+          <button class="inmpak" data-pak="${esc(o.y.id)}">Ik pak dit</button></div>`).join('')}</div>` : '') : '')
     + (daarna.length ? `<div class="inmkop">Daarna</div>` + daarna.map(v => inmItem(v)).join('') : '')
     || `<div class="empty" style="padding:24px 0">Niets meer in te meten.${INM.lijst.length || inmIsCol() ? '' : `<br><br><small>Nieuwe werkvoorbereider? Voeg hem toe en deel zijn link, dan kan hij adressen sturen.</small><br>
       <button class="outline" id="inmWvbLeeg" style="color:var(--a2);width:auto;padding:8px 16px;margin:10px auto 0;display:inline-block">＋ Werkvoorbereider toevoegen</button>`}</div>`;
@@ -9272,7 +9270,6 @@ function renderInmeten(m) {
   if ($('#inmKlaar', m)) $('#inmKlaar', m).onclick = inmKlaarLijst;
   if ($('#inmCol', m)) $('#inmCol', m).onclick = inmColLijst;
   m.querySelectorAll('[data-pak]').forEach(b => b.onclick = () => inmPak(INM.lijst.find(x => x.id === b.dataset.pak)));
-  if ($('#inmPakAlles', m)) $('#inmPakAlles', m).onclick = () => inmPakAlles([beurt.x, ...buurt.map(o => o.y)]);
   if ($('#inmVerd', m)) $('#inmVerd', m).onclick = () => inmVerdeling(tel);
   if (Date.now() - INM.gehaald > 5 * 60e3 && !INM.laden && !INM.fout) inmHaal(true);
 }
@@ -9319,18 +9316,6 @@ async function inmPak(x) {
   const los = x.door === inmIk();
   try { await inmApi('pak', { id: x.id, door: los ? '' : inmIk() }); x.door = los ? '' : inmIk(); zetJ(INM_LIJST_KEY, INM.lijst); renderTabs(); render(); toast(los ? 'Losgelaten' : 'Staat op jouw naam'); }
   catch (e) { toast('Lukt niet: ' + (e.message || e)); inmHaal(true); }
-}
-// Het hoofdadres en alles in de buurt in één keer op jouw naam. Wat een ander net pakte, slaat hij over.
-async function inmPakAlles(l) {
-  if (!inmIk()) {
-    const n = ((await vraagTekst('Jouw naam', 'Hoe heet je? Je collega ziet dit bij de adressen die jij pakt.', 'Bijv. Dave')) || '').trim(); if (!n) return;
-    INM.cfg.naam = n; inmBewaarCfg();
-  }
-  let ok = 0, mis = 0;
-  for (const x of l) { try { await inmApi('pak', { id: x.id, door: inmIk() }); x.door = inmIk(); ok++; } catch { mis++; } }
-  zetJ(INM_LIJST_KEY, INM.lijst); renderTabs(); render();
-  toast(`${ok} op jouw naam${mis ? `, ${mis} lukte niet (al gepakt?)` : ''}`);
-  if (mis) inmHaal(true);
 }
 // Overzicht per werkvoorbereider: wat staat er nog open van de lopende rondes en hoeveel is al ingemeten.
 function inmVerdeling(tel) {
