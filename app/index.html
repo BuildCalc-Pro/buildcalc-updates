@@ -4425,7 +4425,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.18-3';
+const APP_VERSIE = '2026.11.18-4';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
@@ -7114,8 +7114,16 @@ function gvMaak(f, px, W, H, vl) {
   // Flat, ingezoomd op een deel: op de bovenste delen haal je niets met de laser, die rekent de app met de stenen.
   // Alleen beneden: die laser je, en ze zijn de referentie voor boven. Boven trek je zelf je lijnen (≈ uit de foto).
   if (f.deel?.wat === 'boven') return 0;
-  const alle = z.kozijnen.map(r => ({ ...r, laser: r.y1 >= grens }));
+  // Iets kleins dat onderaan op de grond staat (bloempot, kliko, bankje) is geen kozijn: lager dan 12 lagen (± 75 cm)
+  // en met de onderkant bij de vloer (de onderkant van de deur). Een raam beneden zit hoger, met muur eronder.
+  const lagenH = r => (r.y1 - r.y0) / laagPx, groot = z.kozijnen.filter(r => lagenH(r) >= 12);
+  const vloer = groot.length ? Math.max(...groot.map(r => r.y1)) : null;
+  const echt = z.kozijnen.filter(r => !(vloer != null && lagenH(r) < 12 && r.y1 > vloer - laagPx * 3));
+  if (!echt.length) return 0;
+  const alle = echt.map(r => ({ ...r, laser: r.y1 >= grens }));
   if (!alle.some(k => k.laser)) alle.reduce((a, c) => c.y1 > a.y1 ? c : a).laser = true;
+  // Een raam naast de deur op dezelfde verdieping laser je ook vanaf de grond, ook als de onderkant hoger zit dan de deur.
+  for (const k of alle) if (!k.laser && alle.some(d => d.laser && Math.min(k.y1, d.y1) - Math.max(k.y0, d.y0) >= (k.y1 - k.y0) * .5)) k.laser = true;
   const ks = alle.filter(k => k.laser), boven = false;
   // Verdiepingen: van onder naar boven, kozijnen met ongeveer dezelfde onderkant horen bij elkaar.
   ks.sort((a, b) => b.y1 - a.y1);
