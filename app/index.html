@@ -4425,7 +4425,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.17-5';
+const APP_VERSIE = '2026.11.18-1';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
@@ -7215,9 +7215,9 @@ function gvControle(f) {
 function gvKlaar(f) {
   for (const o of gvKozijnen(f)) {
     if (o.gv.soort === 'foto') { f.lijnen = f.lijnen.filter(l => !(l.kozijn === o.letter && l.uitRef)); f.lijnen.forEach(l => { if (l.kozijn === o.letter) { delete l.kozijn; l.ref = true; } }); f.onderdelen = ondVan(f).filter(x => x !== o); continue; }
-    // Gelaserd: alleen referentie (telt niet mee). De deur en de ramen erin trek je daarna zelf, net als altijd.
+    // Gelaserd: het kozijn blijft staan met zijn lijnen en lasermaten (telt mee). Soort en code vul je op kantoor in.
+    // De gemeten lijnen geven op kantoor ook de schaal voor de lijnen die je boven trekt.
     f.lijnen.forEach(l => { if (l.kozijn === o.letter) { delete l.rol; delete l.stenenOk; } });
-    maakRef(f, o.letter);
   }
   f.lijnen = f.lijnen.filter(l => !(l.rol === 'GL' && !(l.maat > 0)));
   f.lijnen.forEach(l => { if (l.rol === 'GL') { delete l.rol; l.ref = true; } });
@@ -7225,7 +7225,12 @@ function gvKlaar(f) {
 }
 function gvBalk(f, el) {
   if (!V.sel && !gvNu(f)) { gvKlaar(f); el.hidden = true; el.innerHTML = '';
-    setTimeout(() => { toast('✓ Referenties gemeten. Trek nu zelf je lijnen (Lijn), beneden en boven: de maten komen vanzelf uit de foto (≈). De lasermaten zie je met de knop "Lasermaten".', 8000); if (V) tekenUI(); }, 30); return; }
+    // Op locatie: meteen door naar de volgende foto waar nog iets te laseren is. Lijnen trekken doe je op kantoor.
+    setTimeout(() => { if (!V) return;
+      if (!opKantoorNu()) { const fs = V.s.fotos, na = fs.findIndex((g, gi) => gi > V.i && gvAan(g) && gvNu(g)), volg = na >= 0 ? na : V.i + 1 < fs.length ? V.i + 1 : -1;
+        if (volg >= 0) { toast('✓ Gelaserd. Door naar de volgende foto.', 3000); naarFoto(volg); return; }
+        toast('✓ Alles in deze map gelaserd. De lijnen boven trek je op kantoor.', 5000); tekenUI(); return; }
+      toast('✓ Gelaserd. De lijnen boven trek je zelf (Lijn): de maten komen uit de foto (≈).', 6000); tekenUI(); }, 30); return; }
   const nu = V.sel ? null : gvNu(f), ks = gvKozijnen(f), menuKnop = '<button class="vbvorm" id="gvMenu">⋯</button>';
   const zonderCode = ks.some(o => !o.codes?.length), codeKnop = zonderCode ? '<button class="vbgeen" id="gvCode">Code</button>' : '';
   el.hidden = false;
