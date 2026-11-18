@@ -4425,7 +4425,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.18-2';
+const APP_VERSIE = '2026.11.18-3';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
@@ -6870,8 +6870,8 @@ function sjBalk(f) {
   if (!w && gvAan(f)) return gvBalk(f, el);
   if (!w && f.gevelZoom) return gvZoomBalk(f, el);
   // Al zelf lijnen getrokken en nog niets ingezoomd: dan was het geen flat (bijv. een tussenwoning van dichtbij).
-  if (!w && f.flat && f.lijnen.length && !flatDelen(f).length) { delete f.flat; bewaar(); }
-  if (!w && f.flat) return flatBalk(f, el);
+  // Een flat meet je net als een woning: de oude flat-balk niet meer tonen.
+  if (!w && f.flat) { delete f.flat; bewaar(); }
   if (!w) { el.hidden = true; el.innerHTML = ''; return; }
   const nu = V.sel ? f.lijnen.find(l => l.id === V.sel && l.rol) || null : sjNu(f), vorm = SJ_KEUZES.find(k => k[0] === w.vorm)?.[1] || 'Vorm';
   const knopVorm = `<button class="vbvorm" id="vbVorm">${esc(vorm)} ▾</button>`;
@@ -7160,9 +7160,7 @@ function gvNaVlak(f, px, W, H, vl) {
   const n = vl?.ok && vl.laag ? gvMaak(f, px, W, H, vl) : 0;
   if (!n) {
     if (f.deel) toast('⚠ Op deze foto zijn de kozijnen beneden niet herkend. Zoom iets minder ver in, of trek de lijnen zelf.', 7000);
-    // Een rechte gevel waar de stenen te klein zijn om te zien (een flat van ver weg): per deel inzoomen.
-    // Alleen als de stenen te klein zijn om te zien. Zijn ze wel te zien (dichtbij, bijv. alleen een voordeur), dan is het geen flat.
-    else if (vl?.ok && !vl.laag && vl.staand >= 12 && vl.liggend >= 12) { f.flat = {}; if (V && foto() === f) tekenUI(); else toast('Gevel te ver weg om de kozijnen te zien. Open de foto: de app helpt je per deel inzoomen.', 7000); }
+    // Geen aparte flat-stand: een flat meet je op locatie net als een woning (besloten 18 november).
     bewaar(); return; }
   if (V && foto() === f) { V.alles = true; V.sel = null; tekenUI(); }
   else toast(`Gevel herkend: ${n} ${n === 1 ? 'kozijn' : 'kozijnen'} beneden om te laseren. Open de foto.`, 6000);
@@ -7264,8 +7262,6 @@ function gvBalk(f, el) {
     try { const m = JSON.parse(localStorage.getItem('bc_soortcode') || '{}'); m['ONB Kozijn'] = c; localStorage.setItem('bc_soortcode', JSON.stringify(m)); } catch (e) {}
     bewaar(); tekenUI(); };
   $('#gvMenu', el).onclick = () => menu([
-    ...(f.deel ? [] : [[
-      'camera', 'Flat: per deel inzoomen (deze foto alleen als overzicht)', () => { gvWeg(f); f.flat = {}; V.sel = null; bewaar(); tekenUI(); }]]),
     ['ruler', 'Kozijnen opnieuw zoeken', () => { gvWeg(f); gvZoekNu(f); }],
     ['close', 'Zelf lijnen trekken (automatische lijnen weg)', () => { gvWeg(f); V.sel = null; bewaar(); tekenUI(); toast('Automatische lijnen weg. Gemeten maten blijven staan.'); }]]);
 }
