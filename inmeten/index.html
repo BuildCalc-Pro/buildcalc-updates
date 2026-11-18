@@ -45,7 +45,7 @@ input{width:100%;font:16px inherit;font-family:inherit;padding:11px;border:1px s
 .beurtkop{margin:16px 2px 6px;font-size:13px;font-weight:700;letter-spacing:.04em;color:var(--muted);text-transform:uppercase}
 .why{font-size:14px;font-weight:700;color:var(--olijf);margin:0 2px 6px}
 .k.beurt{border:2px solid var(--olijf)}
-.buurt{margin-top:10px;border-top:1px solid var(--lijn);padding-top:6px}.buurt .t{font-size:14px;color:var(--muted)}
+.buurt{background:var(--paper);border:1.5px dashed var(--lijn);border-radius:16px;padding:8px 14px 4px;margin-bottom:10px}.buurt .t{font-size:14px;color:var(--muted)}
 .br{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--lijn)}.br:last-of-type{border-bottom:0}
 .br .s{flex:1;min-width:0}.br .s a{font-weight:700;color:var(--link);text-decoration:none}.br .s div{color:var(--muted);font-size:13px}
 .br button{flex:none;border-radius:999px;padding:7px 12px;font:700 14px inherit;font-family:inherit;border:1.5px solid var(--olijf);background:none;color:var(--olijf);cursor:pointer}
@@ -128,8 +128,8 @@ function km(a, b) {
 // Beurtregel (staat gelijk in de app en in de inmeetlijst voor de collega, inmeten/index.html).
 // Per werkvoorbereider tellen alleen de rondes (zelfde werkvoorbereider + zelfde deadline) waar nog iets open staat; afgeronde rondes vallen weg.
 // Gedaan = ingemeten of al door iemand gepakt. Het volgende adres komt van wie procentueel het verst achterloopt; geen weekaantal.
-// Spoed (klaar binnen 7 dagen of te laat) gaat altijd voor. In de buurt: vrije adressen binnen 2 km, van welke werkvoorbereider ook.
-const BEURT_KM = 2, BEURT_SPOED = 7;
+// Spoed (klaar binnen 7 dagen of te laat) gaat altijd voor. In de buurt: alleen een tip, de 3 dichtstbijzijnde vrije adressen binnen 2 km (van wie ook); je pakt ze los als je tijd over hebt.
+const BEURT_KM = 2, BEURT_SPOED = 7, BEURT_TIPS = 3;
 function beurtDagen(dl) { if (!dl) return 999; const n = new Date(); n.setHours(0, 0, 0, 0); return Math.round((new Date(String(dl).slice(0, 10) + 'T00:00:00') - n) / 864e5); }
 const beurtWvb = x => String(x.wvb || '').trim() || 'Onbekend';
 function beurtVerdeling(items) {
@@ -166,7 +166,7 @@ function beurtVolgorde(items) {
 function beurtBuurt(x, kandidaten, km, straat) {
   return kandidaten.filter(y => y !== x).map(y => ({ y, km: km(x, y) }))
     .filter(o => o.km < BEURT_KM || (o.km === 99 && straat(o.y) === straat(x)))
-    .sort((a, b) => a.km - b.km).slice(0, 12);
+    .sort((a, b) => a.km - b.km).slice(0, BEURT_TIPS);
 }
 const beurtAfstand = km => km === 99 ? 'zelfde straat' : km < 1 ? Math.max(50, Math.round(km * 20) * 50) + ' m' : km.toFixed(1).replace('.', ',') + ' km';
 
@@ -215,18 +215,16 @@ function teken() {
   const { volgorde, tel } = beurtVolgorde(S.items), beurt = volgorde[0];
   const buurt = beurt ? beurtBuurt(beurt.x, volgorde.slice(1).map(v => v.x), km, straatNaam) : [];
   const inBuurt = new Set(buurt.map(o => o.y.id)), daarna = volgorde.slice(1).filter(v => !inBuurt.has(v.x.id)).map(v => v.x);
-  S.pakAlles = beurt ? [beurt.x, ...buurt.map(o => o.y)] : [];
   const reden = beurt && (beurt.why === 'spoed' ? 'Spoed, moet het eerst' : Object.keys(tel).length > 1 ? `${voornaam(beurtWvb(beurt.x))} loopt het meest achter (${Math.round(beurt.pct * 100)}% gedaan)` : `Volgende van ${voornaam(beurtWvb(beurt.x))}`);
-  const buurtHtml = buurt.length ? `<div class="buurt"><div class="t">In de buurt, pak je mee:</div>${buurt.map(o => `<div class="br"><div class="s">
+  const buurtHtml = buurt.length ? `<div class="buurt"><div class="t">Tijd over? Dit ligt ernaast:</div>${buurt.map(o => `<div class="br"><div class="s">
       <a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(o.y.adres)}" target="_blank" rel="noopener">${esc(straat(o.y))}</a>
-      <div>${esc(voornaam(beurtWvb(o.y)))} · ${beurtAfstand(o.km)}</div></div><button data-pak="${esc(o.y.id)}" ${S.bezig ? 'disabled' : ''}>Ik pak dit</button></div>`).join('')}
-    <div class="knoppen"><button class="vol" id="pakAlles" ${S.bezig ? 'disabled' : ''}>Ik pak dit + ${buurt.length} in de buurt</button></div></div>` : '';
+      <div>${esc(voornaam(beurtWvb(o.y)))} · ${beurtAfstand(o.km)}</div></div><button data-pak="${esc(o.y.id)}" ${S.bezig ? 'disabled' : ''}>Ik pak dit</button></div>`).join('')}</div>` : '';
   const kop = t => `<div class="beurtkop">${t}</div>`;
   const vrijL = (beurt ? [beurt.x] : []).concat(volgorde.slice(1).map(v => v.x));
   const alles = () => {
     const m = open.filter(mijn), anders = open.filter(x => x.door && !mijn(x));
     return (m.length ? kop(`Van jou (${m.length})`) + m.map(x => kaart(x)).join('') : '')
-      + (beurt ? kop('Nu aan de beurt') + `<div class="why">${esc(reden)}</div>` + kaart(beurt.x, ' beurt', buurtHtml) : '')
+      + (beurt ? kop('Nu aan de beurt') + `<div class="why">${esc(reden)}</div>` + kaart(beurt.x, ' beurt') + buurtHtml : '')
       + (daarna.length ? kop('Daarna') + daarna.map(x => kaart(x)).join('') : '')
       + (anders.length ? kop(`Bij een collega (${anders.length})`) + anders.map(x => kaart(x)).join('') : '');
   };
@@ -243,7 +241,6 @@ function teken() {
   app.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { S.tab = b.dataset.tab; zet('il_tab', S.tab); teken(); });
   app.querySelectorAll('[data-pak]').forEach(b => b.onclick = () => pak(b.dataset.pak, S.naam));
   app.querySelectorAll('[data-los]').forEach(b => b.onclick = () => pak(b.dataset.los, ''));
-  if (document.getElementById('pakAlles')) document.getElementById('pakAlles').onclick = pakAlles;
   app.querySelectorAll('[data-klaar]').forEach(b => b.onclick = () => klaar(S.items.find(x => x.id === b.dataset.klaar)));
 }
 
@@ -253,15 +250,6 @@ async function pak(id, door) {
   try { await api('pak', { id: B === 'sb' ? +id : id, door }); x.door = door; toast(door ? 'Staat op jouw naam' : 'Losgelaten'); }
   catch (e) { toast(e.message || String(e)); laad(); }
   S.bezig = ''; teken();
-}
-
-// Het adres dat aan de beurt is en alles in de buurt in één keer op jouw naam. Wat een ander net pakte, slaat hij over.
-async function pakAlles() {
-  const l = S.pakAlles || []; if (!l.length) return;
-  S.bezig = 'alles'; teken(); let ok = 0, mis = 0;
-  for (const x of l) { try { await api('pak', { id: B === 'sb' ? +x.id : x.id, door: S.naam }); x.door = S.naam; ok++; } catch { mis++; } }
-  S.bezig = ''; teken(); toast(`${ok} op jouw naam${mis ? `, ${mis} lukte niet (al gepakt?)` : ''}`);
-  if (mis) laad();
 }
 
 function mailTekst(x) {
