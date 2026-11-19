@@ -99,8 +99,10 @@ async function api(actie, data = {}) {
   throw new Error('Deze link is niet compleet. Vraag om een nieuwe link.');
 }
 
+// Een clusternummer (bijv. FCL-000407) is geen adres: dat halen we weg, alleen het adres telt.
+const zonderCode = a => String(a ?? '').split(',').map(d => d.replace(/^\s*[A-Z]{2,5}[-‐]?\d{3,}\s*[–—-]?\s*/i, '').trim()).filter(Boolean).join(', ');
 async function laad() {
-  try { const j = await api('lijst'); S.items = (j.items || []).map(x => ({ ...x, id: String(x.id), door: x.door || '' })); S.fout = ''; S.tijd = new Date(); }
+  try { const j = await api('lijst'); S.items = (j.items || []).map(x => ({ ...x, adres: zonderCode(x.adres) || String(x.adres ?? ''), id: String(x.id), door: x.door || '' })); S.fout = ''; S.tijd = new Date(); }
   catch (e) { S.fout = e.message || String(e); }
   S.laden = false; teken();
   if (await geo()) teken();
