@@ -4446,7 +4446,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.19-3';
+const APP_VERSIE = '2026.11.19-4';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
@@ -7247,10 +7247,11 @@ function gvVanCloseups(f) {
   const plek = fotoPlek(f); if (!plek) return 0;
   const kand = [];
   for (const g of plek.s.fotos) {
-    if (g === f || gvAan(g)) continue;
+    if (g === f) continue;
+    // Ook een close-up waarop de app zelf de kozijnen vond (gevelstand): de gelaserde maten tellen.
     for (const o of ondVan(g)) {
-      if (o.gv || isWand(o)) continue;
-      const ls = laserLijnen(g).filter(l => l.kozijn === o.letter && !l.ref);
+      if (o.gv?.soort === 'foto' || isWand(o)) continue;
+      const ls = laserLijnen(g).filter(l => l.kozijn === o.letter && l.maat > 0);
       const b = Math.max(0, ...ls.filter(l => l.richting === 'horizontaal').map(l => l.maat)), h = Math.max(0, ...ls.filter(l => l.richting === 'verticaal').map(l => l.maat));
       if (b > .2 && h > .2) kand.push({ b, h });
     }
