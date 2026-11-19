@@ -2568,6 +2568,7 @@ function tekenUI2() {
         : `${extraRij('verticaal', 'Extra stijlen', 'verticaal')}${extraRij('horizontaal', 'Extra dorpels', 'horizontaal')}`}
       ${lijn && lijn.maat == null && (refMaat(f, lijn) != null || schaalRef(f, lijn)) ? `<button class="ghost" id="lschaal" style="color:var(--gold);font-weight:600;text-align:left;padding:2px 4px">Uitrekenen uit de foto (${refMaat(f, lijn) != null ? '≈ ' + maatLabel(refMaat(f, lijn)) + ', rechtgezet' : '± ' + maatLabel(schaalMaat(f, lijn))})</button>` : ''}
       ${lijn?.uitRef && lijn.maat != null ? `<div style="font-size:12px;color:#57E0D2;padding:0 4px">≈ Uit de foto, ${fotoMeter(f)?.soort === 'ref' ? `rechtgezet met referentie ${f.ref?.L || ''}` : fotoMeter(f)?.soort === 'stenen' ? `vanzelf rechtgezet, met de stenen als schaal (${String(fotoMeter(f).laag).replace('.', ',')} cm per laag, uit je andere foto's)` : !fotoMeter(f) && lijn.tik ? 'grove schatting met standaard stenen (6,2 cm per laag). Meet op deze foto één lijn met de laser voor een goede maat' : 'vanzelf rechtgezet, met je gemeten maten als schaal'}. Meet je hem met de laser, dan telt de laser.</div>` : ''}
+      ${lijn?.uitRef && lijn.maat != null && lijn.richting === 'horizontaal' && fotoMeter(f)?.breedteGok ? `<div style="font-size:12px;color:#FFA726;padding:0 4px">⚠ Op deze foto is geen breedte gemeten, dus deze breedte is onzeker (soms de helft te klein of te groot). Typ of laser op deze foto één breedte, bijvoorbeeld van het raam beneden, dan klopt hij.</div>` : ''}
       ${lijn && afwijking(f, lijn) != null ? `<div style="font-size:12px;color:#FFA726;padding:0 4px">⚠ Volgens de foto is dit ongeveer ${maatLabel(afwijking(f, lijn))}. Dat scheelt ${Math.round(Math.abs(afwijking(f, lijn) - lijn.maat) * 100)} cm met je maat. Klopt je maat? Zo ja, dan hoef je niks te doen.</div>` : ''}
       ${lijn && lijn !== richtingLijn(lijn.richting) && !isWand(ondVan(f).find(o => o.letter === lijn.kozijn)) ? '<div style="font-size:12px;color:var(--gold);padding:0 4px">Dit is een extra stuk: aantal × maat telt op bij het strekkend van dit onderdeel.</div>' : ''}
       ${lijn?.maat != null ? '<div style="text-align:right"><button class="ghost" id="lwis" style="color:var(--open)">Wis maat</button></div>' : ''}`;
@@ -2811,7 +2812,7 @@ const ligtLijn = l => { const w = V?.w || 1, h = V?.h || 1; return Math.abs((l.x
 const STEEN_CM = l => ligtLijn(l) ? STEEN_LANG : (laagProject() || STEEN_LAAG);
 const stenenTekst = l => ligtLijn(l)
   ? `${String(Math.floor(l.stenen)).replace(/^0$/, '')}${l.stenen % 1 ? '½' : ''} ${l.stenen === 1 ? 'steen' : 'stenen'}` : `${l.stenen} ${l.stenen === 1 ? 'laag' : 'lagen'}`;
-const lijnLabel = (l, fo = V && foto()) => l.hoek ? `◣ ${l.hoekB ? `≈${Math.round(l.hoekB * 100)}×${Math.round(l.hoekD * 100)}` : 'hoek'}` : (V && afwijking(foto(), l) != null ? '⚠ ' : '') + (l.aftrek ? '− ' : '') + (l.kozijn ? ((fo ? ondVan(fo).find(o => o.letter === l.kozijn)?.in : null) || l.kozijn) + ' ' : '') + (l.uitRef && l.maat != null ? '≈' : '') + (l.uitRef && l.maat == null ? 'foto' : l.maat === 0 && l.bron === 'geen' ? 'geen' : maatLabel(l.maat)) + (l.stenenOk === true ? ' ✓' : l.stenenOk === false ? ' ⚠' : '') + (lijnAantal(l) >= 1 ? ` (x${lijnAantal(l)})` : '');
+const lijnLabel = (l, fo = V && foto()) => l.hoek ? `◣ ${l.hoekB ? `≈${Math.round(l.hoekB * 100)}×${Math.round(l.hoekD * 100)}` : 'hoek'}` : (V && afwijking(foto(), l) != null ? '⚠ ' : '') + (l.aftrek ? '− ' : '') + (l.kozijn ? ((fo ? ondVan(fo).find(o => o.letter === l.kozijn)?.in : null) || l.kozijn) + ' ' : '') + (l.uitRef && l.maat != null ? (l.richting === 'horizontaal' && fo && fotoMeter(fo)?.breedteGok ? '⚠≈' : '≈') : '') + (l.uitRef && l.maat == null ? 'foto' : l.maat === 0 && l.bron === 'geen' ? 'geen' : maatLabel(l.maat)) + (l.stenenOk === true ? ' ✓' : l.stenenOk === false ? ' ⚠' : '') + (lijnAantal(l) >= 1 ? ` (x${lijnAantal(l)})` : '');
 // "4 stijlen", "vier stijlen", "2 tussendorpels" uit een ingesproken of getypte tekst.
 function splitsAantal(tekst) {
   const woorden = { een: 1, 'één': 1, twee: 2, drie: 3, vier: 4, vijf: 5, zes: 6, zeven: 7, acht: 8, negen: 9, tien: 10 };
@@ -3411,10 +3412,10 @@ function fotoMeter(f) {
     // Geen gemeten maat op deze foto: de lagen stenen als schaal, met de laaghoogte uit je andere foto's van dit project.
     const lg = laagProject(f); if (!vl.laag || !lg) return null;
     const k = lg / 100 / vl.laag;
-    return { soort: 'stenen', laag: lg, kantel: vl.kantel, maat: l => { const [dx, dy] = d(l); return Math.hypot(dx * k, dy * k); }, delen: l => { const [dx, dy] = d(l); return [dx * k, dy * k]; } };
+    return { soort: 'stenen', breedteGok: true, laag: lg, kantel: vl.kantel, maat: l => { const [dx, dy] = d(l); return Math.hypot(dx * k, dy * k); }, delen: l => { const [dx, dy] = d(l); return [dx * k, dy * k]; } };
   }
   const kx = sx ?? sy, ky = sy ?? sx;
-  return { soort: 'auto', kantel: vl.kantel, maat: l => { if (gemeten.includes(l)) return null; const [dx, dy] = d(l); return Math.hypot(dx * kx, dy * ky); }, delen: l => { const [dx, dy] = d(l); return [dx * kx, dy * ky]; } };
+  return { soort: 'auto', breedteGok: sx == null, kantel: vl.kantel, maat: l => { if (gemeten.includes(l)) return null; const [dx, dy] = d(l); return Math.hypot(dx * kx, dy * ky); }, delen: l => { const [dx, dy] = d(l); return [dx * kx, dy * ky]; } };
 }
 const vlakD = (vl, l) => { const a = vl.punt(l.x1, l.y1), b = vl.punt(l.x2, l.y2); return [Math.abs(b[0] - a[0]), Math.abs(b[1] - a[1])]; };
 const mediaan = a => { a = a.filter(v => isFinite(v) && v > 0).sort((x, y) => x - y); return a.length ? a[a.length >> 1] : null; };
@@ -3462,6 +3463,7 @@ function refMaat(f, l, m = fotoMeter(f)) {
 }
 // Lijnen die uit de foto komen, lopen mee als je de lijn, de referentie of een gemeten maat aanpast.
 function herrekenRef(f) {
+  try { gvVanCloseups(f); } catch (e) { console.warn(e); }
   const lc = laagVanFoto(f); if (f && lc && lc !== f.laagCm) { f.laagCm = lc; bewaar(); }
   const m = fotoMeter(f); if (!m) return;
   for (const l of f.lijnen) if (l.uitRef) { const v = refMaat(f, l, m); if (v != null) l.maat = v; }
@@ -4444,7 +4446,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.19-2';
+const APP_VERSIE = '2026.11.19-3';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
@@ -7236,6 +7238,43 @@ function gvControle(f) {
     o.gv.stenen = { lagen: Math.round(o.gv.lagen), m: Math.round(m * 1000) / 1000, ok, laag };
     h.stenenOk = ok;
   }
+}
+// Overzichtsfoto van een gevel, maar de kozijnen beneden heb je op aparte close-ups gelaserd (breedte en hoogte).
+// Dan nemen we die maten over op de overzicht: het kozijn met (bijna) dezelfde hoogte als de steenlagen ernaast.
+// Ze worden referentielijnen: ze geven de schaal voor boven (ook de breedte), maar tellen niet dubbel in de lijst.
+function gvVanCloseups(f) {
+  if (!gvAan(f) || !opKantoorNu()) return 0;
+  const plek = fotoPlek(f); if (!plek) return 0;
+  const kand = [];
+  for (const g of plek.s.fotos) {
+    if (g === f || gvAan(g)) continue;
+    for (const o of ondVan(g)) {
+      if (o.gv || isWand(o)) continue;
+      const ls = laserLijnen(g).filter(l => l.kozijn === o.letter && !l.ref);
+      const b = Math.max(0, ...ls.filter(l => l.richting === 'horizontaal').map(l => l.maat)), h = Math.max(0, ...ls.filter(l => l.richting === 'verticaal').map(l => l.maat));
+      if (b > .2 && h > .2) kand.push({ b, h });
+    }
+  }
+  if (!kand.length) return 0;
+  const laag = f.laagCm || laagProject(f), m = fotoMeter(f), gebruikt = new Set(), namen = [];
+  for (const o of gvKozijnen(f)) {
+    if (o.gv.soort !== 'laser') continue;
+    const gb = gvLijn(f, o, 'GB'), gh = gvLijn(f, o, 'GH'); if (!gb || !gh || gb.maat != null || gh.maat != null) continue;
+    const hEst = o.gv.lagen && laag ? o.gv.lagen * laag / 100 : m?.soort === 'stenen' ? m.maat(gh) : null;
+    if (!(hEst > .2)) continue;
+    const afst = k => Math.abs(k.h - hEst);
+    const ok = kand.filter(k => !gebruikt.has(k) && afst(k) / k.h <= .08).sort((a, b) => afst(a) - afst(b));
+    if (!ok.length) continue;
+    // Twee verschillende kozijnen die allebei passen: niet gokken.
+    if (ok[1] && (Math.abs(ok[1].h - ok[0].h) > .03 || Math.abs(ok[1].b - ok[0].b) > .03) && afst(ok[1]) - afst(ok[0]) < .02) continue;
+    const k = ok[0]; gebruikt.add(k);
+    Object.assign(gb, { maat: k.b, bron: 'closeup', ref: true }); Object.assign(gh, { maat: k.h, bron: 'closeup', ref: true });
+    for (const l of [gb, gh]) { delete l.kozijn; delete l.rol; delete l.stenenOk; }
+    f.onderdelen = ondVan(f).filter(x => x !== o);
+    namen.push(`${maatLabel(k.b)} × ${maatLabel(k.h)}`);
+  }
+  if (namen.length) { bewaar(); toast(`Maten van je close-up${namen.length > 1 ? 's' : ''} overgenomen als schaal: ${namen.join(', ')}.`, 6000); }
+  return namen.length;
 }
 // Gouden balk bij een gevel.
 // Alles beneden gemeten: de gevelstand stopt. De lasermaten beneden worden referentielijnen (tellen niet mee);
