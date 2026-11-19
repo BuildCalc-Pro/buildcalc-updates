@@ -1,0 +1,21 @@
+name: Opslag opruimen
+on:
+  push:
+    branches: [claude/project-thread-zzkokv]
+permissions:
+  actions: write
+jobs:
+  opruimen:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Alle artifacts en caches verwijderen
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          ids=$(gh api --paginate "repos/$REPO/actions/artifacts?per_page=100" --jq '.artifacts[].id')
+          echo "Artifacts gevonden: $(echo "$ids" | grep -c . || true)"
+          for id in $ids; do gh api -X DELETE "repos/$REPO/actions/artifacts/$id" && echo "weg: $id"; done
+          cids=$(gh api --paginate "repos/$REPO/actions/caches?per_page=100" --jq '.actions_caches[].id')
+          for id in $cids; do gh api -X DELETE "repos/$REPO/actions/caches/$id" && echo "cache weg: $id"; done
+          echo "Over: $(gh api "repos/$REPO/actions/artifacts" --jq '.total_count') artifacts"
