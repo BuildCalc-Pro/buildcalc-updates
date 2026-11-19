@@ -7090,6 +7090,33 @@ function gvLagenBij(R, m, r, laagPx) {
 }
 // Alles zoeken in één rechtgezette foto: kozijnen, onderkant en bovenkant van het metselwerk, en een kolom metselwerk
 // van onder tot boven voor de lange hoogte. Rechthoeken in rasterpixels van R.
+// Bovenkant precies op het kozijn: een latei, de balk onder een afdakje of de schaduw daaronder hoort er niet bij.
+// Zoek de binnenrand van het kozijn (waar raam of deur begint) en kies de horizontale lijn een kozijnhout-dikte daarboven.
+function gvBovenkant(R, r, laagPx) {
+  const { RW, RH, gr } = R, w = r.x1 - r.x0, h = r.y1 - r.y0, th = 20;
+  const xa = Math.max(1, Math.round(r.x0 + w * .06)), xb = Math.min(RW - 2, Math.round(r.x1 - w * .06));
+  const ma = Math.round(r.y0 + h * .3), mb = Math.round(r.y0 + h * .7);
+  if (xb - xa < 10 || ma < 3 || mb >= RH - 2) return;
+  const ve = (i, j) => { const q = j * RW + i; return Math.abs(gr[q + 1] - gr[q - 1]) > th; };
+  const E = (i, j) => ve(i, j) || ve(i - 1, j) || ve(i + 1, j);
+  // Kolommen met staande randen (stijlen, tussenstijlen, deur): daar loopt het kozijn van boven naar beneden
+  const kol = [];
+  for (let i = xa + 1; i < xb - 1; i++) { let c = 0; for (let j = ma; j < mb; j++) c += E(i, j); if (c > (mb - ma) * .7) kol.push(i); }
+  if (kol.length < 2) return;
+  let top = ma, mis = 0;
+  for (let j = ma; j > r.y0; j--) { let c = 0; for (const i of kol) c += E(i, j); if (c >= kol.length * .5) { top = j; mis = 0; } else if (++mis > 3) break; }
+  // Liggende lijnen die bijna de hele breedte doorlopen
+  const a = Math.max(2, Math.round(r.y0) - 2), fr = [];
+  for (let j = a; j <= top; j++) { let c = 0; for (let i = xa; i < xb; i++) { const q = j * RW + i; c += Math.abs(gr[q + RW] - gr[q - RW]) > th; } fr.push(c / (xb - xa)); }
+  const piek = [];
+  for (let k = 0; k < fr.length; k++) {
+    if (fr[k] < .5) continue; let max = 0; for (let t = Math.max(0, k - 3); t <= Math.min(fr.length - 1, k + 3); t++) max = Math.max(max, fr[t]);
+    if (fr[k] === max && !(piek.length && a + k - piek[piek.length - 1] <= 2)) piek.push(a + k);
+  }
+  if (!piek.length) return;
+  const binnen = piek[piek.length - 1], nieuw = piek.find(p => binnen - p >= laagPx * .5 && binnen - p <= laagPx * 1.7);
+  if (nieuw != null && nieuw > r.y0 + laagPx * .3) r.y0 = nieuw;
+}
 function gvZoek(R, laagPx) {
   const m = gvSteenMasker(R, laagPx); if (!m) return null;
   const { RW, RH } = R, perRij = new Uint32Array(RH);
@@ -7116,6 +7143,7 @@ function gvZoek(R, laagPx) {
     }
     r.y1 = Math.min(grond + 1, laatst);
   }
+  for (const r of kozijnen) gvBovenkant(R, r, laagPx);
   for (const r of kozijnen) r.lagen = gvLagenBij(R, m, r, laagPx);
   // Lange hoogte: de kolom met het meeste metselwerk van boven tot onder, niet vlak naast een kozijn.
   let lang = null, bf = .6;
