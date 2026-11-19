@@ -80,6 +80,13 @@ nav.tabs .ico { position: relative; }
 .inml { flex: 1; min-width: 0; }
 .inmpak { background: none; border: 0; padding: 6px 0 0; color: var(--a2); font-weight: 600; font-size: 14px; }
 .inmpak.mijn { color: var(--ok); }
+.inmkies { display: flex; align-items: center; gap: 12px; padding: 10px 12px; margin-bottom: 6px; cursor: pointer; }
+.inmkies input { width: 22px; height: 22px; flex: none; accent-color: var(--danger); }
+.inmkies.aan { border-color: var(--danger) !important; }
+.inmkiesbalk { position: sticky; bottom: 0; display: flex; gap: 8px; padding: 10px 0 12px; background: var(--bg); }
+.inmkiesbalk button { flex: 1; }
+.inmkiesbalk .danger { background: var(--danger); color: #fff; border: 0; border-radius: 999px; padding: 12px; font-weight: 600; }
+.inmkiesbalk .danger:disabled { opacity: .4; }
 .inmtc { flex: none; border: 1.5px solid var(--gold); color: var(--gold); background: none; border-radius: 999px; padding: 8px 12px; font-weight: 600; white-space: nowrap; }
 .inmkop { margin: 14px 2px 6px; font-size: 13px; font-weight: 700; letter-spacing: .04em; color: var(--muted); text-transform: uppercase; }
 .card.inmc.beurt { border: 2px solid var(--gold) !important; }
@@ -4437,7 +4444,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.18-6';
+const APP_VERSIE = '2026.11.19-1';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
@@ -9082,7 +9089,7 @@ async function inmApi(actie, data = {}) {
 }
 function inmDemo(actie, data) {
   let l = leesJ(INM_DEMO_KEY, null); if (!l) { l = inmDemoData(); zetJ(INM_DEMO_KEY, l); }
-  if (actie === 'lijst') return { items: l };
+  if (actie === 'lijst') return { items: l.filter(x => x.status !== 'verwijderd') };
   if (actie === 'status') { const x = l.find(y => y.id === data.id); if (x) { x.status = data.status; zetJ(INM_DEMO_KEY, l); } return { ok: true, mail: false, demo: true }; }
   if (actie === 'pak') { const x = l.find(y => y.id === data.id); if (x) { x.door = data.door || ''; zetJ(INM_DEMO_KEY, l); } return { ok: true }; }
   if (actie === 'wvbLijst') return { items: [{ naam: 'Sanne (voorbeeld)', email: '', token: 'voorbeeld' }] };
@@ -9233,6 +9240,7 @@ function renderInmeten(m) {
     $('#inmDemo', m).onclick = () => { INM.cfg = { ...INM.cfg, soort: 'demo' }; inmBewaarCfg(); localStorage.removeItem(INM_DEMO_KEY); inmHaal(); };
     return;
   }
+  if (INM.kies) return renderInmKies(m);
   // Volgorde met de beurtregel: eerst wat jij al gepakt hebt, dan wie er nu aan de beurt is (met wat ernaast ligt), daarna de rest in beurtvolgorde.
   const ik = inmIk(), { volgorde, tel } = beurtVolgorde(INM.lijst);
   const spoedOf = x => x.deadline && beurtDagen(x.deadline) <= BEURT_SPOED ? 'spoed' : '';
@@ -9254,6 +9262,7 @@ function renderInmeten(m) {
   const klaar = INM.lijst.filter(x => x.status === 'ingemeten').length, col = inmCollega();
   m.innerHTML = `<div class="lijstkop"><div class="count">${mijnOpen.length + volgorde.length} in te meten</div>
       <div style="display:flex;gap:4px;align-items:center">${inmIsCol() ? '' : `<button class="ghost" id="inmWvbNieuw" style="color:var(--a2)" aria-label="Werkvoorbereider toevoegen">＋<span class="wvbtxt"> Werkvoorbereider</span></button>`}
+      ${inmIsCol() || !INM.lijst.some(x => x.status !== 'ingemeten') ? '' : `<button class="ghost" id="inmKies" style="color:var(--a2)" aria-label="Selecteren om te verwijderen">Selecteren</button>`}
       <button class="ghost" id="inmVerv" style="color:var(--a2)" aria-label="Lijst bijwerken">${INM.laden ? 'Bijwerken…' : '↻ Bijwerken'}</button></div></div>
     <div class="pad" style="padding-top:4px">
       ${INM.cfg.soort === 'demo' ? '<div class="card" style="padding:8px 12px;font-size:13px;color:var(--muted);margin-bottom:8px">Voorbeeld met verzonnen adressen. Echte aanvragen koppel je in Instellingen.</div>' : ''}
@@ -9263,6 +9272,7 @@ function renderInmeten(m) {
       ${col.length ? `<button class="ghost" id="inmCol" style="margin-top:14px;color:var(--muted);width:100%">${col.length} bij een collega ▸</button>` : ''}
       ${klaar ? `<button class="ghost" id="inmKlaar" style="margin-top:${col.length ? 2 : 14}px;color:var(--muted);width:100%">${klaar} ingemeten ▸</button>` : ''}</div>`;
   $('#inmVerv', m).onclick = () => inmHaal();
+  if ($('#inmKies', m)) $('#inmKies', m).onclick = () => { INM.kies = new Set(); INM.kiesFilter = ''; render(); };
   if ($('#inmWvbNieuw', m)) $('#inmWvbNieuw', m).onclick = () => inmWvbNieuw();
   if ($('#inmWvbLeeg', m)) $('#inmWvbLeeg', m).onclick = () => inmWvbNieuw();
   m.querySelectorAll('[data-inm]').forEach(b => b.onclick = () => inmOpen(INM.lijst.find(x => x.id === b.dataset.inm)));
@@ -9305,6 +9315,49 @@ async function inmTopcalc(x) {
       location.href = `mailto:${encodeURIComponent(r.email || x.email)}?subject=${encodeURIComponent('Ingemeten door ' + inmIk() + ': ' + x.adres)}&body=${encodeURIComponent(`Hoi ${naam},\n\n${x.adres}${x.opdrachtgever ? ' (' + x.opdrachtgever + ')' : ''} is ingemeten door ${inmIk()}. Je kunt verder uitwerken.\n\nGroet,\n${INM.cfg.naam || ''}`)}`;
     } else toast('Op ingemeten gezet');
   } catch (e) { toast('Lukt niet: ' + (e.message || e)); }
+}
+// Selecteren: vink aanvragen aan (of filter, bijv. op "FCL", en kies Alles) en verwijder ze met één knop.
+// Verwijderen zet de status op 'verwijderd': het staat nog in Supabase en valt alleen uit de lijsten. Met "Ongedaan maken" komt het terug.
+function renderInmKies(m) {
+  const f = (INM.kiesFilter || '').trim().toLowerCase();
+  const alle = INM.lijst.filter(x => x.status !== 'ingemeten').sort((a, b) => String(a.adres).localeCompare(String(b.adres), 'nl', { numeric: true }));
+  const zicht = f ? alle.filter(x => [x.adres, x.opdrachtgever, x.wvb, inmPlaats(x)].join(' ').toLowerCase().includes(f)) : alle;
+  const k = INM.kies, n = alle.filter(x => k.has(x.id)).length, allesAan = zicht.length && zicht.every(x => k.has(x.id));
+  m.innerHTML = `<div class="lijstkop"><div class="count">${n} geselecteerd</div>
+      <button class="ghost" id="inmKiesUit" style="color:var(--a2)">Klaar</button></div>
+    <div class="pad" style="padding-top:4px">
+      <input id="inmKiesF" type="search" placeholder="Zoeken, bijv. FCL" value="${esc(INM.kiesFilter || '')}" style="width:100%;margin-bottom:8px">
+      <button class="outline" id="inmKiesAlles" style="color:var(--gold);width:100%;margin-bottom:10px">${allesAan ? 'Niets selecteren' : `Alles selecteren (${zicht.length})`}</button>
+      ${zicht.map(x => `<label class="card inmkies${k.has(x.id) ? ' aan' : ''}"><input type="checkbox" data-kies="${esc(x.id)}"${k.has(x.id) ? ' checked' : ''}>
+        <div class="inmt"><div class="a">${esc(String(x.adres).split(',')[0])}</div>
+        <div class="m">${esc([inmPlaats(x), x.opdrachtgever, String(x.wvb || '').split(' ')[0]].filter(Boolean).join(' · '))}</div></div></label>`).join('')
+        || '<div class="empty" style="padding:24px 0">Niets gevonden.</div>'}
+      <div class="inmkiesbalk"><button class="outline" id="inmKiesAnn">Annuleren</button><button class="danger" id="inmKiesWeg"${n ? '' : ' disabled'}>Verwijderen (${n})</button></div></div>`;
+  const uit = () => { INM.kies = null; INM.kiesFilter = ''; render(); };
+  $('#inmKiesUit', m).onclick = uit; $('#inmKiesAnn', m).onclick = uit;
+  const fi = $('#inmKiesF', m);
+  fi.oninput = () => { INM.kiesFilter = fi.value; render(); const g = $('#inmKiesF'); if (g) { g.focus(); g.setSelectionRange(g.value.length, g.value.length); } };
+  $('#inmKiesAlles', m).onclick = () => { zicht.forEach(x => allesAan ? k.delete(x.id) : k.add(x.id)); render(); };
+  m.querySelectorAll('[data-kies]').forEach(c => c.onchange = () => { c.checked ? k.add(c.dataset.kies) : k.delete(c.dataset.kies); render(); });
+  $('#inmKiesWeg', m).onclick = async () => { if (await inmVerwijder(alle.filter(x => k.has(x.id)))) { INM.kies = null; INM.kiesFilter = ''; render(); } };
+}
+async function inmVerwijder(l) {
+  const n = l.length, voorbeeld = l.slice(0, 5).map(x => String(x.adres).split(',')[0]).join(', ') + (n > 5 ? ` en nog ${n - 5}` : '');
+  if (!n || !await bevestig(n > 1 ? `${n} aanvragen verwijderen?` : 'Aanvraag verwijderen?', `${voorbeeld}. Dit gaat uit de lijst, ook bij je collega en de werkvoorbereider.`)) return false;
+  const zet = async (lijst, status) => {
+    const mis = [];
+    for (let i = 0; i < lijst.length; i += 8) await Promise.all(lijst.slice(i, i + 8).map(x => inmApi('status', { id: x.id, status }).catch(e => mis.push(e))));
+    if (mis.length) throw mis[0];
+  };
+  if (n > 8) toast(`${n} aanvragen verwijderen…`);
+  try { await zet(l, 'verwijderd'); }
+  catch (e) { toast('Lukt niet: ' + (e.message || e)); inmHaal(true); return false; }
+  const weg = new Set(l.map(x => x.id)); INM.lijst = INM.lijst.filter(x => !weg.has(x.id)); zetJ(INM_LIJST_KEY, INM.lijst); renderTabs(); render();
+  ongedaanToast(n > 1 ? `${n} aanvragen verwijderd` : 'Aanvraag verwijderd', async () => {
+    try { await zet(l, 'open'); } catch (e) { toast('Terugzetten lukt niet: ' + (e.message || e)); }
+    inmHaal();
+  });
+  return true;
 }
 // Ik pak dit: jouw naam komt bij het adres. Je collega ziet "Dave meet dit in" en het gaat uit zijn planning. Nog een tik = loslaten.
 async function inmPak(x) {
