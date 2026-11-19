@@ -111,7 +111,7 @@ function koppel() {
     inp.onpaste = e => {
       const t = (e.clipboardData || window.clipboardData).getData('text'); if (!/\n/.test(t.trim())) return;
       e.preventDefault();
-      const regels = t.split(/\r?\n/).map(r => r.split('\t').map(c => c.trim()).filter(Boolean).slice(0, 2).join(', ')).filter(r => r && !/^(adres|straat)/i.test(r));
+      const regels = t.split(/\r?\n/).map(r => r.split('\t').map(c => zonderCode(c)).filter(Boolean).slice(0, 2).join(', ')).filter(r => r && !/^(adres|straat)/i.test(r));
       const i = +inp.dataset.row; S.rows.splice(i, 1, ...regels); if (S.rows.at(-1)) S.rows.push('');
       teken(); toast(regels.length + ' adressen geplakt');
     };
@@ -119,13 +119,15 @@ function koppel() {
   const al = document.getElementById('alles'); if (al) al.onclick = () => { S.alles = true; teken(); };
   document.getElementById('stuur').onclick = stuur;
 }
+// Een clusternummer (bijv. FCL-000407) is geen adres: dat halen we weg, alleen het adres telt.
+const zonderCode = a => String(a ?? '').split(',').map(d => d.replace(/^\s*[A-Z]{2,5}[-‐]?\d{3,}\s*[–—-]?\s*/i, '').trim()).filter(Boolean).join(', ');
 async function stuur() {
   const og = S.og === 'Anders' ? S.anders.trim() : S.og;
   const melding = (t, soort) => { const m = document.getElementById('melding'); m.innerHTML = `<div class="melding ${soort}">${esc(t)}</div>`; m.scrollIntoView({ block: 'center', behavior: 'smooth' }); };
   if (!og) return melding('Vul de naam van de opdrachtgever in.', 'fout');
   if (!S.dl) return melding('Kies wanneer het ingemeten moet zijn.', 'fout');
   const plaats = S.plaats.trim();
-  const adressen = S.rows.map(r => r.trim()).filter(Boolean).map(r => /,/.test(r) || !plaats ? r : r + ', ' + plaats);
+  const adressen = S.rows.map(r => zonderCode(r)).filter(Boolean).map(r => /,/.test(r) || !plaats ? r : r + ', ' + plaats);
   S.bezig = true; teken();
   try {
     await api('indienen', { opdrachtgever: og, deadline: S.dl, adressen });

@@ -4444,7 +4444,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.19-1';
+const APP_VERSIE = '2026.11.19-2';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
@@ -9095,12 +9095,14 @@ function inmDemo(actie, data) {
   if (actie === 'wvbLijst') return { items: [{ naam: 'Sanne (voorbeeld)', email: '', token: 'voorbeeld' }] };
   return { ok: true };
 }
+// Een clusternummer (bijv. FCL-000407) is geen adres: dat halen we weg, alleen het adres telt.
+const zonderCode = a => String(a ?? '').split(',').map(d => d.replace(/^\s*[A-Z]{2,5}[-‐]?\d{3,}\s*[–—-]?\s*/i, '').trim()).filter(Boolean).join(', ');
 async function inmHaal(stil) {
   if (!inmGekoppeld() || INM.laden) return;
   INM.laden = true; INM.fout = ''; if (!stil && tab === 'inmeten') render();
   try {
     const { items } = await inmApi('lijst');
-    INM.lijst = (items || []).map(x => ({ ...x, id: String(x.id), deadline: x.deadline ? String(x.deadline).slice(0, 10) : '' }));
+    INM.lijst = (items || []).map(x => ({ ...x, adres: zonderCode(x.adres) || String(x.adres ?? ''), id: String(x.id), deadline: x.deadline ? String(x.deadline).slice(0, 10) : '' }));
     INM.gehaald = Date.now(); zetJ(INM_LIJST_KEY, INM.lijst);
     await inmGeo();
   } catch (e) { INM.fout = e.message || String(e); }
