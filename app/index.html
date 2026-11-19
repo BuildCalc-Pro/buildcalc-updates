@@ -4446,7 +4446,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.19-4';
+const APP_VERSIE = '2026.11.19-5';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
@@ -7258,6 +7258,34 @@ function gvVanCloseups(f) {
   }
   if (!kand.length) return 0;
   const laag = f.laagCm || laagProject(f), m = fotoMeter(f), gebruikt = new Set(), namen = [];
+  const neem = (o, gb, gh, k) => {
+    gebruikt.add(k);
+    Object.assign(gb, { maat: k.b, bron: 'closeup', ref: true }); Object.assign(gh, { maat: k.h, bron: 'closeup', ref: true });
+    for (const l of [gb, gh]) { delete l.kozijn; delete l.rol; delete l.stenenOk; }
+    f.onderdelen = ondVan(f).filter(x => x !== o);
+    namen.push(`${maatLabel(k.b)} × ${maatLabel(k.h)}`);
+  };
+  // Eerst zonder schaal: de kozijnen op de overzicht en op de close-ups op volgorde van hoogte naast elkaar.
+  // Dat klopt als de verhoudingen kloppen: (echte maat ÷ lengte op de foto) is voor alle kozijnen bijna gelijk.
+  const open = gvKozijnen(f).filter(o => o.gv.soort === 'laser').map(o => ({ o, gb: gvLijn(f, o, 'GB'), gh: gvLijn(f, o, 'GH') }))
+    .filter(x => x.gb && x.gh && x.gb.maat == null && x.gh.maat == null).map(x => ({ ...x, ph: Math.abs(x.gh.y2 - x.gh.y1), pw: Math.abs(x.gb.x2 - x.gb.x1) }))
+    .filter(x => x.ph > .005 && x.pw > .005).sort((a, b) => a.ph - b.ph);
+  if (open.length && kand.length >= open.length && kand.length <= 8) {
+    const spreid = a => Math.max(...a) / Math.min(...a);
+    let best = null;
+    const kies = (start, gekozen) => {
+      if (gekozen.length === open.length) {
+        const ks = [...gekozen].sort((a, b) => a.h - b.h), sh = ks.map((k, i) => k.h / open[i].ph), sw = ks.map((k, i) => k.b / open[i].pw);
+        const sc = open.length > 1 ? spreid(sh) : 1;
+        const ok = open.length > 1 ? sc <= 1.2 && spreid(sw) <= 1.25 : (() => { const o = open[0], hE = o.o.gv.lagen && laag ? o.o.gv.lagen * laag / 100 : null; return hE != null && Math.abs(ks[0].h - hE) / ks[0].h <= .2; })();
+        if (ok && (!best || sc < best.sc)) best = { ks, sc };
+        return;
+      }
+      for (let i = start; i < kand.length; i++) kies(i + 1, [...gekozen, kand[i]]);
+    };
+    kies(0, []);
+    if (best) open.forEach((x, i) => neem(x.o, x.gb, x.gh, best.ks[i]));
+  }
   for (const o of gvKozijnen(f)) {
     if (o.gv.soort !== 'laser') continue;
     const gb = gvLijn(f, o, 'GB'), gh = gvLijn(f, o, 'GH'); if (!gb || !gh || gb.maat != null || gh.maat != null) continue;
@@ -7268,11 +7296,7 @@ function gvVanCloseups(f) {
     if (!ok.length) continue;
     // Twee verschillende kozijnen die allebei passen: niet gokken.
     if (ok[1] && (Math.abs(ok[1].h - ok[0].h) > .03 || Math.abs(ok[1].b - ok[0].b) > .03) && afst(ok[1]) - afst(ok[0]) < .02) continue;
-    const k = ok[0]; gebruikt.add(k);
-    Object.assign(gb, { maat: k.b, bron: 'closeup', ref: true }); Object.assign(gh, { maat: k.h, bron: 'closeup', ref: true });
-    for (const l of [gb, gh]) { delete l.kozijn; delete l.rol; delete l.stenenOk; }
-    f.onderdelen = ondVan(f).filter(x => x !== o);
-    namen.push(`${maatLabel(k.b)} × ${maatLabel(k.h)}`);
+    neem(o, gb, gh, ok[0]);
   }
   if (namen.length) { bewaar(); toast(`Maten van je close-up${namen.length > 1 ? 's' : ''} overgenomen als schaal: ${namen.join(', ')}.`, 6000); }
   return namen.length;
