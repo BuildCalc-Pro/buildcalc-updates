@@ -2056,8 +2056,7 @@ function eindPunten(p) {
     });
     for (const n of s.notities) {
       const r = formRegels(n, s);
-      if (r.some(x => x[0] === '?')) uit.push({ soort: 'code', t: `${s.naam}: "${n.tekst.length > 40 ? n.tekst.slice(0, 40) + '…' : n.tekst}" heeft nog geen Topcalc-code`, sub: s.id, notitie: n.id, rapport: true });
-      else if (r.some(x => x.slice(3, 6).includes('?'))) uit.push({ soort: 'code', t: `${s.naam}: "${n.tekst.length > 40 ? n.tekst.slice(0, 40) + '…' : n.tekst}" mist een maat`, sub: s.id, notitie: n.id });
+      if (r.some(x => x.slice(3, 6).includes('?'))) uit.push({ soort: 'code', t: `${s.naam}: "${n.tekst.length > 40 ? n.tekst.slice(0, 40) + '…' : n.tekst}" mist een maat`, sub: s.id, notitie: n.id });
     }
   }
   // Eerst wat echt mist (maten en codes), stappen die nog openstaan als laatste.
@@ -2571,7 +2570,8 @@ function tekenUI2() {
       ${lijn && opKantoorNu() ? zelfdeHtml(f, lijn) : ''}
       ${lijn?.lagen10 ? `<div style="font-size:12px;color:#81D4FA;padding:0 4px">${lijn.maat > 0 ? `10 lagen = ${maatLabel(lijn.maat)}: laaghoogte ${cmKort(laagUitRef(f))} cm. Telt nergens mee, is de maat voor het tellen op deze gevel.` : 'Laser 10 lagen steen, van voeg tot voeg. Schuif de lijn op die plek.'}</div>` : ''}
       ${lijn?.vlakRef ? '<div style="font-size:12px;color:#81D4FA;padding:0 4px">Gemeten maat van het referentievlak. Telt nergens mee, zet de foto recht.</div>' : ''}
-      ${lijn && opKantoorNu() && !lijn.lagen10 && !lijn.vlakRef ? `<div class="teller"><span>${ligtLijn(lijn) ? 'Stenen tellen <small style="color:var(--muted)">(22 cm, per halve)</small>' : `Lagen tellen <small style="color:var(--muted)">(${cmKort(laagVoor(f).cm)} cm)</small>`}</span>
+      ${lijn?.bron === 'deel' ? `<div style="font-size:12px;color:#57E0D2;padding:0 4px">≈ ${lijn.hand ? 'zelf bijgesteld' : `uit de maat van ${esc(ondVan(f).find(o => o.letter === lijn.kozijn)?.in || '')}. Verschuif de lijn, dan rekent hij mee`}.</div>` : ''}
+      ${lijn && opKantoorNu() && !lijn.lagen10 && !lijn.vlakRef && lijn.bron !== 'deel' ? `<div class="teller"><span>${ligtLijn(lijn) ? 'Stenen tellen <small style="color:var(--muted)">(22 cm, per halve)</small>' : `Lagen tellen <small style="color:var(--muted)">(${cmKort(laagVoor(f).cm)} cm)</small>`}</span>
         ${lijn.stenen ? `<button data-smin aria-label="Minder">−</button><input data-snum inputmode="decimal" style="width:3.6em;text-align:center" value="${String(lijn.stenen).replace('.', ',')}"><button data-splus aria-label="Meer">+</button>`
           : `<button class="ghost" data-sauto style="color:var(--gold);font-weight:600;white-space:nowrap">Tel automatisch</button>`}</div>` : ''}
       ${lijn && (lijn.ref || lijn.telt) && !lijn.lagen10 && !lijn.vlakRef ? `<div class="teller"><span>Lasermaat</span><button class="ondchip${lijn.ref ? ' on' : ''}" data-lref="1" style="width:auto;padding:4px 10px;font-size:13px;color:#81D4FA">Alleen referentie</button><button class="ondchip${!lijn.ref ? ' on' : ''}" data-lref="0" style="width:auto;padding:4px 10px;font-size:13px">Telt mee</button></div>` : ''}
@@ -3524,8 +3524,8 @@ const mapLijstOpen = () => { try { return localStorage.getItem('bc_mapLijst') !=
 function mistInMap(s) {
   const uit = [];
   (s?.fotos || []).forEach((g, gi) => ondVan(g).filter(o => !o.in).forEach(o => {
-    if (!o.codes?.length && !o.tel) uit.push({ gi, o, wat: 'code' });
-    else if (isWand(o) ? !wandMaten(g, o.letter) : !kozijnMaten(g, o.letter)) uit.push({ gi, o, wat: 'maat' });
+    // Code en bestek vul je in Topcalc in: daar herinnert de app niet meer aan, alleen aan ontbrekende maten.
+    if (isWand(o) ? !wandMaten(g, o.letter) : !kozijnMaten(g, o.letter)) uit.push({ gi, o, wat: 'maat' });
   }));
   return uit;
 }
@@ -3540,7 +3540,7 @@ function mapLijstHtml(f, metMaten = false, vTop = null) {
   const kort = (g, o) => { if (isWand(o)) return wandMaten(g, o.letter) ? 'wand' : 'nog geen maten';
     const k = kozijnMaten(g, o.letter); return k ? (k.lengte ? maatLabel(k.B) : `${maatLabel(k.B).replace(' cm', '')} × ${maatLabel(k.H)}`) : 'nog geen maten'; };
   const dot = o => `<span class="lgdot" style="background:${bestekKleur(bestekVan(o))}"></span>`;
-  const code = o => o.codes?.length ? o.codes.map(c => `${bestekVan(o, c)} ${esc(c.code)}`).join(' · ') : o.tel ? '<span style="color:var(--muted)">geteld · code in TopCalc</span>' : `<span style="color:var(--open)">${bestekVan(o)} · code kiezen</span>`;
+  const code = o => o.codes?.length ? o.codes.map(c => `${bestekVan(o, c)} ${esc(c.code)}`).join(' · ') : '';
   // Op deze foto: tik = kiezen en openklappen (lijnen lichten op), nog eens tikken = code en meer.
   const hier = tops.map(o => { const aan = o.letter === vTop, delen = [o.letter, ...ondKinderen(f, o.letter).map(x => x.letter)];
     return `<button class="ghost lgit" data-ond="${o.letter}">${dot(o)}<span class="lgnaam"><b>${esc(ondKortNaam(o) || (isWand(o) ? 'Wand' : o.letter))}</b> <small>${code(o)}</small></span>
@@ -3874,6 +3874,7 @@ function koppelGebaren(surf) {
     if (V.greep === 'heel' && sel) {
       const o = V.greepVan, dx = Math.max(-Math.min(o.x1, o.x2), Math.min(1 - Math.max(o.x1, o.x2), (x - o.x) / V.w)), dy = Math.max(-Math.min(o.y1, o.y2), Math.min(1 - Math.max(o.y1, o.y2), (y - o.y) / V.h));
       Object.assign(sel, { x1: o.x1 + dx, y1: o.y1 + dy, x2: o.x2 + dx, y2: o.y2 + dy }); if (sel.rol) sel.verplaatst = true;
+      if (sel.bron === 'deel') { delete sel.hand; deelHerreken(foto()); }
       tekenLijnen(); return;
     }
     if (V.greep && sel) {
@@ -3882,6 +3883,7 @@ function koppelGebaren(surf) {
       if (V.greep === 1) { sel.x1 = nx / V.w; sel.y1 = ny / V.h; } else { sel.x2 = nx / V.w; sel.y2 = ny / V.h; }
       if (sel.rol) sel.verplaatst = true;
       if (sel.uitRef) { const m = refMaat(foto(), sel); if (m != null) sel.maat = m; } if (sel.hoek) hoekBereken(foto(), sel);
+      if (sel.bron === 'deel') { delete sel.hand; deelHerreken(foto()); }
       toonLoep(nx, ny, ax, ay, e, sel.maat != null ? maatLabel(sel.maat) : '');
       tekenLijnen(); return;
     }
@@ -3917,7 +3919,7 @@ function koppelGebaren(surf) {
       if (bewogen) bewaar(); else opmerkingSheet(b);
       return;
     }
-    if (V.greep) { bewaar(); if (foto().ref) tekenUI(); }
+    if (V.greep) { const dl = stenenHerreken(foto()) || f0deel(); bewaar(); if (foto().ref || dl) tekenUI(); }
     else if (V.nieuw) {
       const [x1, y1, x2, y2] = V.nieuw; V.nieuw = null;
       if (Math.hypot(x2 - x1, y2 - y1) >= 12) {
@@ -4468,7 +4470,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.20-6';
+const APP_VERSIE = '2026.11.20-8';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
@@ -6733,6 +6735,7 @@ const telBestek = s => BINNEN.test(String(s?.naam || '').toLowerCase()) ? 'ONI' 
 // ---------- Delen in een kozijn (vaste ramen, draairamen…) ----------
 // Tik binnen een kozijn twee hoeken van een raam aan: dat wordt een deel van het kozijn ("Draairaam in A").
 // De maat komt uit de maat van het kozijn: zoveel keer zo breed en hoog als het stuk op de foto. Met + en − per cm bij te stellen.
+const f0deel = () => { const l = V && foto()?.lijnen.find(x => x.id === V.sel); return l?.bron === 'deel'; };
 const DEEL_SOORTEN = ['Vast raam', 'Draairaam', 'Klepraam', 'Valraam', 'Paneel', 'Deur'];
 // Rechthoek van een onderdeel op de foto (0..1): het aangetikte kader, anders de breedte- en hoogtelijn.
 function ondBox(f, o) {
@@ -6766,11 +6769,15 @@ function deelMaak(f, ouder, x0, y0, x1, y1) {
   return o;
 }
 // Delen rekenen mee als de maat van het kozijn verandert (niet de maten die je zelf met + en − bijstelde).
+// De maat volgt de lijn zoals hij nu op de foto ligt: verschuif je hem, dan rekent hij meteen mee.
 function deelHerreken(f) {
   let anders = false;
-  for (const o of ondVan(f)) { if (!o.in || !o.tel?.deel) continue; const k = kozijnMaten(f, o.in); if (!k?.B || !k?.H) continue;
+  for (const o of ondVan(f)) { if (!o.in || !o.tel?.deel) continue; const ouder = ondVan(f).find(x => x.letter === o.in), k = kozijnMaten(f, o.in), box = ouder && ondBox(f, ouder);
+    if (!k?.B || !k?.H || !box) continue;
     for (const l of f.lijnen) if (l.kozijn === o.letter && l.bron === 'deel' && !l.hand) {
-      const m = Math.round((l.richting === 'horizontaal' ? k.B * o.tel.deel[0] : k.H * o.tel.deel[1]) * 100) / 100; if (m !== l.maat) { l.maat = m; anders = true; } } }
+      const hor = l.richting === 'horizontaal', r = hor ? Math.abs(l.x2 - l.x1) / (box[2] - box[0] || 1) : Math.abs(l.y2 - l.y1) / (box[3] - box[1] || 1);
+      o.tel.deel[hor ? 0 : 1] = r;
+      const m = Math.round((hor ? k.B : k.H) * r * 100) / 100; if (m !== l.maat) { l.maat = m; anders = true; } } }
   return anders;
 }
 // Twee hoeken aangetikt (0..1): nieuw onderdeel met een getelde breedte (onderkant) en hoogte (rechterkant).
@@ -7328,8 +7335,6 @@ function nietMee(p) {
     const waar = `${volNaam(p, s)} · foto ${fi + 1}`, bij = tekst => uit.push({ s, f, fi, waar, tekst });
     for (const o of ondVan(f)) {
       const naam = `${o.letter}${o.naam ? ' ' + o.naam : ''}`, maten = f.lijnen.filter(l => !l.ref && l.kozijn === o.letter && l.maat != null);
-      const code = (o.codes || []).some(c => String(c.code || '').trim());
-      if (maten.length && !code && !o.tel) bij(`${naam}: geen Topcalc-code, telt nergens mee`);
       if (!isWand(o) || o.lambVan) continue;
       const w = wandMaten(f, o.letter);
       if (maten.length && !w) bij(`${naam}: wand mist een breedte of een hoogte`);
@@ -7354,7 +7359,7 @@ function tcVanOnderdeel(f, o, c) {
   // Met diktekant telt de strekkend met de bredere maat (2 × 85 + 2 × 118), net als wanneer je 85 in Topcalc typt.
   // De diktekant komt ook bij elke extra dorpel (die loopt over dezelfde, bredere maat).
   // Geteld raam zonder code: strekkend = de omtrek (2 × breedte + 2 × hoogte). Code, type en bestek vul je zelf in TopCalc in.
-  const st = z && z[1].eenheid === 'M1' && k ? String(k.lengte ? cmOp(k.totaal) : cmOp(k.totaal) + (2 + (k.dp || 0)) * dk) : !code && o.tel && k ? String(cmOp(k.totaal)) : '';
+  const st = z && z[1].eenheid === 'M1' && k ? String(k.lengte ? cmOp(k.totaal) : cmOp(k.totaal) + (2 + (k.dp || 0)) * dk) : !code && k && !k.lengte ? String(cmOp(k.totaal)) : '';
   const w = wandMaten(f, o.letter);
   // Hoogte zo dat Topcalc (hele cm) breedte × hoogte = de m² van de wand geeft.
   // Wand: breedte naar boven, en de hoogte zo dat breedte × hoogte nooit minder m² geeft dan gemeten.
@@ -7363,8 +7368,9 @@ function tcVanOnderdeel(f, o, c) {
 }
 function tcVanFotos(s) {
   const lijst = s.tc, gezien = new Set();
-  for (const f of s.fotos) { stenenHerreken(f); for (const o of ondVan(f)) (o.tel && !(o.codes || []).some(c => c?.code) ? [{ code: '' }] : o.codes || []).forEach((c, ci) => {
-    if (!c?.code && !o.tel) return;
+  for (const f of s.fotos) { stenenHerreken(f); for (const o of ondVan(f)) ((o.codes || []).some(c => c?.code) ? o.codes : [{ code: '' }]).forEach((c, ci) => {
+    if (!c?.code && (o.codes || []).some(x => x?.code)) return;
+    if (!c?.code && !f.lijnen.some(l => !l.ref && l.kozijn === o.letter && l.maat != null)) return;
     const bron = `${f.id}|${o.letter}|${ci}`; gezien.add(bron);
     let r = lijst.find(x => x.bron === bron);
     if (!r) { r = { id: nieuwId(), n: '1', bron, foto: f.id }; lijst.push(r); }
