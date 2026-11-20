@@ -404,7 +404,6 @@ table.form td[data-ncode] { cursor: pointer; text-decoration: underline dotted v
 .lgdet { padding: 0 8px 8px 22px; }
 .lgdet .ghost { font-size: 13px !important; }
 .lgrond { width: 28px; height: 28px; border-radius: 50%; flex: none; border: none; background: color-mix(in srgb, var(--gold) 18%, transparent); color: var(--gold); font: inherit; font-weight: 700; font-size: 16px; line-height: 1; padding: 0; }
-.lgmist { display: flex; justify-content: space-between; align-items: center; width: 100%; margin: 4px 0 2px; padding: 8px 12px; border-radius: 10px; background: color-mix(in srgb, var(--open) 14%, transparent); color: var(--text); font-size: 13px; font-weight: 600; text-align: left; }
 .lgrond.min { background: var(--surface-high); color: var(--text); }
 .vkant { flex: none; padding: 5px 10px; border-radius: 999px; border: 1px solid var(--gold-dark); background: none; color: var(--a2); font-size: 13px; font-weight: 600; margin-right: 6px; }
 .vkant.on { background: color-mix(in srgb, var(--a2) 22%, transparent); border-color: var(--a2); }
@@ -2751,9 +2750,6 @@ function tekenUI2() {
         verwijderOnderdeel(f, o.letter); V.ond = null; bewaar(); tekenUI();
         ongedaanToast(`Onderdeel ${o.letter} weg, met zijn lijnen. Je lasermaten blijven staan.`, () => { f.lijnen = oud.lijnen; f.onderdelen = oud.ond; V.ond = o.letter; bewaar(); tekenUI(); }); }]]);
   });
-  if ($('#vmist', vx)) $('#vmist', vx).onclick = () => menu(mistInMap(V.s).map(({ gi, o, wat }) => [wat === 'code' ? 'hash' : 'ruler',
-    `${esc(ondKortNaam(o) || o.letter)} · foto ${gi + 1}: ${wat === 'code' ? 'code kiezen' : 'maten invullen'}`,
-    async () => { if (V.i !== gi) await naarFoto(gi); if (!V) return; V.ond = o.letter; V.alles = false; V.sel = null; tekenUI(); }]));
   if ($('#valles', vx)) $('#valles', vx).onclick = () => { V.alles = !V.alles; V.sel = null; tekenUI(); };
   if ($('#vref', vx)) $('#vref', vx).onclick = () => { V.refTonen = !V.refTonen; V.sel = null; tekenUI(); };
   // ＋ ONB, ＋ ONI, ＋ RDO, ＋ GOB, ＋ GOI: een nieuw onderdeel in dat bestek. De codekiezer toont alleen codes die erbij passen;
@@ -3520,15 +3516,6 @@ function kozijnSomHtml(o, k) {
 // Lijstje van de hele map (wordt langer met elke foto): onderdelen met een code van de andere foto's.
 // Kom je hetzelfde onderdeel weer tegen, dan tik je hier op + en telt het één keer meer. Niet terug naar die foto.
 const mapLijstOpen = () => { try { return localStorage.getItem('bc_mapLijst') !== '0'; } catch (e) { return true; } };
-// Wat mist er nog in deze map: onderdelen zonder code of zonder maten (per foto).
-function mistInMap(s) {
-  const uit = [];
-  (s?.fotos || []).forEach((g, gi) => ondVan(g).filter(o => !o.in).forEach(o => {
-    // Code en bestek vul je in Topcalc in: daar herinnert de app niet meer aan, alleen aan ontbrekende maten.
-    if (isWand(o) ? !wandMaten(g, o.letter) : !kozijnMaten(g, o.letter)) uit.push({ gi, o, wat: 'maat' });
-  }));
-  return uit;
-}
 // Eén lijst per map (voorgevel, achtergevel enz. blijven elk hun eigen map): eerst wat op deze foto staat, met de maten,
 // daaronder de onderdelen van de andere foto's in deze map.
 function mapLijstHtml(f, metMaten = false, vTop = null) {
@@ -3552,8 +3539,6 @@ function mapLijstHtml(f, metMaten = false, vTop = null) {
       <small>${kort(g, o)} · ${o.aantal || 1}× · <button class="ghost" data-ooknaar="${gi}" style="padding:0;font-size:inherit;color:inherit;text-decoration:underline">foto ${gi + 1}</button></small></span>
       ${n ? `<button class="lgrond min" data-ookmin="${key}" aria-label="Eén minder">−</button><b style="min-width:2.6em;text-align:center;font-size:12px">hier ${n}×</b>` : ''}
       <button class="lgrond" data-ookplus="${key}" aria-label="Ook hier">+</button></div>`; }).join('\u0001');
-  const mist = mistInMap(s), mz = mist.filter(x => x.wat === 'code').length, mm = mist.length - mz;
-  const mistHtml = mist.length ? `<button class="ghost lgmist" id="vmist">⚠ Nog te doen: ${[mz ? `${mz} zonder code` : '', mm ? `${mm} zonder maat` : ''].filter(Boolean).join(' · ')}<span>›</span></button>` : '';
   const hierBlok = `<div class="lgkop${V.los ? ' nu' : ''}"><span>${V.los ? `FOTO ${V.i + 1} · OP JE ANDERE SCHERM` : 'OP DEZE FOTO'}</span><button class="ghost" id="vplusond" title="Nieuw onderdeel of wand">＋ Onderdeel</button></div>
     <div class="lggrp${V.los ? ' nu' : ''}">${hier + losHtml || '<div class="lgit" style="cursor:default"><small style="color:var(--muted)">Nog geen onderdelen. Tik op ＋ Onderdeel.</small></div>'}</div>`;
   if (V.los) {
@@ -3561,10 +3546,10 @@ function mapLijstHtml(f, metMaten = false, vTop = null) {
     const perFoto = lijst => { let vorige = -1; return lijst.map(r => { const kop = r.gi !== vorige ? `<button class="ghost lgfotokop" data-ooknaar="${r.gi}">Foto ${r.gi + 1} ›</button>` : ''; vorige = r.gi;
       return kop + ander.split('\u0001')[rijen.indexOf(r)]; }).join(''); };
     const voor = rijen.filter(r => r.gi < V.i), na = rijen.filter(r => r.gi > V.i);
-    return `${mistHtml}${voor.length ? `<div class="lgkop"><span>EERDER IN ${esc((s.naam || 'DEZE MAP').toUpperCase())}</span><small>ook hier? tik +</small></div><div class="lggrp">${perFoto(voor)}</div>` : ''}
+    return `${voor.length ? `<div class="lgkop"><span>EERDER IN ${esc((s.naam || 'DEZE MAP').toUpperCase())}</span><small>ook hier? tik +</small></div><div class="lggrp">${perFoto(voor)}</div>` : ''}
       ${hierBlok}${na.length ? `<div class="lgkop"><span>VERDER IN DEZE MAP</span></div><div class="lggrp">${perFoto(na)}</div>` : ''}`;
   }
-  return `${mistHtml}${hierBlok}
+  return `${hierBlok}
     ${rijen.length ? `<div class="lgkop"><span>ANDERE FOTO'S IN DEZE MAP</span><small>ook hier? tik +</small></div><div class="lggrp">${ander.split('\u0001').join('')}</div>` : ''}`;
 }
 // Overzicht van alle maten op de foto, per onderdeel. Klik op een maat om die lijn te kiezen.
@@ -4470,7 +4455,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.20-8';
+const APP_VERSIE = '2026.11.20-9';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
