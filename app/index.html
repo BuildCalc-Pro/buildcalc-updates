@@ -7418,7 +7418,10 @@ function tcVanOnderdeel(f, o, c) {
   if (w) { const bc = cmOp(w.B); return { code, type, oms: ondKortNaam(o) || `Onderdeel ${o.letter}`, b: String(bc), h: bc ? String(Math.ceil(+(w.netto * 1e4 / bc).toFixed(6))) : '', st: '', stAuto: false, bestek, dikte: 0, n: String(wandAantal(o)) }; }
   // Een raam in een kozijn telt zo vaak als het kozijn voorkomt: 2 draairamen in A, A staat er 3× = 6 draairamen.
   const ouder = o.in ? ondVan(f).find(x => x.letter === o.in) : null, n = ouder?.aantal != null ? (o.aantal || 1) * ouder.aantal : o.aantal;
-  return { code, type, oms: ondKortNaam(o) || `Onderdeel ${o.letter}`, b: hor?.maat != null ? String(cmOp(hor.maat) + (k?.lengte ? 0 : dk)) : '', h: k?.lengte ? '' : cm(ver?.maat), st, stAuto: false, bestek, dikte: k?.lengte ? 0 : dk, ...(n != null ? { n: String(n) } : {}) };
+  // In Topcalc moet je zien bij welk kozijn een raam hoort: "Draairaam kozijn 1", "Paneel in Voordeur".
+  const on = ouder ? (ondKortNaam(ouder) || `Kozijn ${fotoLetter(ouder.letter)}`) : '';
+  const oms = !ouder ? ondKortNaam(o) || `Onderdeel ${o.letter}` : `${soortDeel(o)} ${/^kozijn\b/i.test(on) ? on.replace(/^K/, 'k') : 'in ' + on}`;
+  return { code, type, oms, b: hor?.maat != null ? String(cmOp(hor.maat) + (k?.lengte ? 0 : dk)) : '', h: k?.lengte ? '' : cm(ver?.maat), st, stAuto: false, bestek, dikte: k?.lengte ? 0 : dk, ...(n != null ? { n: String(n) } : {}) };
 }
 function tcVanFotos(s) {
   const lijst = s.tc, gezien = new Set();
