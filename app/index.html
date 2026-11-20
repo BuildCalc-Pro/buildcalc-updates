@@ -2376,7 +2376,7 @@ function openViewer(p, s, i) {
   Laser.opMeting = laserOpLijn;
   $('#vsluit', el).onclick = sluitViewer;
   // Spraak bij deze foto: maten vullen direct de lijnen van dit kozijn, en de zin wordt een notitie
-  // in deze map die Gemini daarna duidt (Topcalc-code).
+  // in deze map; de vaste regels kiezen de Topcalc-code.
   const vs = $('#vspraak', el);
   koppelMic($('#vmic', el), vs, '', (ruw, klaar = true) => {
     if (!V) return;
@@ -2388,12 +2388,11 @@ function openViewer(p, s, i) {
     const al = delen.letter && (f.labels || []).find(l => l.tekst === delen.letter), hm = herken(zonderExtra(tekst));
     const oudN = al && V.s.notities.find(x => x.id === al.id);
     if (oudN && hm.breedte == null && hm.hoogte == null) {
-      oudN.tekst = `${oudN.tekst}, ${tekst}`; oudN.aiTekst = null; al.notitie = oudN.tekst; bewaar(); tekenUI();
+      oudN.tekst = `${oudN.tekst}, ${tekst}`; al.notitie = oudN.tekst; bewaar(); tekenUI();
       const k = kozijnMaten(f, al.tekst);
       vs.dataset.n = oudN.id;
       vs.innerHTML = `<b style="color:var(--gold)">${esc(notitieLabel(oudN.tekst))}</b><div>"${esc(tekst)}" <small style="color:var(--gold)">toegevoegd${k ? ` • totaal ${getalNL(k.totaal)} m1` : ''}</small></div>${formTabelHtml(formRegels(oudN, V.s))}`;
       setTimeout(() => { if (vs.dataset.n === oudN.id) { vs.textContent = ''; delete vs.dataset.n; } }, 12000);
-      aiBijwerken();
       return;
     }
     // Alleen een maat ("1,20 m", "93 cm"): die gaat op de gekozen lijn (of de eerste lijn zonder maat), net als de lasermeter.
@@ -2424,13 +2423,13 @@ function openViewer(p, s, i) {
     }
     bewaar();
     if (r.length || delen.letter) tekenUI();
-    // Uitslag als regel van het Topcalc-formulier; na het antwoord van Gemini nog eens bijgewerkt.
+    // Uitslag als regel van het Topcalc-formulier.
     const locatie = V.s.naam, toon = extra => { if (vs.isConnected && vs.dataset.n === n.id)
       vs.innerHTML = `${notitieLabel(tekst) ? `<b style="color:var(--gold)">${esc(notitieLabel(tekst))}</b>` : ''}<div>"${esc(tekst)}"${extra ? ` <small style="color:var(--gold)">${esc(extra)}</small>` : ''}</div>${formTabelHtml(formRegels(n, V?.s || locatie))}`; };
-    vs.dataset.n = n.id; toon(aiActief() ? 'AI denkt…' : '');
+    vs.dataset.n = n.id; toon('');
     // Na een poosje verdwijnt de uitslag weer van de foto; hij staat bij de notities.
     const weg = () => setTimeout(() => { if (vs.dataset.n === n.id) { vs.textContent = ''; delete vs.dataset.n; } }, 12000);
-    if (aiActief()) aiBijwerken().then(() => { toon(n.aiTekst === n.tekst ? (telAi() ? 'AI telefoon' : 'Gemini') : `AI: ${AI.fout || TELAI.fout || 'geen antwoord'}`); weg(); }); else weg();
+    weg();
   });
   // De lasermeter verbindt vanzelf zodra je een foto opent; een melding als hij verbonden is.
   let laserWas = Laser.status;
@@ -4467,7 +4466,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.20-2';
+const APP_VERSIE = '2026.11.20-3';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
@@ -4921,9 +4920,8 @@ function renderSpraak(m) {
     <div id="spVerbeterd" style="color:var(--gold);font-size:12px;margin:-6px 0 8px"></div>
     <div id="spHerkend"></div>
     <div class="label">INGESPROKEN ${esc(s.naam.toUpperCase())} (${s.notities.length})</div>
-    ${s.notities.length ? s.notities.map(n => { const r = herken(n.tekst), ai = n.aiTekst === n.tekst ? n.ai : null;
-      return `<button class="card notitie" data-n="${n.id}"><div class="nkop"><i>"${esc(n.tekst)}"</i>${statusHtml(r.status)}</div>${metingHtml(r, true)}${ai
-        ? `<div style="color:var(--gold);font-size:12px;margin-top:8px">Gemini: ${esc(aiPostTekst(postenVoorNotitie(n.tekst, s.naam, undefined, ai)))}</div>` : ''}</button>`; }).join('')
+    ${s.notities.length ? s.notities.map(n => { const r = herken(n.tekst);
+      return `<button class="card notitie" data-n="${n.id}"><div class="nkop"><i>"${esc(n.tekst)}"</i>${statusHtml(r.status)}</div>${metingHtml(r, true)}</button>`; }).join('')
       : '<div style="color:var(--muted)">Nog niets ingesproken in deze map.</div>'}`}
   </div>`;
   if (!s) return;
@@ -4942,7 +4940,7 @@ function renderSpraak(m) {
       const tekst = ta.value.trim(), gehoord = SP.gehoord;
       s.notities = s.notities || []; s.notities.unshift({ id: nieuwId(), tekst, gemaakt: new Date().toISOString() });
       const nieuw = gehoord != null ? leer(gehoord, tekst) : [];
-      SP.tekst = ''; SP.gehoord = null; SP.toegepast = []; bewaar(); render(); meldGeleerd(nieuw); aiBijwerken();
+      SP.tekst = ''; SP.gehoord = null; SP.toegepast = []; bewaar(); render(); meldGeleerd(nieuw);
     };
   };
   ta.oninput = toon; toon();
@@ -4971,7 +4969,7 @@ function wijzigNotitie(s, n) {
   $('#nok', d).onclick = () => { const v = $('#nt', d).value.trim(), oud = n.tekst; const nieuw = v ? leer(oud, v) : [];
     if (v) { n.tekst = v; for (const f of s.fotos) for (const lb of f.labels || []) if (lb.id === n.id) { lb.notitie = v;
       const p0 = postenVoorNotitie(v, '')[0] || {}, m0 = herken(zonderExtra(v)), b = p0.breedte ?? m0.breedte, h = p0.hoogte ?? m0.hoogte;
-      for (const l of f.lijnen) if (l.kozijn === lb.tekst) { if (l.richting === 'horizontaal' && b != null) l.maat = b; if (l.richting === 'verticaal' && h != null) l.maat = h; } } bewaar(); } sluit(d); render(); meldGeleerd(nieuw); aiBijwerken(); };
+      for (const l of f.lijnen) if (l.kozijn === lb.tekst) { if (l.richting === 'horizontaal' && b != null) l.maat = b; if (l.richting === 'verticaal' && h != null) l.maat = h; } } bewaar(); } sluit(d); render(); meldGeleerd(nieuw); };
   $('#nweg', d).onclick = async () => {
     sluit(d);
     if (await bevestig('Regel verwijderen?', 'Deze ingesproken regel wordt verwijderd.')) { s.notities = s.notities.filter(x => x !== n);
@@ -5650,7 +5648,6 @@ function postenVoorNotitie(tekst, locatie, eigen = s => eigenCodes[s], ai = null
   // Een genoemde code ("240 A2") is geen maat: die gaat eruit voordat de maten gelezen worden.
   const inTekst = codeInTekst(tekst);
   const m = herken(zonderExtra(inTekst ? tekst.replace(inTekst.gevonden, ' ') : tekst));
-  // De AI-duiding (Gemini) gaat voor de regels als die bruikbaar is.
   if (!ai || !DEFS[ai.onderdeel]) ai = null;
   const onderdelen = m.termen.filter(t => t.soort === 'onderdeel').map(t => t.naam);
   const hoofd = ai ? ai.onderdeel : onderdelen.find(o => DEFS[o]);
@@ -5707,7 +5704,7 @@ function postenVoorNotitie(tekst, locatie, eigen = s => eigenCodes[s], ai = null
 }
 function maakPosten(p, eigen) {
   const uit = [];
-  for (const s of p.submappen) for (const n of [...(s.notities || [])].reverse()) uit.push(...postenVoorNotitie(n.tekst, s.naam, eigen, n.aiTekst === n.tekst ? n.ai : null, n.code));
+  for (const s of p.submappen) for (const n of [...(s.notities || [])].reverse()) uit.push(...postenVoorNotitie(n.tekst, s.naam, eigen, null, n.code));
   return uit;
 }
 const postCode = p => p.object ? `${p.object} ${p.onderdeel}` : '';
@@ -5793,7 +5790,7 @@ function stuksVan(tekst) {
 function formRegels(n, s) {
   const locatie = typeof s === 'string' ? s : s?.naam || '', bestek = bestekCode(n.tekst);
   const k = notitieKozijn(n, s), stuks = stuksVan(n.tekst);
-  return postenVoorNotitie(n.tekst, locatie, undefined, n.aiTekst === n.tekst ? n.ai : null, n.code).map((p, i) => {
+  return postenVoorNotitie(n.tekst, locatie, undefined, null, n.code).map((p, i) => {
     const omtrek = p.eenheid === 'M1' && (p.breedte != null && p.hoogte != null || k && i === 0);
     const vanFoto = k && i === 0 && (p.eenheid === 'M1' || p.eenheid === 'M2');
     let b = vanFoto ? k.B : p.breedte, h = vanFoto ? k.H : p.hoogte, str = null;
@@ -5867,279 +5864,8 @@ function projectTotalen(posten) {
 }
 const lijnMaten = p => p.submappen.flatMap(s => s.fotos.flatMap((f, fi) => f.lijnen.map((l, li) => ({ locatie: s.naam, foto: fi + 1, nr: li + 1, lijn: l, code: f.type?.code || '' }))));
 
-// ---------- Gemini (gratis versie): slimme laag bovenop de regels ----------
-// Alleen de ingesproken zin en de locatie gaan mee; geen klantnaam, adres of werknummer.
-// Zonder internet of sleutel blijven de regels en de geleerde correcties gewoon werken.
-const GEMINI_INGEBOUWD = ''; // vaste sleutel voor het hele team, in te vullen bij het bouwen
-const GEMINI_KEY = 'buildcalc.gemini.sleutel';
-// Volgorde van proberen. Geeft Google bij een model "limiet bereikt" (429, soms met limiet 0 voor gratis
-// sleutels), dan gaat de app meteen door naar het volgende model; elk model heeft een eigen gratis tegoed.
-const GEMINI_MODELLEN = ['gemini-3.8-flash', 'gemini-flash-latest', 'gemini-3.5-flash', 'gemini-2.5-flash'];
-// Reserve als Google het druk heeft (fout 503): eerst even wachten en opnieuw, daarna een lichter model.
-const GEMINI_RESERVE = 'gemini-flash-lite-latest';
-const geminiDruk = status => status === 503 || status === 500 || status === 502 || status === 504;
-const wachtMs = ms => new Promise(r => setTimeout(r, ms));
-const AI = { status: 'uit', fout: null, model: 0, ronde: null, nogmaals: false, luisteraars: new Set() };
-const aiEigen = () => { try { return localStorage.getItem(GEMINI_KEY) || ''; } catch { return ''; } };
-const aiSleutel = () => aiEigen() || GEMINI_INGEBOUWD;
-// AI op de telefoon zelf (Gemini Nano, bijv. op een Galaxy Z Fold7): geen sleutel en geen internet nodig.
-// stand: onbekend | klaar | downloaden | bezig | niet. Bij "klaar" gaat elke vraag eerst naar de telefoon; lukt dat niet, dan naar Gemini online (met sleutel).
-const TELAI = { stand: 'onbekend', fout: null };
-const telAi = () => TELAI.stand === 'klaar';
-const aiActief = () => telAi() || !!aiSleutel();
-// Waarom de AI van de telefoon niet aan staat, in gewone woorden (voor Instellingen).
-function telAiUitleg() {
-  if (!Native) return 'Alleen in de app op de telefoon';
-  if (telAi()) return 'Aan';
-  if (TELAI.stand === 'niet' && /not implemented|unimplemented|not available on|plugin/i.test(TELAI.fout || '')) return `Deze app is nog de oude versie. Installeer BuildCalc.apk opnieuw. (${TELAI.fout})`;
-  if (TELAI.stand === 'downloaden' && !TELAI.fout) return 'Het AI-model moet nog op de telefoon gezet worden (eenmalig). Zet wifi aan en tik op Opnieuw proberen.';
-  if (TELAI.stand === 'bezig' || TELAI.stand === 'downloaden') return `Het AI-model wordt op de telefoon gezet. Laat wifi aan; dit kan een paar minuten duren.${TELAI.fout ? ' (' + TELAI.fout + ')' : ''}`;
-  if (TELAI.stand === 'onbekend') return 'Bezig met controleren…';
-  if (TELAI.stand === 'uit') return 'Uitgezet, omdat de app de vorige keer vastliep bij het starten van de AI. Tik op Opnieuw proberen om het nog eens te proberen.';
-  return `De telefoon zegt dat de AI nu niet beschikbaar is${TELAI.fout ? ': ' + TELAI.fout : ''}. Werk in de Play Store de apps "AICore" en "Private Compute Services" bij, herstart de telefoon en tik op Opnieuw proberen.`;
-}
-// Beveiliging: viel de app uit tijdens het starten van de AI, dan blijft "bc_telai_bezig" staan.
-// Bij de volgende start slaan we de AI dan over, zodat de app niet blijft crashen. Opnieuw proberen kan in Instellingen.
-const telVlag = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch { return null; } };
-async function telAiStart(handmatig = false) {
-  const pl = plugin('TelefoonAi'); if (!pl) return;
-  if (!handmatig && telVlag('bc_telai_bezig')) { telVlag('bc_telai_bezig', null); telVlag('bc_telai_uit', '1'); }
-  if (!handmatig && telVlag('bc_telai_uit')) { TELAI.stand = 'uit'; TELAI.fout = null; return; }
-  if (handmatig) telVlag('bc_telai_uit', null);
-  TELAI.stand = 'onbekend'; TELAI.fout = null;
-  telVlag('bc_telai_bezig', '1');
-  let wachtOpDownload = false;
-  try {
-    const r = await metLimiet(pl.status(), 15000, 'De telefoon gaf geen antwoord'); TELAI.stand = r?.status || 'niet'; TELAI.fout = r?.fout || null;
-    // Het model downloaden doen we alleen als je daar zelf op tikt.
-    if (handmatig && (TELAI.stand === 'downloaden' || TELAI.stand === 'bezig')) {
-      if (!TELAI.luistert) { TELAI.luistert = true;
-        await pl.addListener?.('download', d => { if (d?.stand === 'klaar') { TELAI.stand = 'klaar'; TELAI.fout = null; aiMeld('aan'); aiBijwerken(); toast('AI van de telefoon staat klaar'); }
-          else if (d?.stand === 'mislukt') { TELAI.stand = 'downloaden'; TELAI.fout = d.fout || 'Downloaden mislukt'; } }); }
-      TELAI.stand = 'bezig'; wachtOpDownload = true; await pl.download();
-    }
-  } catch (e) { TELAI.stand = 'niet'; TELAI.fout = e?.message || String(e); }
-  // Blijft de app na het downloaden nog een halve minuut draaien, dan is het veilig.
-  if (wachtOpDownload) setTimeout(() => telVlag('bc_telai_bezig', null), 30000); else telVlag('bc_telai_bezig', null);
-  if (telAi()) { aiMeld('aan'); aiBijwerken(); }
-}
-// Korte vraag voor de kleine AI op de telefoon: alleen onderdeel, plek, materiaal en maten. De Topcalc-code kiezen de vaste regels.
-function telAiVraag(tekst, locatie) {
-  const woorden = Object.entries(geleerd.woorden).map(([w, t]) => `${w} = ${t}`).join(', ');
-  return `Je helpt een Nederlandse schilder bij het inmeten. Lees de ingesproken opname en geef alleen JSON terug, zonder uitleg, in deze vorm:
-{"onderdeel": "...", "plek": "buiten of binnen", "materiaal": "...", "glas": false, "breedte": null, "hoogte": null, "lengte": null, "herstel": 0}
-- onderdeel: precies een van: ${Object.keys(DEFS).join(', ')}; of "Onbekend".
-- plek: "binnen" bij binnendeuren, kamers, hal, interieur; anders "buiten".
-- materiaal: een van ${TOPCALC_MATERIALEN.join(', ')} (standaard hout; wanden en plafonds steen).
-- glas: true bij een deur met glas of ruiten.
-- breedte, hoogte, lengte in meters, komma is decimaalteken. "1,50 bij 1,30" is breedte 1.5 en hoogte 1.3. "25 cm" is 0.25. null als het niet genoemd is.
-- herstel: aantal plekken houtrot of scheuren, 0 als er geen is.
-${woorden ? `Eigen woorden van de gebruiker: ${woorden}.
-` : ''}
-Locatie: ${locatie}
-Opname: ${tekst}`;
-}
-async function telAiDuid(tekst, locatie) {
-  try {
-    const r = await plugin('TelefoonAi').vraag({ prompt: telAiVraag(tekst, locatie) });
-    const t = String(r?.tekst || ''), m = t.match(/\{[\s\S]*\}/); if (!m) return null;
-    const d = JSON.parse(m[0]), velden = ['onderdeel', 'plek', 'materiaal', 'glas', 'breedte', 'hoogte', 'lengte', 'herstel'];
-    if (!d || typeof d !== 'object' || !DEFS[d.onderdeel]) return null;
-    return Object.fromEntries(Object.entries(d).filter(([k, v]) => velden.includes(k) && v != null));
-  } catch (e) { TELAI.fout = e?.message || String(e); return null; }
-}
-const aiMeld = (status, fout = null) => { AI.status = status; AI.fout = fout; [...AI.luisteraars].forEach(f => f()); };
-aiMeld(aiSleutel() ? 'aan' : 'uit');
-// In de app staat de sleutel ook als bestand in de app-map. Zo overleeft hij een herstart of update
-// zeker, ook als Android de opslag van de webweergave leegmaakt. Hij gaat nooit mee in een back-up of zip.
-const GEMINI_BESTAND = 'instellingen/gemini.txt';
-async function aiSleutelNaarApp(v) {
-  if (!Native) return;
-  const fs = plugin('Filesystem');
-  try { v ? await fs.writeFile({ path: GEMINI_BESTAND, data: v, directory: 'DATA', encoding: 'utf8', recursive: true })
-    : await fs.deleteFile({ path: GEMINI_BESTAND, directory: 'DATA' }); } catch {}
-}
-async function aiSleutelUitApp() {
-  if (!Native) return;
-  try {
-    const r = await plugin('Filesystem').readFile({ path: GEMINI_BESTAND, directory: 'DATA', encoding: 'utf8' });
-    const v = String(typeof r?.data === 'string' ? r.data : await r?.data?.text?.() || '').trim();
-    if (v.length < 20) return;
-    if (!aiEigen()) { try { localStorage.setItem(GEMINI_KEY, v); } catch {} AI.model = 0; aiMeld('aan'); aiBijwerken(); }
-  } catch {
-    if (aiEigen()) aiSleutelNaarApp(aiEigen()); // sleutel van vóór deze versie ook in de app-map zetten
-  }
-}
-function topcalcKandidaten() {
-  const codes = new Set(['508']);
-  for (const d of Object.values(DEFS)) { Object.values(d.buiten).forEach(c => codes.add(c)); Object.values(d.binnen).forEach(c => codes.add(c)); if (d.sanering) codes.add(d.sanering); }
-  for (const g of Object.values(GLASDEUR)) g.forEach(c => codes.add(c));
-  return [...codes].sort().filter(c => TC.has(c)).map(c => { const o = TC.get(c);
-    return `${o.code} ${o.naam}: ${[...o.onderdelen.values()].map(ot => `${ot.code} ${ot.naam} (${ot.eenheid})`).join('; ')}`; }).join('\n');
-}
-function geminiVerzoek(tekst, locatie, snel = true) {
-  const woorden = Object.entries(geleerd.woorden).map(([w, t]) => `${w} = ${t}`).join(', ');
-  const instructie = `Je helpt een Nederlandse schilder bij het inmeten. Je krijgt een ingesproken
-opname en de locatie (bijv. Voorgevel of Woonkamer). Bepaal:
-- onderdeel: het hoofdonderdeel, precies een van: ${Object.keys(DEFS).join(', ')}; of "Onbekend".
-- plek: "buiten" of "binnen" (binnen bij binnendeuren, kamers, hal, interieur).
-- materiaal: ${TOPCALC_MATERIALEN.join(', ')} (standaard hout; wanden en plafonds standaard steen).
-- glas: true bij een deur met glas of ruiten.
-- breedte, hoogte, lengte in meters (komma is decimaalteken; "1,50 bij 1,30" is breedte 1,50 en hoogte 1,30; "25 cm" is 0,25). Laat weg wat niet genoemd is.
-- code: de beste Topcalc-code "OCODE OTCODE" uit de lijst hieronder, passend bij onderdeel, plek, materiaal en profielbreedte (A1 < 10 cm, A2 10-20 cm, A3 20-30 cm).
-- aantal: de hoeveelheid in de eenheid van die code: M2 = breedte x hoogte, M1 bij kozijnen en ramen = omtrek 2 x (breedte + hoogte), anders de lengte; ST = 1. Weglaten als een maat ontbreekt.
-- herstel: aantal plekken houtrot of scheuren dat hersteld moet worden, 0 als er geen is.
-${woorden ? `Eigen woorden van de gebruiker: ${woorden}.\n` : ''}
-Topcalc-lijst (OCODE objectnaam: OTCODE onderdeel (eenheid); ...):
-${topcalcKandidaten()}
-`;
-  const num = { type: 'NUMBER', nullable: true };
-  return {
-    systemInstruction: { parts: [{ text: instructie }] },
-    contents: [{ role: 'user', parts: [{ text: `Locatie: ${locatie}\nOpname: ${tekst}` }] }],
-    generationConfig: { temperature: 0, responseMimeType: 'application/json',
-      responseSchema: { type: 'OBJECT', properties: { onderdeel: { type: 'STRING' }, plek: { type: 'STRING', enum: ['buiten', 'binnen'] },
-        materiaal: { type: 'STRING' }, glas: { type: 'BOOLEAN' }, breedte: num, hoogte: num, lengte: num, code: { type: 'STRING' }, aantal: num,
-        herstel: { type: 'INTEGER' } },
-        required: ['onderdeel', 'plek', 'materiaal', 'code', 'herstel'] },
-      ...(snel ? { thinkingConfig: { thinkingBudget: 0 } } : {}) },
-  };
-}
-function leesGeminiAntwoord(j) {
-  try {
-    const d = JSON.parse(j.candidates[0].content.parts.map(p => p.text || '').join(''));
-    if (!d || typeof d !== 'object' || Array.isArray(d)) return null;
-    const velden = ['onderdeel', 'plek', 'materiaal', 'glas', 'breedte', 'hoogte', 'lengte', 'code', 'aantal', 'herstel'];
-    return Object.fromEntries(Object.entries(d).filter(([k, v]) => velden.includes(k) && v != null));
-  } catch { return null; }
-}
-// Wat Google zegt bij 429, kort en in gewone taal. "limit: 0" betekent: geen gratis tegoed op deze sleutel.
-function limietTekst(m) {
-  if (/limit:\s*0\b/i.test(m)) return 'Google geeft deze sleutel geen gratis tegoed (limiet 0). Maak een nieuwe sleutel in Google AI Studio.';
-  if (/per ?day|PerDay/i.test(m)) return 'Gratis daglimiet van Google op, morgen weer';
-  const kort = m.replace(/\s+/g, ' ').replace(/https?:\S+/g, '').slice(0, 140).trim();
-  return 'Gratis limiet even bereikt, later opnieuw' + (kort ? ` (Google: ${kort})` : '');
-}
-async function geminiDuid(tekst, locatie) {
-  if (telAi()) {
-    aiMeld('bezig');
-    const d = await telAiDuid(tekst, locatie);
-    if (d) { aiMeld('aan'); return d; }
-    if (!aiSleutel()) { aiMeld('aan'); return null; } // de vaste regels doen het dan
-  }
-  if (!aiSleutel()) return null;
-  aiMeld('bezig');
-  let snel = true, druk = 0, traag = 0, netwerk = 0, limiet = 0, googleMelding = '';
-  // Lukt het niet, dan over een minuut stil opnieuw (de notities blijven gewoon staan).
-  const later = () => { if (!AI.wachtTimer) AI.wachtTimer = setTimeout(() => { AI.wachtTimer = null; aiBijwerken(); }, 60000); };
-  for (let poging = 0; poging < 14; poging++) {
-    // Na drukte of een traag antwoord: het lichtere reservemodel, dat meestal sneller antwoordt.
-    const model = (druk >= 3 || traag) && !AI.geenReserve ? GEMINI_RESERVE : GEMINI_MODELLEN[AI.model];
-    // Gratis Gemini staat maar een paar vragen per minuut toe: minstens 7 seconden tussen twee vragen.
-    const rust = (AI.laatste || 0) + 7000 - Date.now(); if (rust > 0) await wachtMs(rust);
-    AI.laatste = Date.now();
-    const ctrl = new AbortController(), t = setTimeout(() => ctrl.abort(), 30000);
-    let r, body;
-    try {
-      r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
-        method: 'POST', signal: ctrl.signal,
-        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': aiSleutel() },
-        body: JSON.stringify(geminiVerzoek(tekst, locatie, snel)) });
-      body = await r.text();
-    } catch (e) {
-      clearTimeout(t);
-      // Geen antwoord binnen 30 seconden: dat ligt meestal aan Google, niet aan je internet.
-      if (e.name === 'AbortError') { if (++traag < 2) continue; later(); aiMeld('fout', navigator.onLine === false ? 'Geen internet' : 'Gemini reageert traag, later vanzelf opnieuw'); return null; }
-      // Verbinding mislukt: nog twee keer proberen voordat we "geen internet" zeggen.
-      if (++netwerk < 3 && navigator.onLine !== false) { await wachtMs(2000); continue; }
-      later(); aiMeld('fout', navigator.onLine === false ? 'Geen internet' : 'Gemini niet bereikbaar, later vanzelf opnieuw'); return null;
-    }
-    clearTimeout(t);
-    if (r.ok) { let d = null; try { d = leesGeminiAntwoord(JSON.parse(body)); } catch {} aiMeld(d ? 'aan' : 'fout', d ? null : 'Onverwacht antwoord van Gemini'); return d; }
-    if (r.status === 404 && model === GEMINI_RESERVE) { AI.geenReserve = true; continue; } // reservemodel bestaat niet (meer)
-    if (r.status === 404 && AI.model < GEMINI_MODELLEN.length - 1) { AI.model++; AI.laatste = 0; continue; }
-    // Limiet bereikt: het echte bericht van Google bewaren en direct een ander model proberen.
-    if (r.status === 429) {
-      try { googleMelding = String(JSON.parse(body).error?.message || ''); } catch {}
-      if (model !== GEMINI_RESERVE && limiet < GEMINI_MODELLEN.length - 1) { limiet++; AI.model = (AI.model + 1) % GEMINI_MODELLEN.length; AI.laatste = 0; continue; }
-      if (model !== GEMINI_RESERVE && !AI.geenReserve) { traag = 1; AI.laatste = 0; continue; } // nog één keer met het lichte model
-    }
-    if (r.status === 400 && snel && body.includes('thinking')) { snel = false; continue; }
-    // Google even overbelast: na 1, 2 en 4 seconden opnieuw, daarna met het reservemodel.
-    if (geminiDruk(r.status) && druk < 4) { druk++; await wachtMs([1000, 2000, 4000, 1000][druk - 1]); continue; }
-    if (geminiDruk(r.status) || r.status === 429) later();
-    aiMeld('fout', geminiDruk(r.status) ? 'Google is even overbelast, later vanzelf opnieuw' : [400, 401, 403].includes(r.status) ? 'Sleutel ongeldig of niet toegestaan' : r.status === 429 ? limietTekst(googleMelding) : `Gemini gaf fout ${r.status}`);
-    return null;
-  }
-  aiMeld('fout', 'Gemini werkt even niet, later vanzelf opnieuw'); later();
-  return null;
-}
-// Notities zonder (actuele) duiding alsnog laten duiden; stopt stil bij een fout.
-function aiBijwerken() {
-  if (!aiActief()) return Promise.resolve();
-  if (AI.ronde) { AI.nogmaals = true; return AI.ronde; }
-  const ronde = async () => {
-    for (const p of [...projecten]) for (const s of [...p.submappen]) for (const n of [...(s.notities || [])]) {
-      if (n.aiTekst === n.tekst) continue;
-      const tekst = n.tekst, d = await geminiDuid(tekst, s.naam);
-      // Alleen de telefoon-AI en die begrijpt deze zin niet: overslaan, de vaste regels doen het.
-      if (!d && telAi() && !aiSleutel()) { n.aiTekst = tekst; bewaar(); continue; }
-      if (!d) return false;
-      if (n.tekst !== tekst) continue;
-      n.ai = d; n.aiTekst = tekst; bewaar();
-      if (PAG) render();
-    }
-    return true;
-  };
-  return AI.ronde = (async () => { do { AI.nogmaals = false; if (!await ronde()) break; } while (AI.nogmaals); })().finally(() => { AI.ronde = null; });
-}
-const aiPostTekst = ps => ps.map(x => `${postCode(x)} ${x.aantal == null ? '?' : getalNL(x.aantal, x.eenheid === 'ST' ? 0 : 2)} ${x.eenheid.toLowerCase()}`).join(' + ');
-const aiKnopHtml = () => `<button class="ghost" id="aiKnop" style="color:${AI.status === 'aan' || AI.status === 'bezig' ? 'var(--gold)' : 'var(--muted)'}">${ic('ster')} ${
-  telAi() ? (AI.status === 'bezig' ? 'AI denkt…' : 'AI telefoon') : { uit: 'Gemini uit', fout: 'Gemini offline', aan: 'Gemini aan', bezig: 'Gemini denkt…' }[AI.status]}</button>`;
-function koppelAiKnop(el) {
-  const knop = $('#aiKnop', el); if (!knop) return;
-  knop.onclick = toonAiInstellingen;
-  const update = () => { if (!knop.isConnected) { AI.luisteraars.delete(update); return; } knop.outerHTML = aiKnopHtml(); koppelAiKnop(el); AI.luisteraars.delete(update); };
-  AI.luisteraars.add(update);
-}
-function toonAiInstellingen() {
-  const d = dialoog(`<h2>Gemini (gratis AI)</h2>
-    <div style="color:var(--muted);font-size:13px">Met internet duidt Gemini je opname en kiest de Topcalc-code. Zonder internet werken de vaste regels en je geleerde correcties gewoon. Alleen de ingesproken zin en de locatie gaan mee, geen klantnaam of adres.</div>
-    <div id="aiInfo" style="margin:12px 0 4px"></div>
-    <label class="field"><span>API-sleutel uit Google AI Studio</span><input id="aiS" type="password" autocomplete="off" placeholder="AIza…"></label>
-    <div id="aiTest" style="font-size:13px"></div>
-    <div class="actions"><button id="aiWis">Wissen</button><button id="aiTst">Testen</button><button id="aiOk" class="primary" disabled>Opslaan</button></div>`);
-  const info = () => {
-    const tel = { klaar: '<div style="color:var(--ok);margin-bottom:6px">De AI van je telefoon staat aan. Een sleutel is niet nodig; die is alleen nog een reserve.</div>',
-      bezig: '<div style="color:var(--muted);margin-bottom:6px">De AI van je telefoon wordt klaargezet. Dat kan even duren.</div>' }[TELAI.stand] || '';
-    $('#aiInfo', d).innerHTML = tel + `<b>${aiEigen() ? 'Eigen sleutel op dit toestel' : GEMINI_INGEBOUWD ? 'Ingebouwde sleutel' : 'Nog geen sleutel'}</b>${AI.fout ? `<div style="color:var(--open)">${esc(AI.fout)}</div>` : ''}`;
-    $('#aiWis', d).style.display = aiEigen() ? '' : 'none'; $('#aiTst', d).style.display = aiSleutel() ? '' : 'none';
-  };
-  info();
-  const inp = $('#aiS', d), ok = $('#aiOk', d);
-  inp.oninput = () => { ok.disabled = inp.value.trim().length < 20; };
-  const zet = v => { try { v ? localStorage.setItem(GEMINI_KEY, v) : localStorage.removeItem(GEMINI_KEY); } catch {} aiSleutelNaarApp(v); AI.model = 0; aiMeld(aiSleutel() ? 'aan' : 'uit'); inp.value = ''; ok.disabled = true; info(); };
-  const test = async () => {
-    const zin = 'kozijn 1,50 bij 1,30 houtrot gronden en 2x aflakken', uit = $('#aiTest', d);
-    uit.textContent = 'Testen…';
-    const r = await geminiDuid(zin, 'Voorgevel');
-    uit.textContent = r ? `Werkt. "${zin}" werd ${aiPostTekst(postenVoorNotitie(zin, 'Voorgevel', () => null, r))}.` : `Niet gelukt: ${AI.fout || 'onbekende fout'}`;
-    info(); return !!r;
-  };
-  // Opslaan zet Gemini direct aan: sleutel bewaren, meteen testen en bij succes het venster sluiten.
-  // Het venster sluit meteen; het testen gebeurt op de achtergrond, zodat de app nooit blijft wachten.
-  ok.onclick = () => {
-    zet(inp.value.replace(/\s+/g, ''));
-    sluit(d); toast('Sleutel opgeslagen. Gemini wordt getest…');
-    geminiDuid('kozijn 1,50 bij 1,30 houtrot gronden en 2x aflakken', 'Voorgevel')
-      .then(r => { toast(r ? 'Gemini staat aan en werkt.' : `Gemini werkt nog niet: ${AI.fout || 'onbekende fout'}`); if (r) aiBijwerken(); });
-  };
-  $('#aiWis', d).onclick = () => zet('');
-  $('#aiTst', d).onclick = test;
-}
-
 // ---------- back-up: alles of één project in één bestand, ook terug te zetten in de Android-app ----------
-// Bevat projecten, mappen, foto's, lijnen, notities, geleerde correcties en eigen Topcalc-codes; niet de Gemini-sleutel.
+// Bevat projecten, mappen, foto's, lijnen, notities, geleerde correcties en eigen Topcalc-codes.
 const fotoTal = n => `${n} ${n === 1 ? 'foto' : "foto's"}`;
 const naarBase64 = blob => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1]); r.onerror = () => rej(r.error); r.readAsDataURL(blob); });
 const uitBase64 = b64 => { const s = atob(b64), a = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) a[i] = s.charCodeAt(i); return new Blob([a], { type: 'image/jpeg' }); };
@@ -8365,7 +8091,7 @@ const VERTALING = {
   "Tik op Lijn en trek een lijn over het kozijn. Spreek daarna de maat in.": ["Tap Line and draw a line across the frame. Then say the measurement.", "Tippe auf Linie und zieh eine Linie über den Rahmen. Sprich danach das Maß ein."],
   "Tik op Lijn en trek een lijn over het kozijn. Tik daarna op de lijn om de maat in te vullen.": ["Tap Line and draw a line across the frame. Then tap the line to enter the measurement.", "Tippe auf Linie und zieh eine Linie über den Rahmen. Tippe danach auf die Linie, um das Maß einzugeben."],
   "Laser verbonden": ["Laser connected", "Laser verbunden"], "Laser zoeken…": ["Searching laser…", "Laser wird gesucht…"],
-  "SLIM HERKENNEN": ["SMART RECOGNITION", "INTELLIGENTE ERKENNUNG"], "AI van de telefoon": ["Phone AI", "KI des Telefons"], "Geleerde woorden": ["Learned words", "Gelernte Wörter"],
+  "SLIM HERKENNEN": ["SMART RECOGNITION", "INTELLIGENTE ERKENNUNG"], "Geleerde woorden": ["Learned words", "Gelernte Wörter"],
   "Inspreken": ["Dictate", "Einsprechen"], "Niet beschikbaar op dit toestel of in deze versie": ["Not available on this device or in this version", "Auf diesem Gerät oder in dieser Version nicht verfügbar"],
   "Extra stijlen": ["Extra mullions", "Zusätzliche Pfosten"], "Extra dorpels": ["Extra transoms", "Zusätzliche Kämpfer"],
   "Project ontvangen": ["Receive project", "Projekt empfangen"], "Rapport openen": ["Open report", "Bericht öffnen"], "PDF opslaan": ["Save PDF", "PDF speichern"], "OPSLAG": ["STORAGE", "SPEICHER"],
@@ -8437,13 +8163,6 @@ const VERTALING = {
   "Alle geleerde woorden, verbeteringen en eigen codes worden gewist.": ["All learned words, corrections and own codes will be erased.", "Alle gelernten Wörter, Korrekturen und eigenen Codes werden gelöscht."],
   "Alle woorden in deze tekst ken ik al.": ["I already know all words in this text.", "Ich kenne schon alle Wörter in diesem Text."],
   "1 keer verbeterd": ["corrected once", "einmal korrigiert"],
-  "Gemini (gratis AI)": ["Gemini (free AI)", "Gemini (kostenlose KI)"],
-  "Gemini aan": ["Gemini on", "Gemini an"],
-  "Gemini uit": ["Gemini off", "Gemini aus"],
-  "Gemini offline": ["Gemini offline", "Gemini offline"],
-  "Gemini denkt…": ["Gemini is thinking…", "Gemini denkt nach…"],
-  "Met internet duidt Gemini je opname en kiest de Topcalc-code. Zonder internet werken de vaste regels en je geleerde correcties gewoon. Alleen de ingesproken zin en de locatie gaan mee, geen klantnaam of adres.": ["With internet, Gemini interprets your entry and picks the Topcalc code. Without internet the fixed rules and your learned corrections still work. Only the dictated sentence and the location are sent, no client name or address.", "Mit Internet deutet Gemini deine Aufnahme und wählt den Topcalc-Code. Ohne Internet funktionieren die festen Regeln und deine gelernten Korrekturen weiter. Nur der diktierte Satz und der Ort werden gesendet, kein Kundenname und keine Adresse."],
-  "API-sleutel uit Google AI Studio": ["API key from Google AI Studio", "API-Schlüssel aus Google AI Studio"],
   "Eigen sleutel op dit toestel": ["Own key on this device", "Eigener Schlüssel auf diesem Gerät"],
   "Ingebouwde sleutel": ["Built-in key", "Eingebauter Schlüssel"],
   "Nog geen sleutel": ["No key yet", "Noch kein Schlüssel"],
@@ -8451,7 +8170,6 @@ const VERTALING = {
   "Geen antwoord (geen of traag internet)": ["No response (no or slow internet)", "Keine Antwort (kein oder langsames Internet)"],
   "Gratis limiet even bereikt, later opnieuw": ["Free limit reached for now, try again later", "Kostenloses Limit vorerst erreicht, später erneut"],
   "Sleutel ongeldig of niet toegestaan": ["Key invalid or not allowed", "Schlüssel ungültig oder nicht erlaubt"],
-  "Onverwacht antwoord van Gemini": ["Unexpected response from Gemini", "Unerwartete Antwort von Gemini"],
   "Testen…": ["Testing…", "Teste…"],
   "Excel maken…": ["Making Excel…", "Excel wird erstellt…"],
   "PDF maken…": ["Creating PDF…", "PDF wird erstellt…"],
@@ -8537,7 +8255,6 @@ const VERTALING = {
   "Lasermeter": ["Laser meter", "Lasermessgerät"],
   "Laser verbonden": ["Laser connected", "Laser verbunden"],
   "Zoeken…": ["Searching…", "Suche…"],
-  "Spraak met Gemini": ["Voice with Gemini", "Sprache mit Gemini"],
   "Rapporten": ["Reports", "Berichte"],
   "RAPPORTEN": ["REPORTS", "BERICHTE"],
   "Nog geen rapporten": ["No reports yet", "Noch keine Berichte"],
@@ -9215,23 +8932,23 @@ function renderInstellingen(m) {
   });
   m.querySelectorAll('[data-taal]').forEach(b => b.onclick = () => { zetTaal(b.dataset.taal); render(); });
   inmInstKoppel(m);
-  toonFotoOpslag(m); // Slim herkennen (AI, Gemini, geleerde woorden) is weg: de app werkt zonder AI.
-  if ($('#iTelAi', m)) $('#iTelAi', m).onclick = async () => { $('#iTelAi', m).disabled = true; await telAiStart(true); if (tab === 'instellingen') render(); toast(telAi() ? 'AI van de telefoon staat aan' : telAiUitleg()); }; 
+  toonFotoOpslag(m);
   $('#iMaak', m).onclick = () => backupMaken();
   $('#iTerug', m).onclick = backupTerugzetten;
   $('#iDrive', m).onclick = backupNaarDrive;
   if ($('#iUpd', m)) $('#iUpd', m).onclick = () => zoekUpdate(true);
   const vak = $('#iLaser', m), laser = () => { if (!vak.isConnected) { Laser.luisteraars.delete(laser); return; } vak.innerHTML = laserKnopHtml(); koppelLaserKnop(vak); };
   Laser.luisteraars.add(laser); laser();
-  const bij = () => { if (!m.isConnected || tab !== 'instellingen' || !$('#iUpd', m) && Native) { UPD.luisteraars.delete(bij); AI.luisteraars.delete(bij); return; } UPD.luisteraars.delete(bij); AI.luisteraars.delete(bij); render(); };
-  UPD.luisteraars.add(bij); AI.luisteraars.add(bij);
+  const bij = () => { if (!m.isConnected || tab !== 'instellingen' || !$('#iUpd', m) && Native) { UPD.luisteraars.delete(bij); return; } UPD.luisteraars.delete(bij); render(); };
+  UPD.luisteraars.add(bij);
 }
 $('#instel').onclick = () => { tab = 'instellingen'; render(); };
 
 render();
 if (/koppel=BCK1/.test(location.hash)) { const k = decodeURIComponent(location.hash); history.replaceState(null, '', location.pathname + location.search); setTimeout(() => inmKoppelCode(k), 300); }
 else if (inmGekoppeld()) setTimeout(() => inmHaal(true), 2000); // aantal voor het bolletje op Inmeten
-// Geen AI meer bij het starten (spraak en Gemini zijn uit de app): dat scheelt batterij en netwerk.
+// De app werkt zonder AI. Een oude Gemini-sleutel wordt van het toestel gehaald.
+try { localStorage.removeItem('buildcalc.gemini.sleutel'); } catch {}
 if (Native) setTimeout(zoekUpdate, 1500);
 // Android-terugknop: één scherm terug, net als de terug-pijl linksboven. Op het beginscherm gaat de app naar de achtergrond.
 function androidTerug() {
