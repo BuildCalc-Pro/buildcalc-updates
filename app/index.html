@@ -2582,7 +2582,7 @@ function tekenUI2() {
         ${stukAantal(lijn) !== 1 ? `<div class="teller"><span>Aantal van dit stuk <small style="color:var(--muted)">(zelfde lengte)</small></span><button data-kmin aria-label="Minder">−</button><input data-knum type="number" inputmode="numeric" min="0" max="20" value="${stukAantal(lijn)}"><button data-kplus aria-label="Meer">+</button></div>` : ''}`
         : `${extraRij('verticaal', 'Extra stijlen', 'verticaal')}${extraRij('horizontaal', 'Extra dorpels', 'horizontaal')}`}
       ${lijn && lijn.maat == null && (refMaat(f, lijn) != null || schaalRef(f, lijn)) ? `<button class="ghost" id="lschaal" style="color:var(--gold);font-weight:600;text-align:left;padding:2px 4px">Uitrekenen uit de foto (${refMaat(f, lijn) != null ? '≈ ' + maatLabel(refMaat(f, lijn)) + ', rechtgezet' : '± ' + maatLabel(schaalMaat(f, lijn))})</button>` : ''}
-      ${lijn?.uitRef && lijn.maat != null ? `<div style="font-size:12px;color:#57E0D2;padding:0 4px">≈ Uit de foto, ${fotoMeter(f)?.soort === 'ref' ? `rechtgezet met referentie ${f.ref?.L || ''}` : fotoMeter(f)?.soort === 'stenen' ? `vanzelf rechtgezet, met de stenen als schaal (${String(fotoMeter(f).laag).replace('.', ',')} cm per laag, uit je andere foto's)` : !fotoMeter(f) && lijn.tik ? 'grove schatting met standaard stenen (6,2 cm per laag). Meet op deze foto één lijn met de laser voor een goede maat' : 'vanzelf rechtgezet, met je gemeten maten als schaal'}. Meet je hem met de laser, dan telt de laser.</div>` : ''}
+      ${lijn?.uitRef && lijn.maat != null ? `<div style="font-size:12px;color:#57E0D2;padding:0 4px">≈ Uit de foto, ${fotoMeter(f)?.soort === 'ref' ? `rechtgezet met referentie ${f.ref?.L || ''}` : fotoMeter(f)?.soort === 'stenen' ? `vanzelf rechtgezet, met de stenen als schaal (${cmKort(fotoMeter(f).laag)} cm per laag, ${laagUitleg({ bron: fotoMeter(f).laagBron })})` : !fotoMeter(f) && lijn.tik ? 'grove schatting met standaard stenen (6,2 cm per laag). Meet op deze foto één lijn met de laser voor een goede maat' : 'vanzelf rechtgezet, met je gemeten maten als schaal'}. Meet je hem met de laser, dan telt de laser.</div>` : ''}
       ${lijn?.uitRef && lijn.maat != null && lijn.richting === 'horizontaal' && fotoMeter(f)?.breedteGok ? `<div style="font-size:12px;color:#FFA726;padding:0 4px">⚠ Op deze foto is geen breedte gemeten, dus deze breedte is onzeker (soms de helft te klein of te groot). Typ of laser op deze foto één breedte, bijvoorbeeld van het raam beneden, dan klopt hij.</div>` : ''}
       ${lijn && afwijking(f, lijn) != null ? `<div style="font-size:12px;color:#FFA726;padding:0 4px">⚠ Volgens de foto is dit ongeveer ${maatLabel(afwijking(f, lijn))}. Dat scheelt ${Math.round(Math.abs(afwijking(f, lijn) - lijn.maat) * 100)} cm met je maat. Klopt je maat? Zo ja, dan hoef je niks te doen.</div>` : ''}
       ${lijn && lijn !== richtingLijn(lijn.richting) && !isWand(ondVan(f).find(o => o.letter === lijn.kozijn)) ? '<div style="font-size:12px;color:var(--gold);padding:0 4px">Dit is een extra stuk: aantal × maat telt op bij het strekkend van dit onderdeel.</div>' : ''}
@@ -3424,10 +3424,10 @@ function fotoMeter(f) {
   const sx = mediaan(gemeten.filter(l => l.richting === 'horizontaal').map(l => l.maat / d(l)[0]));
   const sy = mediaan(gemeten.filter(l => l.richting === 'verticaal').map(l => l.maat / d(l)[1]));
   if (sx == null && sy == null) {
-    // Geen gemeten maat op deze foto: de lagen stenen als schaal, met de laaghoogte (10 lagen gelaserd, of uit je andere foto's).
-    const lv = laagVoor(f), lg = lv.bron === 'standaard' ? null : lv.cm; if (!vl.laag || !lg) return null;
+    // Geen gemeten maat op deze foto: de lagen stenen als schaal, met de laaghoogte (10 lagen gelaserd op deze gevel, anders 6,2 cm).
+    const lv = laagVoor(f), lg = lv.cm; if (!vl.laag || !lg) return null;
     const k = lg / 100 / vl.laag;
-    return { soort: 'stenen', breedteGok: true, laag: lg, kantel: vl.kantel, maat: l => { const [dx, dy] = d(l); return Math.hypot(dx * k, dy * k); }, delen: l => { const [dx, dy] = d(l); return [dx * k, dy * k]; } };
+    return { soort: 'stenen', breedteGok: true, laag: lg, laagBron: lv.bron, kantel: vl.kantel, maat: l => { const [dx, dy] = d(l); return Math.hypot(dx * k, dy * k); }, delen: l => { const [dx, dy] = d(l); return [dx * k, dy * k]; } };
   }
   const kx = sx ?? sy, ky = sy ?? sx;
   return { soort: 'auto', breedteGok: sx == null, kantel: vl.kantel, maat: l => { if (gemeten.includes(l)) return null; const [dx, dy] = d(l); return Math.hypot(dx * kx, dy * ky); }, delen: l => { const [dx, dy] = d(l); return [dx * kx, dy * ky]; } };
@@ -3436,19 +3436,6 @@ const vlakD = (vl, l) => { const a = vl.punt(l.x1, l.y1), b = vl.punt(l.x2, l.y2
 const mediaan = a => { a = a.filter(v => isFinite(v) && v > 0).sort((x, y) => x - y); return a.length ? a[a.length >> 1] : null; };
 // Maten met de laser (of getypt/ingesproken): die tellen altijd. Niet uit de foto en niet met stenen geteld.
 const laserLijnen = f => f.lijnen.filter(l => l.maat != null && !l.uitRef && l.bron !== 'foto' && l.bron !== 'stenen');
-// Laaghoogte (cm, steen + voeg) van deze foto, gemeten met je lasermaten als schaal. Bewaard bij de foto.
-function laagVanFoto(f) {
-  const vl = VLAK.get(f?.id); if (!vl?.ok || !vl.laag) return null;
-  const g = laserLijnen(f), d = l => vlakD(vl, l);
-  const k = mediaan(g.filter(l => l.richting === 'verticaal').map(l => l.maat / d(l)[1])) ?? mediaan(g.filter(l => l.richting === 'horizontaal').map(l => l.maat / d(l)[0]));
-  const cm = k ? Math.round(vl.laag * k * 1000) / 10 : null;
-  return cm > 3 && cm < 20 ? cm : null;
-}
-// Laaghoogte voor dit project: het midden van wat je andere foto's (met lasermaten) gaven. Zonder: niks (dan geen stenen-schaal).
-function laagProject(zonder) {
-  const p = V?.p; if (!p) return null;
-  return mediaan(p.submappen.flatMap(s => s.fotos).filter(f => f !== zonder && f.laagCm).map(f => f.laagCm));
-}
 // Controle: wijkt een lasermaat flink af van wat de foto zegt (referentiekozijn, je andere maten in dezelfde richting, of de stenen)?
 // Geeft de verwachte maat (m) terug als het meer dan 4 cm en 4% scheelt, anders null. De lasermaat blijft gewoon staan.
 function afwijking(f, l) {
@@ -3462,7 +3449,7 @@ function afwijking(f, l) {
   if (ref && l !== ref.b && l !== ref.h) { const [ax, ay] = hPunt(ref.M, l.x1, l.y1), [bx, by] = hPunt(ref.M, l.x2, l.y2); v = Math.hypot(bx - ax, by - ay); }
   else { const vl = VLAK.get(f?.id); if (!vl?.ok) return null;
     const i = l.richting === 'horizontaal' ? 0 : 1, d = vlakD(vl, l)[i]; if (!d) return null;
-    const zelfde = laserLijnen(f).filter(x => x !== l && x.richting === l.richting), lg = laagProject(f), stenen = i === 1 && vl.laag && lg && opKantoorNu() ? lg / 100 / vl.laag : null;
+    const zelfde = laserLijnen(f).filter(x => x !== l && x.richting === l.richting), lv = laagVoor(f), lg = lv.bron === 'standaard' ? null : lv.cm, stenen = i === 1 && vl.laag && lg && opKantoorNu() ? lg / 100 / vl.laag : null;
     // Maar één andere maat en geen stenen: dan weet je niet wie er fout zit; alleen de nieuwste krijgt de vraag.
     if (zelfde.length === 1 && !stenen && f.lijnen.indexOf(zelfde[0]) > f.lijnen.indexOf(l)) return null;
     const k = mediaan(zelfde.map(x => x.maat / vlakD(vl, x)[i])) ?? stenen;
@@ -3477,7 +3464,6 @@ function refMaat(f, l, m = fotoMeter(f)) {
 }
 // Lijnen die uit de foto komen, lopen mee als je de lijn, de referentie of een gemeten maat aanpast.
 function herrekenRef(f) {
-  const lc = laagVanFoto(f); if (f && lc && lc !== f.laagCm) { f.laagCm = lc; bewaar(); }
   if (stenenHerreken(f)) bewaar();
   const m = fotoMeter(f); if (!m) return;
   for (const l of f.lijnen) if (l.uitRef) { const v = refMaat(f, l, m); if (v != null) l.maat = v; }
@@ -4466,7 +4452,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.20-3';
+const APP_VERSIE = '2026.11.20-4';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
@@ -6625,18 +6611,16 @@ function trilKort() { try { navigator.vibrate?.(60); } catch (e) {} }
 // Zonder stenen (stucwerk, trappenhuis): eerst de 4 hoeken van een vlak aantikken dat je met de laser gemeten hebt (referentievlak).
 const LAGEN_REF = 10, VLAK_L = '#vlak';
 const laagUitRef = f => { const l = (f?.lijnen || []).find(x => x.lagen10 && x.maat > 0); return l ? l.maat * 100 / LAGEN_REF : null; };
-// Laaghoogte (cm, steen + voeg) voor deze foto: de 10 lagen op deze foto, anders op deze gevel (map), anders in het project.
+// Laaghoogte (cm, steen + voeg) voor deze foto: de 10 lagen op deze foto, anders op deze gevel (map), anders de standaard 6,2 cm.
+// Nooit afgeleid uit andere gevels of uit de foto zelf: alleen een gelaserde 10 lagen telt.
 function laagVoor(f) {
   const eigen = laagUitRef(f); if (eigen) return { cm: eigen, bron: 'foto' };
   const plek = f && fotoPlek(f);
-  if (plek) { const m = mediaan(plek.s.fotos.map(laagUitRef)); if (m) return { cm: m, bron: 'gevel' };
-    const pr = mediaan(plek.p.submappen.flatMap(s => s.fotos).map(laagUitRef)); if (pr) return { cm: pr, bron: 'project' }; }
-  const lp = f?.laagCm || laagProject(f); if (lp) return { cm: lp, bron: 'laser' };
+  if (plek) { const m = mediaan(plek.s.fotos.map(laagUitRef)); if (m) return { cm: m, bron: 'gevel' }; }
   return { cm: STEEN_LAAG, bron: 'standaard' };
 }
 const cmKort = v => String(Math.round(v * 10) / 10).replace('.', ',');
-const laagUitleg = lv => ({ foto: '10 lagen gelaserd op deze foto', gevel: '10 lagen gelaserd op deze gevel', project: '10 lagen gelaserd in dit project',
-  laser: 'uit je lasermaten op de foto', standaard: 'standaard, nog geen 10 lagen gelaserd' })[lv.bron];
+const laagUitleg = lv => ({ foto: '10 lagen gelaserd op deze foto', gevel: '10 lagen gelaserd op deze gevel', standaard: 'standaard, nog geen 10 lagen gelaserd' })[lv.bron];
 // Getelde lijnen rekenen opnieuw zodra de laaghoogte verandert (bijv. de 10 lagen later ingevuld).
 function stenenHerreken(f) {
   if (!f?.lijnen?.some(l => l.bron === 'stenen')) return false;
