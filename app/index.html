@@ -408,7 +408,7 @@ table.form td[data-ncode] { cursor: pointer; text-decoration: underline dotted v
 .lgrond.min { background: var(--surface-high); color: var(--text); }
 .vkant { flex: none; padding: 5px 10px; border-radius: 999px; border: 1px solid var(--gold-dark); background: none; color: var(--a2); font-size: 13px; font-weight: 600; margin-right: 6px; }
 .vkant.on { background: color-mix(in srgb, var(--a2) 22%, transparent); border-color: var(--a2); }
-.viewer.loc #vmodes [data-m=bekijken] { display: none; }
+.viewer.loc #vmodes [data-m=bekijken], .viewer.loc #vtel { display: none; }
 .kantoorknop { width: 100%; margin: 0 0 8px; padding: 10px; border-radius: 10px; border: 1px solid var(--gold-dark); background: var(--surface-high); color: var(--a2); font-weight: 600; }
 .ondrij { display: flex; gap: 6px; overflow-x: auto; margin: 0 0 8px; padding-bottom: 2px; }
 .ondchip { flex: none; padding: 7px 12px; border-radius: 16px; border: 1px solid var(--line, #444); background: var(--surface-high); color: inherit; font-size: 14px; white-space: nowrap; }
@@ -532,6 +532,18 @@ const KEY = 'buildcalc.projecten';
 let projecten = [];
 try { projecten = JSON.parse(localStorage.getItem(KEY) || '[]'); } catch { projecten = []; }
 projecten.forEach(p => p.submappen.forEach(s => { s.notities ??= []; }));
+// De oude gevelstand (automatische kozijnlijnen, overzicht met close-ups en ingezoomde foto's) bestaat niet meer.
+// Lijnen en maten blijven gewone lijnen; alleen de gevelgegevens gaan weg.
+function oudeGevelWeg(p) {
+  for (const s of p.submappen || []) for (const f of s.fotos || []) {
+    if (!f.gevel && !f.flat && !f.closeup && !f.deel && !f.gevelGezocht && !(f.onderdelen || []).some(o => o.gv)) continue;
+    f.lijnen = (f.lijnen || []).filter(l => !(l.rol === 'GL' && !(l.maat > 0)));
+    for (const l of f.lijnen) { if (['GB', 'GH', 'GL'].includes(l.rol)) { if (l.rol === 'GL') l.ref = true; delete l.rol; delete l.verplaatst; } delete l.stenenOk; }
+    for (const o of f.onderdelen || []) delete o.gv;
+    delete f.gevel; delete f.flat; delete f.closeup; delete f.deel; delete f.gevelGezocht;
+  }
+}
+projecten.forEach(oudeGevelWeg);
 // Alle projecten werken simpel: mappen en foto's, zonder stappenplan of Kadaster. Het oude plan blijft in de gegevens bewaard.
 const zetSimpel = p => { if (p.simpel) return; p.simpel = true;
   if (!p.submappen.length) p.submappen = ['Voorgevel', 'Achtergevel', 'Zijgevel'].map(naam => ({ id: nieuwId(), naam, aangemaakt: new Date().toISOString(), fotos: [], notities: [] })); };
@@ -551,7 +563,7 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 addEventListener('storage', e => { if (e.key !== KEY || e.newValue == null) return;
   let nieuw; try { nieuw = JSON.parse(e.newValue); } catch { return; }
   clearTimeout(bewaarTijd); bewaarTijd = null;
-  projecten = nieuw; projecten.forEach(p => p.submappen.forEach(s => { s.notities ??= []; })); projecten.forEach(zetSimpel);
+  projecten = nieuw; projecten.forEach(p => p.submappen.forEach(s => { s.notities ??= []; })); projecten.forEach(zetSimpel); projecten.forEach(oudeGevelWeg);
   if (stapel[0] && !vind(stapel[0])) stapel = [];
   if (PAG?.soort === 'topcalc' && !vind(RP.projectId)) PAG = null;
   render(); });
@@ -2210,16 +2222,13 @@ async function verwerkFoto(file) {
   if (!file || !s) return;
   try {
     const blob = await verklein(file, FOTO_MAX), f35 = await jpegF35(file).catch(() => null);
-    const foto = { id: nieuwId(), gemaakt: new Date().toISOString(), lijnen: [], ...(f35 ? { f35 } : {}), ...(doel?.controle ? { controle: doel.controle } : {}), ...(doel?.zoomVan ? { gevelZoom: { van: doel.zoomVan } } : {}), ...(doel?.closeVan ? { closeup: { van: doel.closeVan, letter: doel.closeL } } : {}), ...(doel?.deelVan ? { deel: { van: doel.deelVan, wat: doel.deelWat } } : {}) };
+    const foto = { id: nieuwId(), gemaakt: new Date().toISOString(), lijnen: [], ...(f35 ? { f35 } : {}), ...(doel?.controle ? { controle: doel.controle } : {}) };
     await fotoBewaar(foto.id, blob);
     // In een trappenhuis staan de lijnen van een trapwand meteen klaar; je hoeft alleen te laseren.
-    if (trapMap(s) && !doel?.controle && !doel?.zoomVan) try { sjMaak(foto, 'trap', s); } catch (e) { console.warn(e); }
-    if (doel?.closeVan) { const ov = fotoVanId(doel.closeVan), o = ov && ondVan(ov).find(x => x.letter === doel.closeL); if (o?.gv) { o.gv.close = 'ok'; o.gv.closeId = foto.id; } }
+    if (trapMap(s) && !doel?.controle) try { sjMaak(foto, 'trap', s); } catch (e) { console.warn(e); }
     s.fotos.push(foto); bewaar(); render(); keurNaMaken(foto, blob, { p, s, doel });
     // Simpel project: niet de foto openen, meteen klaar voor de volgende. Lijnen trek je later door de foto aan te tikken.
-    if (doel?.zoomVan) return toast('Ingezoomde foto bewaard, de app legt hem over het overzicht…', 4000);
-    if (p.simpel && !doel?.controle && !doel?.deelVan && !doel?.closeVan) return toast(`Foto ${s.fotos.length} bewaard in ${volNaam(p, s)}`);
-    if (doel?.closeVan && V && V.s === s) { naarFoto(s.fotos.length - 1); return; }   // close-up: in dezelfde viewer verder
+    if (p.simpel && !doel?.controle) return toast(`Foto ${s.fotos.length} bewaard in ${volNaam(p, s)}`);
     if (doel?.open) { stapel = p.simpel ? [p.id] : [p.id, s.id]; render(); openViewer(p, s, s.fotos.length - 1); }
     else if (doel) toast(`Foto bewaard in ${volNaam(p, s)}`); else openViewer(p, s, s.fotos.length - 1);
   } catch (e) { toast('Foto maken lukte niet: ' + e.message); }
@@ -2360,14 +2369,14 @@ function openViewer(p, s, i) {
       <button class="navarrow r" id="vnext" aria-label="Volgende foto">${ic('right')}</button><span class="weg" id="vweg2" hidden>Foto ontbreekt</span>
       <div class="vbalk" id="vbalk" hidden></div><div class="vspraak" id="vspraak"></div><button class="mic vmic" id="vmic" aria-label="Inspreken">${ic('mic')}</button></div>
     <div class="vbottom"><div class="status" id="vstatus"></div><div id="vextra"></div><div class="modes" id="vmodes">
-      <button data-m="bekijken">${ic('hand')}Bekijken</button><button data-m="lijn">${ic('ruler')}Lijn</button><button data-m="opmerking">${ic('ballon')}Opmerking</button></div></div>`;
+      <button data-m="bekijken">${ic('hand')}Bekijken</button><button data-m="lijn">${ic('ruler')}Lijn</button><button data-m="opmerking">${ic('ballon')}Opmerking</button><button id="vtel">${ic('hash')}Tellen</button><button id="vl10">${ic('vert')}10 lagen</button></div></div>`;
   document.body.appendChild(el);
   V = { p, s, i, modus: 'bekijken', sel: null, el, zoom: { s: 1, tx: 0, ty: 0 } };
   if (p.simpel) $('#vmic', el).hidden = true; // simpele projecten: geen spraak
   Laser.opMeting = laserOpLijn;
   $('#vsluit', el).onclick = sluitViewer;
   // Spraak bij deze foto: maten vullen direct de lijnen van dit kozijn, en de zin wordt een notitie
-  // in deze map die Gemini daarna duidt (Topcalc-code).
+  // in deze map; de vaste regels kiezen de Topcalc-code.
   const vs = $('#vspraak', el);
   koppelMic($('#vmic', el), vs, '', (ruw, klaar = true) => {
     if (!V) return;
@@ -2379,22 +2388,21 @@ function openViewer(p, s, i) {
     const al = delen.letter && (f.labels || []).find(l => l.tekst === delen.letter), hm = herken(zonderExtra(tekst));
     const oudN = al && V.s.notities.find(x => x.id === al.id);
     if (oudN && hm.breedte == null && hm.hoogte == null) {
-      oudN.tekst = `${oudN.tekst}, ${tekst}`; oudN.aiTekst = null; al.notitie = oudN.tekst; bewaar(); tekenUI();
+      oudN.tekst = `${oudN.tekst}, ${tekst}`; al.notitie = oudN.tekst; bewaar(); tekenUI();
       const k = kozijnMaten(f, al.tekst);
       vs.dataset.n = oudN.id;
       vs.innerHTML = `<b style="color:var(--gold)">${esc(notitieLabel(oudN.tekst))}</b><div>"${esc(tekst)}" <small style="color:var(--gold)">toegevoegd${k ? ` • totaal ${getalNL(k.totaal)} m1` : ''}</small></div>${formTabelHtml(formRegels(oudN, V.s))}`;
       setTimeout(() => { if (vs.dataset.n === oudN.id) { vs.textContent = ''; delete vs.dataset.n; } }, 12000);
-      aiBijwerken();
       return;
     }
     // Alleen een maat ("1,20 m", "93 cm"): die gaat op de gekozen lijn (of de eerste lijn zonder maat), net als de lasermeter.
     const losseMaat = /^\s*(\d+(?:[.,]\d+)?)\s*(mm|millimeter|cm|centimeter|meter|m)?\.?\s*$/i.exec(tekst);
-    const doelLijn = losseMaat && (f.lijnen.find(l => l.id === V.sel) || sjNu(f) || gvNu(f) || volgendeOpenLijn(f.lijnen, null));
+    const doelLijn = losseMaat && (f.lijnen.find(l => l.id === V.sel) || sjNu(f) || volgendeOpenLijn(f.lijnen, null));
     if (doelLijn) {
       const m = spraakMaat(losseMaat[1], losseMaat[2]);
       if (m != null) {
         delete doelLijn.uitRef; doelLijn.maat = m; doelLijn.bron = 'spraak'; bewaar();
-        const volgende = doelLijn.rol ? (sjNu(f) || gvNu(f)) : volgendeOpenLijn(f.lijnen, doelLijn); V.sel = doelLijn.rol ? null : volgende?.id ?? null; tekenUI();
+        const volgende = doelLijn.rol ? sjNu(f) : volgendeOpenLijn(f.lijnen, doelLijn); V.sel = doelLijn.rol ? null : volgende?.id ?? null; tekenUI();
         vs.dataset.n = 'maat'; vs.innerHTML = `<div>"${esc(tekst)}" <small style="color:var(--gold)">op de ${doelLijn.richting === 'horizontaal' ? 'horizontale' : 'verticale'} lijn${volgende ? `. Nu de ${volgende.richting === 'horizontaal' ? 'horizontale' : 'verticale'} lijn` : ''}</small></div>`;
         setTimeout(() => { if (vs.dataset.n === 'maat') { vs.textContent = ''; delete vs.dataset.n; } }, 5000);
         return;
@@ -2406,28 +2414,22 @@ function openViewer(p, s, i) {
     // "kozijn A links boven": een kleine A op die plek van de foto; dezelfde letter opnieuw inspreken verplaatst hem.
     if (delen.letter) {
       f.labels = (f.labels || []).filter(l => l.tekst !== delen.letter);
-      // Eigen maatlijnen voor dit kozijn (breedte eronder, hoogte links), eerst op de ruwe plek;
-      // Gemini zoekt daarna het kozijn op de foto en legt de lijnen er precies langs.
+      // Eigen maatlijnen voor dit kozijn (breedte eronder, hoogte links) op de genoemde plek; zelf te verschuiven.
       const label = { id: n.id, tekst: delen.letter, notitie: tekst, ...labelPlek(delen.waar) };
       f.labels.push(label);
       const p0 = postenVoorNotitie(tekst, '')[0] || {}, m0 = herken(zonderExtra(tekst));
       const maten = { b: p0.breedte ?? m0.breedte, h: p0.hoogte ?? m0.hoogte };
       kozijnLijnen(f, label, ruwKader(label), maten);
-      geminiZoekKozijn(f, label, delen).then(kader => {
-        if (!kader || !(f.labels || []).includes(label)) return;
-        kozijnLijnen(f, label, kader, maten); bewaar();
-        if (V && foto() === f) tekenUI();
-      });
     }
     bewaar();
     if (r.length || delen.letter) tekenUI();
-    // Uitslag als regel van het Topcalc-formulier; na het antwoord van Gemini nog eens bijgewerkt.
+    // Uitslag als regel van het Topcalc-formulier.
     const locatie = V.s.naam, toon = extra => { if (vs.isConnected && vs.dataset.n === n.id)
       vs.innerHTML = `${notitieLabel(tekst) ? `<b style="color:var(--gold)">${esc(notitieLabel(tekst))}</b>` : ''}<div>"${esc(tekst)}"${extra ? ` <small style="color:var(--gold)">${esc(extra)}</small>` : ''}</div>${formTabelHtml(formRegels(n, V?.s || locatie))}`; };
-    vs.dataset.n = n.id; toon(aiActief() ? 'AI denkt…' : '');
+    vs.dataset.n = n.id; toon('');
     // Na een poosje verdwijnt de uitslag weer van de foto; hij staat bij de notities.
     const weg = () => setTimeout(() => { if (vs.dataset.n === n.id) { vs.textContent = ''; delete vs.dataset.n; } }, 12000);
-    if (aiActief()) aiBijwerken().then(() => { toon(n.aiTekst === n.tekst ? (telAi() ? 'AI telefoon' : 'Gemini') : `AI: ${AI.fout || TELAI.fout || 'geen antwoord'}`); weg(); }); else weg();
+    weg();
   });
   // De lasermeter verbindt vanzelf zodra je een foto opent; een melding als hij verbonden is.
   let laserWas = Laser.status;
@@ -2459,6 +2461,8 @@ function openViewer(p, s, i) {
     if (!s.fotos.length) return sluitViewer();
     naarFoto(Math.min(V.i, s.fotos.length - 1));
   };
+  $('#vtel', el).onclick = () => { if (V.hoeken || V.telNu) { V.hoeken = null; V.telNu = null; tekenUI(); return; } telStart(); };
+  $('#vl10', el).onclick = () => plus10Lagen(foto());
   el.querySelectorAll('[data-m]').forEach(b => b.onclick = () => { V.modus = V.el.classList.contains('loc') && V.modus === b.dataset.m ? 'bekijken' : b.dataset.m; V.sel = null; tekenUI(); });
   koppelGebaren($('#surf', el));
   koppelVegen($('#stage', el));
@@ -2481,7 +2485,7 @@ function volgendeOpenLijn(lijnen, huidig) {
 function laserOpLijn(m) {
   if (!V) return;
   const f = foto(), lijnen = f.lijnen;
-  const lijn = lijnen.find(l => l.id === V.sel) || sjNu(f) || gvNu(f) || volgendeOpenLijn(lijnen, null);
+  const lijn = lijnen.find(l => l.id === V.sel) || sjNu(f) || volgendeOpenLijn(lijnen, null);
   if (!lijn) return toast(`Gemeten: ${formatMeter(m)}. Teken eerst een lijn om de maat op te zetten.`);
   delete lijn.stenen; delete lijn.uitRef; lijn.maat = m; lijn.bron = 'laser'; bewaar();
   // Sjabloon (trapwand, plafond): de gouden balk zegt wat de volgende is; kort trillen = maat binnen.
@@ -2496,7 +2500,7 @@ function losUit() { if (!V) return; V.los = false; V.el.classList.remove('los');
 function sluitViewer() { try { Spraak.stop(); } catch (e) { console.warn(e); } Laser.opMeting = null; window.removeEventListener('resize', schik); V?.el.remove(); V = null; render(); }
 async function naarFoto(i) {
   if (!V || i < 0 || i >= V.s.fotos.length) return;
-  V.i = i; V.sel = null; V.maat = null; V.w = 0;
+  V.i = i; V.sel = null; V.maat = null; V.w = 0; V.telNu = null; if (V.hoeken?.soort !== 'tel') V.hoeken = null; else V.hoeken.p = [];
   if (V.los && FS.win && !FS.win.closed && FS.i !== i && FS.fotos?.[i]?.s === V.s) { FS.i = i; toonFotoScherm(); }
   const img = $('#vimg', V.el), wegEl = $('#vweg2', V.el); img.removeAttribute('src'); wegEl.hidden = true; $('#vsvg', V.el).innerHTML = '';
   tekenUI();
@@ -2532,16 +2536,23 @@ function tekenUI2() {
   $('#vtitel', V.el).textContent = `${volNaam(V.p, V.s)} • ${V.i + 1} / ${n}`;
   $('#vprev', V.el).hidden = V.i === 0 || V.modus !== 'bekijken';
   $('#vnext', V.el).hidden = V.i === n - 1 || V.modus !== 'bekijken';
-  V.el.querySelectorAll('[data-m]').forEach(b => b.classList.toggle('on', b.dataset.m === V.modus));
+  V.el.querySelectorAll('[data-m]').forEach(b => b.classList.toggle('on', b.dataset.m === V.modus && !V.hoeken && !V.telNu));
+  $('#vtel', V.el).classList.toggle('on', V.hoeken?.soort === 'tel' || !!V.telNu);
   const st = $('#vstatus', V.el);
   herrekenRef(f);
   if (V.hoeken) {
     const n = V.hoeken.p.length;
     st.className = 'status uitleg';
-    st.innerHTML = `<div class="vuitleg">Referentie ${V.hoeken.L ? V.hoeken.L + ' ' : ''}: tik hoek ${n + 1} van 4 aan, <b>${HOEK_NAMEN[n]}</b> (buitenkant kozijn). Houd je vinger op de foto voor het vergrootglas; loslaten zet de hoek. Knijp om in te zoomen.</div>
-      <div style="display:flex;gap:8px;margin-top:6px">${n ? '<button class="ghost" id="hterug">Vorige hoek terug</button>' : ''}<button class="ghost" id="hstop" style="color:var(--open)">Stoppen</button></div>`;
+    const soort = V.hoeken.soort, lv = soort === 'tel' && laagVoor(f);
+    st.innerHTML = `<div class="vuitleg">${soort === 'tel' ? `Tellen: tik <b>${['linksboven', 'rechtsonder'][n]}</b> van het kozijn aan (buitenkant)${n ? '' : `. Laaghoogte ${cmKort(lv.cm)} cm, ${laagUitleg(lv)}`}.`
+      : soort === 'vlak' ? `Vlak zonder stenen: tik hoek ${n + 1} van 4 aan, <b>${HOEK_NAMEN[n]}</b>, van een vlak dat je met de laser gemeten hebt (breedte en hoogte).`
+      : `Referentie ${V.hoeken.L ? V.hoeken.L + ' ' : ''}: tik hoek ${n + 1} van 4 aan, <b>${HOEK_NAMEN[n]}</b> (buitenkant kozijn).`} Houd je vinger op de foto voor het vergrootglas; loslaten zet de hoek. Knijp om in te zoomen.</div>
+      <div style="display:flex;gap:8px;margin-top:6px">${n ? '<button class="ghost" id="hterug">Vorige hoek terug</button>' : ''}<button class="ghost" id="hstop" style="color:var(--open)">Stoppen</button>${soort === 'tel' && !n ? '<button class="ghost" id="hvlak" style="color:var(--gold);margin-left:auto">Vlak zonder stenen</button>' : ''}</div>`;
+    if ($('#hvlak', st)) $('#hvlak', st).onclick = () => vlakStart();
     if ($('#hterug', st)) $('#hterug', st).onclick = () => { V.hoeken.p.pop(); tekenUI(); };
     $('#hstop', st).onclick = () => { V.hoeken = null; tekenUI(); };
+  } else if (V.telNu && !V.sel && telPaneel(f, st)) {
+    // Tellen: het laatst getelde raam met + en −, het aantal gelijke ramen en "Volgend raam".
   } else if (V.sel) {
     st.className = 'status sel';
     const lijn = f.lijnen.find(l => l.id === V.sel);
@@ -2557,10 +2568,12 @@ function tekenUI2() {
       <button class="iconbtn" id="lweg" aria-label="Lijn verwijderen" style="color:var(--danger)">${ic('trash')}</button>
       <button class="iconbtn" id="lsluit" aria-label="Selectie opheffen">${ic('close')}</button></div>
       ${lijn && opKantoorNu() ? zelfdeHtml(f, lijn) : ''}
-      ${lijn && opKantoorNu() ? `<div class="teller"><span>${ligtLijn(lijn) ? 'Stenen tellen <small style="color:var(--muted)">(22 cm, per halve)</small>' : 'Lagen tellen <small style="color:var(--muted)">(6,2 cm)</small>'}</span>
+      ${lijn?.lagen10 ? `<div style="font-size:12px;color:#81D4FA;padding:0 4px">${lijn.maat > 0 ? `10 lagen = ${maatLabel(lijn.maat)}: laaghoogte ${cmKort(laagUitRef(f))} cm. Telt nergens mee, is de maat voor het tellen op deze gevel.` : 'Laser 10 lagen steen, van voeg tot voeg. Schuif de lijn op die plek.'}</div>` : ''}
+      ${lijn?.vlakRef ? '<div style="font-size:12px;color:#81D4FA;padding:0 4px">Gemeten maat van het referentievlak. Telt nergens mee, zet de foto recht.</div>' : ''}
+      ${lijn && opKantoorNu() && !lijn.lagen10 && !lijn.vlakRef ? `<div class="teller"><span>${ligtLijn(lijn) ? 'Stenen tellen <small style="color:var(--muted)">(22 cm, per halve)</small>' : `Lagen tellen <small style="color:var(--muted)">(${cmKort(laagVoor(f).cm)} cm)</small>`}</span>
         ${lijn.stenen ? `<button data-smin aria-label="Minder">−</button><input data-snum inputmode="decimal" style="width:3.6em;text-align:center" value="${String(lijn.stenen).replace('.', ',')}"><button data-splus aria-label="Meer">+</button>`
           : `<button class="ghost" data-sauto style="color:var(--gold);font-weight:600;white-space:nowrap">Tel automatisch</button>`}</div>` : ''}
-      ${lijn && (lijn.ref || lijn.telt) ? `<div class="teller"><span>Lasermaat</span><button class="ondchip${lijn.ref ? ' on' : ''}" data-lref="1" style="width:auto;padding:4px 10px;font-size:13px;color:#81D4FA">Alleen referentie</button><button class="ondchip${!lijn.ref ? ' on' : ''}" data-lref="0" style="width:auto;padding:4px 10px;font-size:13px">Telt mee</button></div>` : ''}
+      ${lijn && (lijn.ref || lijn.telt) && !lijn.lagen10 && !lijn.vlakRef ? `<div class="teller"><span>Lasermaat</span><button class="ondchip${lijn.ref ? ' on' : ''}" data-lref="1" style="width:auto;padding:4px 10px;font-size:13px;color:#81D4FA">Alleen referentie</button><button class="ondchip${!lijn.ref ? ' on' : ''}" data-lref="0" style="width:auto;padding:4px 10px;font-size:13px">Telt mee</button></div>` : ''}
       ${lijn && isWand(ondVan(f).find(o => o.letter === lijn.kozijn)) ? `<div class="teller"><span>Deze lijn</span><button class="ondchip${!lijn.aftrek && !lijn.hoek ? ' on' : ''}" data-aftrek="0" style="width:auto;padding:4px 10px;font-size:13px">Telt mee</button><button class="ondchip${lijn.aftrek ? ' on' : ''}" data-aftrek="1" style="width:auto;padding:4px 10px;font-size:13px;color:#FF8A50">− Eraf</button><button class="ondchip${lijn.hoek ? ' on' : ''}" data-aftrek="2" style="width:auto;padding:4px 10px;font-size:13px;color:#FF8A50">◣ Schuine hoek eraf</button></div>
         ${lijn.hoek ? `<div style="font-size:12px;padding:0 4px;color:${lijn.hoekB ? '#57E0D2' : '#FFA726'}">${lijn.hoekB ? `≈ ${Math.round(lijn.hoekB * 100)} cm breed × ${Math.round(lijn.hoekD * 100)} cm diep, schatting uit de foto. De driehoek (breed × diep ÷ 2) gaat van de wand af.` : 'Nog geen maat: meet eerst met de laser een breedte of hoogte op deze foto, dan rekent de app de schuine hoek uit. Trek de lijn precies langs de schuine rand.'}</div>` : ''}
         ${wandAantal(ondVan(f).find(o => o.letter === lijn.kozijn)) > 1 ? `<div class="teller"><span>Zelfde wanden <small style="color:var(--muted)">(aantal)</small></span><button data-wmin aria-label="Minder">−</button><input data-wnum type="number" inputmode="numeric" min="1" max="50" value="${wandAantal(ondVan(f).find(o => o.letter === lijn.kozijn))}"><button data-wplus aria-label="Meer">+</button></div>` : ''}
@@ -2600,7 +2613,7 @@ function tekenUI2() {
     if ($('#lwis', st)) $('#lwis', st).onclick = () => { delete lijn.uitRef; lijn.maat = null; lijn.bron = null; delete lijn.stenen; bewaar(); tekenUI(); };
     // Stenen tellen: het aantal verdeelt de lijn in gelijke stukken (streepjes). Schuif het aantal of het eind van de lijn
     // tot de streepjes op de voegen vallen; de maat is aantal × 22 cm (stenen) of × 6,2 cm (lagen), in hele cm.
-    if (lijn && opKantoorNu()) {   // stenen tellen doe je op kantoor, niet op locatie
+    if (lijn && opKantoorNu() && $('[data-smin],[data-sauto]', st)) {   // stenen tellen doe je op kantoor, niet op locatie
       const stap = ligtLijn(lijn) ? 0.5 : 1;
       const zetStenen = n => { n = Math.round((+String(n).replace(',', '.') || 0) / stap) * stap;
         if (n <= 0) { if (lijn.bron === 'stenen') { lijn.maat = null; lijn.bron = null; } delete lijn.stenen; }
@@ -2726,9 +2739,9 @@ function tekenUI2() {
       // Twee kozijnen die hetzelfde zijn: één regel in de lijst met 2×, de letter staat op beide.
       ...(!isWand(o) && !o.in ? [['plus', 'Zelfde kozijn als…', () => { const ander = ond.filter(x => x !== o && !isWand(x) && !x.in);
         if (!ander.length) return toast('Er staat geen ander kozijn op deze foto.');
-        menu(ander.map(x => ['plus', `${x.letter}${x.naam ? ' ' + x.naam : ''}`, () => { gvZelfde(f, o, x); V.ond = x.letter; bewaar(); tekenUI();
+        menu(ander.map(x => ['plus', `${x.letter}${x.naam ? ' ' + x.naam : ''}`, () => { ondZelfde(f, o, x); V.ond = x.letter; bewaar(); tekenUI();
           toast(`${o.letter} is hetzelfde kozijn als ${x.letter}: ${x.letter} telt nu ${x.aantal}× in de lijst.`); }])); }]] : []),
-      ...(o.zelfdeOnd?.length ? [['close', 'Laatste zelfde kozijn weer los', () => { gvNietZelfde(f, o); bewaar(); tekenUI(); }]] : []),
+      ...(o.zelfdeOnd?.length ? [['close', 'Laatste zelfde kozijn weer los', () => { ondNietZelfde(f, o); bewaar(); tekenUI(); }]] : []),
       ['edit', 'Naam wijzigen', async () => { const n = await vraagTekst(`Onderdeel ${o.letter}`, 'Naam', 'Bijv. Kozijn 1e verdieping', o.naam || '', onderdeelNamen()); if (n == null) return; o.naam = n; bewaar(); tekenUI(); }],
       ['trash', 'Onderdeel verwijderen', () => {
         // De lijnen van het onderdeel gaan mee weg, de lasermaten blijven (referentie). Altijd even terug te draaien.
@@ -2773,8 +2786,7 @@ function tekenUI2() {
   // Ook de sjablonen (lijnen staan klaar, de gouden balk zegt wat je meet), zolang er op deze foto nog geen sjabloon is.
   // Eerst binnen (ONI) of buiten (ONB); daarna welke wand. De mapnaam beslist dat niet meer.
   const wandMenu = b => sjWand(f) ? plusWand(f, b) : menu([['plus', 'Wand (zelf lijnen trekken)', () => plusWand(f, b)],
-    ...SJ_KEUZES.map(([k, n]) => ['ruler', `${n} (lijnen staan klaar)`, () => { sjMaak(f, k, V.s, b); V.ond = sjWand(f)?.letter ?? V.ond; V.sel = null; bewaar(); tekenUI(); }]),
-    ...(gvAan(f) || b !== 'ONB' ? [] : [['ruler', 'Gevel: kozijnen zoeken (lijnen staan klaar)', () => gvZoekNu(f)]])]);
+    ...SJ_KEUZES.map(([k, n]) => ['ruler', `${n} (lijnen staan klaar)`, () => { sjMaak(f, k, V.s, b); V.ond = sjWand(f)?.letter ?? V.ond; V.sel = null; bewaar(); tekenUI(); }])]);
   if ($('#vwand', vx)) $('#vwand', vx).onclick = () => menu([['plus', 'Binnen (ONI)', () => wandMenu('ONI')], ['plus', 'Buiten (ONB)', () => wandMenu('ONB')]]);
   const zetAantalO = (L, v) => { const o = ondVan(f).find(x => x.letter === L); if (!o) return; const n = Math.max(1, Math.min(999, Math.round(+String(v).replace(',', '.') || 1)));
     if (isWand(o) && n === 1) delete o.aantal; else o.aantal = n; bewaar(); tekenUI(); };
@@ -2811,10 +2823,10 @@ const stukNaam = l => stukSoort(l) === 'dorpel' ? 'kort stuk dorpel' : 'korte st
 // Stenen of lagen hangt af van hoe de lijn echt op de foto ligt, niet van de knop waarmee hij getekend is
 // (een schuine lijn die meer staat dan ligt telt lagen).
 const ligtLijn = l => { const w = V?.w || 1, h = V?.h || 1; return Math.abs((l.x2 - l.x1) * w) >= Math.abs((l.y2 - l.y1) * h); };
-const STEEN_CM = l => ligtLijn(l) ? STEEN_LANG : (laagProject() || STEEN_LAAG);
+const STEEN_CM = l => ligtLijn(l) ? STEEN_LANG : laagVoor(V && foto()).cm;
 const stenenTekst = l => ligtLijn(l)
   ? `${String(Math.floor(l.stenen)).replace(/^0$/, '')}${l.stenen % 1 ? '½' : ''} ${l.stenen === 1 ? 'steen' : 'stenen'}` : `${l.stenen} ${l.stenen === 1 ? 'laag' : 'lagen'}`;
-const lijnLabel = (l, fo = V && foto()) => l.hoek ? `◣ ${l.hoekB ? `≈${Math.round(l.hoekB * 100)}×${Math.round(l.hoekD * 100)}` : 'hoek'}` : (V && afwijking(foto(), l) != null ? '⚠ ' : '') + (l.aftrek ? '− ' : '') + (l.kozijn ? ((fo ? ondVan(fo).find(o => o.letter === l.kozijn)?.in : null) || l.kozijn) + ' ' : '') + (l.uitRef && l.maat != null ? (l.richting === 'horizontaal' && fo && fotoMeter(fo)?.breedteGok ? '⚠≈' : '≈') : '') + (l.uitRef && l.maat == null ? 'foto' : l.maat === 0 && l.bron === 'geen' ? 'geen' : maatLabel(l.maat)) + (l.stenenOk === true ? ' ✓' : l.stenenOk === false ? ' ⚠' : '') + (lijnAantal(l) >= 1 ? ` (x${lijnAantal(l)})` : '');
+const lijnLabel = (l, fo = V && foto()) => l.lagen10 ? `10 lagen ${maatLabel(l.maat)}` : l.vlakRef ? `vlak ${maatLabel(l.maat)}` : l.hoek ? `◣ ${l.hoekB ? `≈${Math.round(l.hoekB * 100)}×${Math.round(l.hoekD * 100)}` : 'hoek'}` : (V && afwijking(foto(), l) != null ? '⚠ ' : '') + (l.aftrek ? '− ' : '') + (l.kozijn ? ((fo ? ondVan(fo).find(o => o.letter === l.kozijn)?.in : null) || l.kozijn) + ' ' : '') + (l.uitRef && l.maat != null ? (l.richting === 'horizontaal' && fo && fotoMeter(fo)?.breedteGok ? '⚠≈' : '≈') : '') + (l.uitRef && l.maat == null ? 'foto' : l.maat === 0 && l.bron === 'geen' ? 'geen' : maatLabel(l.maat)) + (lijnAantal(l) >= 1 ? ` (x${lijnAantal(l)})` : '');
 // "4 stijlen", "vier stijlen", "2 tussendorpels" uit een ingesproken of getypte tekst.
 function splitsAantal(tekst) {
   const woorden = { een: 1, 'één': 1, twee: 2, drie: 3, vier: 4, vijf: 5, zes: 6, zeven: 7, acht: 8, negen: 9, tien: 10 };
@@ -3085,7 +3097,9 @@ function volgRichting(hor, ax, ay, x, y) { return [x, y]; }
 // Streepjes op de geselecteerde stenen-lijn: één per steen of laag, zodat je ziet of ze op de voegen vallen.
 // Alleen zichtbaar zolang de lijn geselecteerd is; daarna blijft de gewone maatlijn over.
 function stenenStreepjes(W, H) {
-  const l = foto().lijnen.find(x => x.id === V.sel); if (!l?.stenen) return '';
+  return foto().lijnen.filter(l => l.stenen && (l.id === V.sel || (V.telNu && l.kozijn === V.telNu))).map(l => stenenStreepjes1(l, W, H)).join('');
+}
+function stenenStreepjes1(l, W, H) {
   const x1 = l.x1 * W, y1 = l.y1 * H, x2 = l.x2 * W, y2 = l.y2 * H, L = Math.hypot(x2 - x1, y2 - y1); if (L < 4) return '';
   const ux = (x2 - x1) / L, uy = (y2 - y1) / L, z = (Math.abs(ux) > Math.abs(uy) ? ux : -uy) < 0 ? -1 : 1, px = -uy * z, py = ux * z, stap = L / l.stenen, k = 7;
   let d = ''; for (let i = 0; i * stap <= L + 0.5; i++) { const x = x1 + ux * stap * i, y = y1 + uy * stap * i; d += `M${x + px * 3} ${y + py * 3}L${x + px * (k + 9)} ${y + py * (k + 9)}`; }
@@ -3149,7 +3163,8 @@ function homografie(van, naar) {
 const hPunt = (M, x, y) => { const w = M[6] * x + M[7] * y + M[8]; return [(M[0] * x + M[1] * y + M[2]) / w, (M[3] * x + M[4] * y + M[5]) / w]; };
 // De gemeten breedte- en hoogtelijn van het referentiekozijn (niet zelf uit de foto berekend).
 function refLijnen(f, L) {
-  const eigen = f.lijnen.filter(l => (l.kozijn || null) === (L || null) && l.maat != null && !l.uitRef && l.bron !== 'foto');
+  const eigen = L === VLAK_L ? f.lijnen.filter(l => l.vlakRef && l.maat > 0)
+    : f.lijnen.filter(l => (l.kozijn || null) === (L || null) && l.maat != null && !l.uitRef && l.bron !== 'foto' && !l.lagen10 && !l.vlakRef);
   const b = eigen.find(l => l.richting === 'horizontaal'), h = eigen.find(l => l.richting === 'verticaal');
   return b && h ? { b, h } : null;
 }
@@ -3370,7 +3385,6 @@ function vlakUitPixels(f, px, W, H) {
   if (VLAK.get(f.id).ok) { const st = laagInVlak(px, W, H, r.punt); if (st && st.sterkte >= LAAG_STERKTE && st.n >= 8 && st.n <= 400) r.laag = st.laag; }
   fotoControle(f, px, W, H, r);
   try { sjUitlijnen(f); } catch (e) { console.warn(e); }
-  try { gvNaVlak(f, px, W, H, VLAK.get(f.id)); } catch (e) { console.warn(e); }
 }
 // Meteen na het maken (ook als je de foto niet opent): nakijken en alvast rechtzetten.
 async function keurNaMaken(f, blob, waar) {
@@ -3407,12 +3421,11 @@ function fotoMeter(f) {
   const vl = VLAK.get(f?.id); if (!vl?.ok) return null;
   const gemeten = f.lijnen.filter(l => l.maat != null && !l.uitRef && l.bron !== 'foto');
   const d = l => vlakD(vl, l);
-  // Gevel: de langste gemeten lijn is het anker (de lange hoogte), lijnen die niet passen tellen niet mee.
-  const sx = f.gevel ? schaalUit(gemeten.filter(l => l.richting === 'horizontaal'), l => d(l)[0]) : mediaan(gemeten.filter(l => l.richting === 'horizontaal').map(l => l.maat / d(l)[0]));
-  const sy = f.gevel ? schaalUit(gemeten.filter(l => l.richting === 'verticaal'), l => d(l)[1]) : mediaan(gemeten.filter(l => l.richting === 'verticaal').map(l => l.maat / d(l)[1]));
+  const sx = mediaan(gemeten.filter(l => l.richting === 'horizontaal').map(l => l.maat / d(l)[0]));
+  const sy = mediaan(gemeten.filter(l => l.richting === 'verticaal').map(l => l.maat / d(l)[1]));
   if (sx == null && sy == null) {
-    // Geen gemeten maat op deze foto: de lagen stenen als schaal, met de laaghoogte uit je andere foto's van dit project.
-    const lg = laagProject(f); if (!vl.laag || !lg) return null;
+    // Geen gemeten maat op deze foto: de lagen stenen als schaal, met de laaghoogte (10 lagen gelaserd, of uit je andere foto's).
+    const lv = laagVoor(f), lg = lv.bron === 'standaard' ? null : lv.cm; if (!vl.laag || !lg) return null;
     const k = lg / 100 / vl.laag;
     return { soort: 'stenen', breedteGok: true, laag: lg, kantel: vl.kantel, maat: l => { const [dx, dy] = d(l); return Math.hypot(dx * k, dy * k); }, delen: l => { const [dx, dy] = d(l); return [dx * k, dy * k]; } };
   }
@@ -3427,8 +3440,7 @@ const laserLijnen = f => f.lijnen.filter(l => l.maat != null && !l.uitRef && l.b
 function laagVanFoto(f) {
   const vl = VLAK.get(f?.id); if (!vl?.ok || !vl.laag) return null;
   const g = laserLijnen(f), d = l => vlakD(vl, l);
-  const k = f.gevel ? schaalUit(g.filter(l => l.richting === 'verticaal'), l => d(l)[1]) ?? schaalUit(g.filter(l => l.richting === 'horizontaal'), l => d(l)[0])
-    : mediaan(g.filter(l => l.richting === 'verticaal').map(l => l.maat / d(l)[1])) ?? mediaan(g.filter(l => l.richting === 'horizontaal').map(l => l.maat / d(l)[0]));
+  const k = mediaan(g.filter(l => l.richting === 'verticaal').map(l => l.maat / d(l)[1])) ?? mediaan(g.filter(l => l.richting === 'horizontaal').map(l => l.maat / d(l)[0]));
   const cm = k ? Math.round(vl.laag * k * 1000) / 10 : null;
   return cm > 3 && cm < 20 ? cm : null;
 }
@@ -3465,12 +3477,11 @@ function refMaat(f, l, m = fotoMeter(f)) {
 }
 // Lijnen die uit de foto komen, lopen mee als je de lijn, de referentie of een gemeten maat aanpast.
 function herrekenRef(f) {
-  try { gvVanCloseups(f); } catch (e) { console.warn(e); }
   const lc = laagVanFoto(f); if (f && lc && lc !== f.laagCm) { f.laagCm = lc; bewaar(); }
+  if (stenenHerreken(f)) bewaar();
   const m = fotoMeter(f); if (!m) return;
   for (const l of f.lijnen) if (l.uitRef) { const v = refMaat(f, l, m); if (v != null) l.maat = v; }
   for (const l of f.lijnen) if (l.hoek) hoekBereken(f, l, m);
-  try { gvControle(f); } catch (e) { console.warn(e); }
 }
 // Schuine hoek eraf: een lijn langs de schuine rand. Hoe breed en hoe diep de hoek eraf gaat, rekent de app uit de foto
 // (dezelfde schaal als de andere lijnen). Alleen een schatting: boven bereik meet je dit toch niet met de laser.
@@ -3480,8 +3491,10 @@ function hoekBereken(f, l, m = fotoMeter(f)) {
   else { delete l.hoekB; delete l.hoekD; }
 }
 function refSvg(f, W, H) {
-  const pts = V.hoeken ? V.hoeken.p : f.ref?.p; if (!pts?.length) return '';
-  if (!V.hoeken && V.ond && ondVan(f).length && (f.ref.L || null) !== V.ond && !V.alles) return '';
+  let pts = V.hoeken ? V.hoeken.p : f.ref?.p; if (!pts?.length) return '';
+  if (!V.hoeken && V.ond && ondVan(f).length && (f.ref.L || null) !== V.ond && f.ref.L !== VLAK_L && !V.alles) return '';
+  // Tellen: na de eerste hoek een rechthoek tot de tweede (nog niet aangetikt: alleen het punt).
+  if (V.hoeken?.soort === 'tel' && pts.length === 2) pts = [pts[0], [pts[1][0], pts[0][1]], pts[1], [pts[0][0], pts[1][1]]];
   const xy = pts.map(([x, y]) => [x * W, y * H]), ok = !V.hoeken && refVan(f);
   return (xy.length > 1 ? `<polyline points="${[...xy, ...(xy.length === 4 ? [xy[0]] : [])].map(p => p.join(',')).join(' ')}" fill="none" stroke="${ok ? '#57E0D2' : '#FFA726'}" stroke-width="2" stroke-dasharray="7 5"/>` : '') +
     xy.map(([x, y], i) => `<circle cx="${x}" cy="${y}" r="${V.hoeken ? 9 : 5}" fill="${ok ? '#57E0D2' : '#FFA726'}" stroke="#000" stroke-width="1"/>${V.hoeken ? `<text x="${x + 12}" y="${y - 10}" fill="#fff" stroke="#000" stroke-width="3" paint-order="stroke" font-size="15" font-weight="700">${i + 1}</text>` : ''}`).join('');
@@ -3490,6 +3503,7 @@ function startHoeken(f, L) {
   V.hoeken = { L, p: [] }; V.sel = null; V.modus = 'bekijken'; tekenUI();
 }
 const HOEK_NAMEN = ['linksboven', 'rechtsboven', 'rechtsonder', 'linksonder'];
+const hoekNaam = () => V.hoeken?.soort === 'tel' ? ['linksboven', 'rechtsonder'][V.hoeken.p.length] || '' : `hoek ${(V.hoeken?.p.length || 0) + 1}`;
 const lijnPx = l => Math.hypot((l.x2 - l.x1) * (V?.w || 1), (l.y2 - l.y1) * (V?.h || 1));
 function schaalRef(f, lijn) {
   const kand = f.lijnen.filter(l => l !== lijn && l.maat != null && !l.stukSchat && lijnPx(l) > 8);
@@ -3521,7 +3535,7 @@ const mapLijstOpen = () => { try { return localStorage.getItem('bc_mapLijst') !=
 function mistInMap(s) {
   const uit = [];
   (s?.fotos || []).forEach((g, gi) => ondVan(g).filter(o => !o.in).forEach(o => {
-    if (!o.codes?.length) uit.push({ gi, o, wat: 'code' });
+    if (!o.codes?.length && !o.tel) uit.push({ gi, o, wat: 'code' });
     else if (isWand(o) ? !wandMaten(g, o.letter) : !kozijnMaten(g, o.letter)) uit.push({ gi, o, wat: 'maat' });
   }));
   return uit;
@@ -3531,13 +3545,13 @@ function mistInMap(s) {
 function mapLijstHtml(f, metMaten = false, vTop = null) {
   const s = V?.s; if (!s?.fotos) return '';
   const rijen = [];
-  s.fotos.forEach((g, gi) => { if (g !== f) ondVan(g).filter(o => !o.in && (V.los || (!isWand(o) && o.codes?.length))).forEach(o => rijen.push({ g, gi, o })); });
+  s.fotos.forEach((g, gi) => { if (g !== f) ondVan(g).filter(o => !o.in && (V.los || (!isWand(o) && (o.codes?.length || o.tel)))).forEach(o => rijen.push({ g, gi, o })); });
   const tops = ondVan(f).filter(o => !o.in), mo = metMaten ? maatOverzicht(f, true) : null;
   const los = mo && mo.groepen.includes(null);
   const kort = (g, o) => { if (isWand(o)) return wandMaten(g, o.letter) ? 'wand' : 'nog geen maten';
     const k = kozijnMaten(g, o.letter); return k ? (k.lengte ? maatLabel(k.B) : `${maatLabel(k.B).replace(' cm', '')} × ${maatLabel(k.H)}`) : 'nog geen maten'; };
   const dot = o => `<span class="lgdot" style="background:${bestekKleur(bestekVan(o))}"></span>`;
-  const code = o => o.codes?.length ? o.codes.map(c => `${bestekVan(o, c)} ${esc(c.code)}`).join(' · ') : `<span style="color:var(--open)">${bestekVan(o)} · code kiezen</span>`;
+  const code = o => o.codes?.length ? o.codes.map(c => `${bestekVan(o, c)} ${esc(c.code)}`).join(' · ') : o.tel ? '<span style="color:var(--muted)">geteld · code in TopCalc</span>' : `<span style="color:var(--open)">${bestekVan(o)} · code kiezen</span>`;
   // Op deze foto: tik = kiezen en openklappen (lijnen lichten op), nog eens tikken = code en meer.
   const hier = tops.map(o => { const aan = o.letter === vTop, delen = [o.letter, ...ondKinderen(f, o.letter).map(x => x.letter)];
     return `<button class="ghost lgit" data-ond="${o.letter}">${dot(o)}<span class="lgnaam"><b>${esc(ondKortNaam(o) || (isWand(o) ? 'Wand' : o.letter))}</b> <small>${code(o)}</small></span>
@@ -3591,15 +3605,15 @@ function maatOverzicht(f, alleenInhoud = false) {
 // Lijnen van andere onderdelen blijven zichtbaar (vaag), zodat je ziet wat al gemeten is. "Alles tonen" = alles even sterk.
 // Rustige foto: bij onderdelen (via ONB enz.) zie je alleen de lijnen van het onderdeel waar je mee bezig bent.
 // De andere lijnen blijven bewaard; "Alles tonen" laat ze weer zien.
-const schoneFoto = f => !!f && !gvAan(f) && ondVan(f).length > 0 && ondVan(f).every(o => !isWand(o));
+const schoneFoto = f => !!f && ondVan(f).length > 0 && ondVan(f).every(o => !isWand(o));
 const verborgenLijn = l => { const f = V && foto(); if (!f || V.alles || !l.kozijn || !schoneFoto(f)) return false;
   const o = ondVan(f).find(x => x.letter === V.ond); if (!o) return false;
   const lo = ondVan(f).find(x => x.letter === l.kozijn); return (lo?.in || l.kozijn) !== (o.in || o.letter); };
 // Laseren op locatie (gevel, trap, plafond): de lijnen die nog gemeten moeten worden krijgen een nummer, in de volgorde van de gouden balk
 // ("1 van 6"). De lijn die nu aan de beurt is, is goud. Zo zie je meteen wat er nog komt.
-function gvNummers(f, W, H, nuId, rh) {
-  // Gevel of sjabloon (trapwand, plafond, onderkant trap): dezelfde nummers in de volgorde van de gouden balk.
-  const alle = gvAan(f) ? gvLijnen(f) : sjLijnen(f), r = Math.max(rh * 1.45, 11);
+function sjNummers(f, W, H, nuId, rh) {
+  // Sjabloon (trapwand, plafond, onderkant trap): dezelfde nummers in de volgorde van de gouden balk.
+  const alle = sjLijnen(f), r = Math.max(rh * 1.45, 11);
   if (!alle.length) return '';
   return alle.map((l, i) => {
     if (l.maat != null || l.uitRef || l.ref) return '';
@@ -3617,10 +3631,10 @@ function tekenLijnen2() {
   // Bij Lijn trekken: de lijnen die er al staan (bijv. je lasermaten als referentie) vaag, zodat ze niet in de weg zitten.
   const vaag = l => V.modus === 'lijn' && l.id !== V.paar && l.id !== V.sel;
   // Referentielijnen (lasermaten) alleen met de knop "Lasermaten", in lichtblauw.
-  const zien = l => l.ref ? V.refTonen || l.id === V.sel || l.rol === 'GL' : (!verborgenLijn(l) && !sjOverslaan(foto(), l)) || l.id === V.sel;
+  const zien = l => l.ref ? V.refTonen || l.id === V.sel || l.lagen10 || l.vlakRef : (!verborgenLijn(l) && !sjOverslaan(foto(), l)) || l.id === V.sel;
   // Sjabloon: de lijn die nu aan de beurt is, is goud (net als een gekozen lijn).
-  const nuId = !V.sel && V.modus === 'bekijken' ? (sjNu(foto()) || gvNu(foto()))?.id : null;
-  const lijnen = foto().lijnen.filter(zien).map(l => [l.x1 * W, l.y1 * H, l.x2 * W, l.y2 * H, l.id === V.sel || l.id === nuId, l.maat, (l.stenen && l.id === V.sel ? stenenTekst(l) + ' = ' : '') + lijnLabel(l), !l.ref && (ander(l) || vaag(l)), l.aftrek, vaag(l), l.ref, l.uitRef && l.maat == null, l.stenenOk === false, !!l.uitRef && l.maat != null && !l.ref]);
+  const nuId = !V.sel && V.modus === 'bekijken' ? sjNu(foto())?.id : null;
+  const lijnen = foto().lijnen.filter(zien).map(l => [l.x1 * W, l.y1 * H, l.x2 * W, l.y2 * H, l.id === V.sel || l.id === nuId, l.maat, (l.stenen && l.id === V.sel ? stenenTekst(l) + ' = ' : '') + lijnLabel(l), !l.ref && (ander(l) || vaag(l)), l.aftrek, vaag(l), l.ref, l.uitRef && l.maat == null, false, !!l.uitRef && l.maat != null && !l.ref]);
   if (V.nieuw) lijnen.push([...V.nieuw, true, null, '?']);
   // Fijn: ingezoomd worden lijnen en tekst niet mee dikker (wel iets, zodat het leesbaar blijft).
   const zm = V.zoom?.s || 1, sp = PIJL_FIJN / Math.pow(zm, .75), rh = 9 / Math.pow(zm, .8);
@@ -3630,7 +3644,7 @@ function tekenLijnen2() {
     const kl = sel ? '#D4AF37' : uitFoto ? '#9FE7FF' : maat == null ? '#FFA726' : nareken ? '#FF9800' : ref ? '#81D4FA' : af ? '#FF8A50' : geschat ? '#FFB74D' : '#FFFFFF';   // geschat (≈ uit de foto): oranje stippellijn
     return (dim ? `<g opacity="${heelVaag ? .2 : .45}">${svgPijl(x1, y1, x2, y2, label, kl, sp, geschat && !sel)}</g>` : svgPijl(x1, y1, x2, y2, label, kl, sp, geschat && !sel)) +
       (sel ? [[x1, y1], [x2, y2]].map(([x, y]) => `<circle cx="${x}" cy="${y}" r="${rh}" fill="rgba(212,175,55,.2)" stroke="${kl}" stroke-width="${1.6 * rh / 9}"/>`).join('') : '');
-  }).join('') + gvNummers(foto(), W, H, nuId, rh) + refSvg(foto(), W, H) + gvZoomSvg(foto(), W, H) + tikSvg(foto(), W, H) + stenenStreepjes(W, H) + typeChip(foto(), W, H) + ballonnenSvg(foto(), W, H) + labelsSvg(foto(), W, H);
+  }).join('') + sjNummers(foto(), W, H, nuId, rh) + refSvg(foto(), W, H) + tikSvg(foto(), W, H) + stenenStreepjes(W, H) + typeChip(foto(), W, H) + ballonnenSvg(foto(), W, H) + labelsSvg(foto(), W, H);
   // Alleen bij tekenen of een geselecteerde lijn vangen we het slepen af.
   const vrij = V.modus === 'bekijken' && !V.sel;
   // Knijpen en schuiven doet de app zelf (inzoomen op de foto), dus de browser mag hier niets.
@@ -3823,7 +3837,7 @@ function koppelGebaren(surf) {
   surf.addEventListener('pointerdown', e => {
     if (!V?.w || V.knijp) { start = null; return; }
     const [x, y] = pos(e); start = [x, y]; bewogen = false; V.greep = null;
-    if (V.hoeken) { try { surf.setPointerCapture(e.pointerId); } catch {} e.preventDefault(); toonLoep(x, y, x, y, e, `hoek ${V.hoeken.p.length + 1}`); return; }
+    if (V.hoeken) { try { surf.setPointerCapture(e.pointerId); } catch {} e.preventDefault(); toonLoep(x, y, x, y, e, hoekNaam()); return; }
     // Tekstvak of pijlpunt van een opmerking vastpakken: verslepen, of tikken om te bewerken.
     // Een letter op het kozijn vastpakken om hem precies op het kozijn te schuiven.
     const lb = labelOp(x, y);
@@ -3858,7 +3872,7 @@ function koppelGebaren(surf) {
     if (V.knijp) { start = null; return; }
     const [x, y] = pos(e);
     if (Math.hypot(x - start[0], y - start[1]) > 6) bewogen = true;
-    if (V.hoeken) { toonLoep(x, y, x, y, e, `hoek ${V.hoeken.p.length + 1}`); return; }
+    if (V.hoeken) { toonLoep(x, y, x, y, e, hoekNaam()); return; }
     if (!bewogen) return;
     if (V.label) { V.label.x = x / V.w; V.label.y = y / V.h; tekenLijnen(); return; }
     if (V.ballon) {
@@ -3898,7 +3912,11 @@ function koppelGebaren(surf) {
     const [x, y] = pos(e);
     if (V.hoeken) {
       start = null; const h = V.hoeken; h.p.push([Math.max(0, Math.min(1, x / V.w)), Math.max(0, Math.min(1, y / V.h))]);
-      if (h.p.length === 4) {
+      if (h.soort === 'tel' && h.p.length === 2) {
+        const f = foto(); V.hoeken = null; const o = telMaak(f, h.p[0], h.p[1]);
+        if (o) { V.telNu = o.letter; V.ond = o.letter; V.alles = true; V.sel = null; trilKort(); bewaar(); } else V.hoeken = { soort: 'tel', p: [] };
+      } else if (h.soort === 'vlak' && h.p.length === 4) { V.hoeken = null; vlakKlaar(foto(), h.p); }
+      else if (!h.soort && h.p.length === 4) {
         const f = foto(); f.ref = { L: h.L, p: hoekVolgorde(h.p, V.w, V.h) }; V.hoeken = null; bewaar();
         toast(refVan(f) ? 'Referentie klaar. Nieuwe lijnen op deze foto krijgen nu meteen een maat (≈). Meet je een lijn met de laser, dan telt de laser.' : 'Hoeken gezet. Meet nog de breedte en hoogte van dit kozijn, dan werkt de referentie.');
       }
@@ -3958,7 +3976,7 @@ let TIKR = null; // één rechtgezette foto in het geheugen
 // Eerst trekken, dan één tik: heeft het gekozen onderdeel al een breedte en een hoogte, dan zijn de volgende twee lijnen
 // een nieuw ding. Ze blijven los tot je kiest wat het is (kozijn, deur, paneel…).
 function nieuwPaarLos(f) {
-  if (!V?.p?.simpel || gvAan(f) || V.el.classList.contains('loc')) return false;
+  if (!V?.p?.simpel || V.el.classList.contains('loc')) return false;
   const o = ondVan(f).find(x => x.letter === V.ond); if (!o || isWand(o)) return false;
   const e = f.lijnen.filter(l => !l.ref && !l.hoek && l.kozijn === o.letter);
   return e.some(l => l.richting === 'horizontaal') && e.some(l => l.richting === 'verticaal');
@@ -4187,7 +4205,7 @@ function tikSvg(f, W, H) {
     // Geen stippellijn meer om het onderdeel: alleen de letter in de hoek.
     return [o.kader, ...(o.zelfdeKaders || [])].filter(Boolean).map(([[x, y]]) => `<g opacity="${on || V.alles ? .9 : .5}"><text x="${x * W + 3 * k1}" y="${y * H + 10 * k1}" fill="${kl}" stroke="#000" stroke-width="${2 * k1}" paint-order="stroke" font-size="${10 * k1}" font-weight="700">${ondTonen(o)}</text></g>`).join(''); }).join('');
   // Onderdelen zonder kader (via ONB getrokken): de letter als gouden cirkel linksboven bij de lijnen.
-  if (!gvAan(f)) s += ondVan(f).filter(o => !o.kader && !o.in && !isWand(o)).map(o => { const pl = ondLetterPlek(f, o); if (!pl) return '';
+  s += ondVan(f).filter(o => !o.kader && !o.in && !isWand(o)).map(o => { const pl = ondLetterPlek(f, o); if (!pl) return '';
     const on = o.letter === V.ond, r = 9 * k1, cx = pl[0] * W - 2 * k1, cy = pl[1] * H - 2 * k1;
     return `<g opacity="${on || V.alles ? 1 : .75}"><circle cx="${cx}" cy="${cy}" r="${r}" fill="#D4AF37" stroke="#000" stroke-width="${1.2 * k1}"/><text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="central" fill="#000" font-size="${11 * k1}" font-weight="700">${esc(o.letter)}</text></g>`; }).join('');
   return s;
@@ -4448,7 +4466,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.19-7';
+const APP_VERSIE = '2026.11.20-3';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
@@ -4902,9 +4920,8 @@ function renderSpraak(m) {
     <div id="spVerbeterd" style="color:var(--gold);font-size:12px;margin:-6px 0 8px"></div>
     <div id="spHerkend"></div>
     <div class="label">INGESPROKEN ${esc(s.naam.toUpperCase())} (${s.notities.length})</div>
-    ${s.notities.length ? s.notities.map(n => { const r = herken(n.tekst), ai = n.aiTekst === n.tekst ? n.ai : null;
-      return `<button class="card notitie" data-n="${n.id}"><div class="nkop"><i>"${esc(n.tekst)}"</i>${statusHtml(r.status)}</div>${metingHtml(r, true)}${ai
-        ? `<div style="color:var(--gold);font-size:12px;margin-top:8px">Gemini: ${esc(aiPostTekst(postenVoorNotitie(n.tekst, s.naam, undefined, ai)))}</div>` : ''}</button>`; }).join('')
+    ${s.notities.length ? s.notities.map(n => { const r = herken(n.tekst);
+      return `<button class="card notitie" data-n="${n.id}"><div class="nkop"><i>"${esc(n.tekst)}"</i>${statusHtml(r.status)}</div>${metingHtml(r, true)}</button>`; }).join('')
       : '<div style="color:var(--muted)">Nog niets ingesproken in deze map.</div>'}`}
   </div>`;
   if (!s) return;
@@ -4923,7 +4940,7 @@ function renderSpraak(m) {
       const tekst = ta.value.trim(), gehoord = SP.gehoord;
       s.notities = s.notities || []; s.notities.unshift({ id: nieuwId(), tekst, gemaakt: new Date().toISOString() });
       const nieuw = gehoord != null ? leer(gehoord, tekst) : [];
-      SP.tekst = ''; SP.gehoord = null; SP.toegepast = []; bewaar(); render(); meldGeleerd(nieuw); aiBijwerken();
+      SP.tekst = ''; SP.gehoord = null; SP.toegepast = []; bewaar(); render(); meldGeleerd(nieuw);
     };
   };
   ta.oninput = toon; toon();
@@ -4952,7 +4969,7 @@ function wijzigNotitie(s, n) {
   $('#nok', d).onclick = () => { const v = $('#nt', d).value.trim(), oud = n.tekst; const nieuw = v ? leer(oud, v) : [];
     if (v) { n.tekst = v; for (const f of s.fotos) for (const lb of f.labels || []) if (lb.id === n.id) { lb.notitie = v;
       const p0 = postenVoorNotitie(v, '')[0] || {}, m0 = herken(zonderExtra(v)), b = p0.breedte ?? m0.breedte, h = p0.hoogte ?? m0.hoogte;
-      for (const l of f.lijnen) if (l.kozijn === lb.tekst) { if (l.richting === 'horizontaal' && b != null) l.maat = b; if (l.richting === 'verticaal' && h != null) l.maat = h; } } bewaar(); } sluit(d); render(); meldGeleerd(nieuw); aiBijwerken(); };
+      for (const l of f.lijnen) if (l.kozijn === lb.tekst) { if (l.richting === 'horizontaal' && b != null) l.maat = b; if (l.richting === 'verticaal' && h != null) l.maat = h; } } bewaar(); } sluit(d); render(); meldGeleerd(nieuw); };
   $('#nweg', d).onclick = async () => {
     sluit(d);
     if (await bevestig('Regel verwijderen?', 'Deze ingesproken regel wordt verwijderd.')) { s.notities = s.notities.filter(x => x !== n);
@@ -5631,7 +5648,6 @@ function postenVoorNotitie(tekst, locatie, eigen = s => eigenCodes[s], ai = null
   // Een genoemde code ("240 A2") is geen maat: die gaat eruit voordat de maten gelezen worden.
   const inTekst = codeInTekst(tekst);
   const m = herken(zonderExtra(inTekst ? tekst.replace(inTekst.gevonden, ' ') : tekst));
-  // De AI-duiding (Gemini) gaat voor de regels als die bruikbaar is.
   if (!ai || !DEFS[ai.onderdeel]) ai = null;
   const onderdelen = m.termen.filter(t => t.soort === 'onderdeel').map(t => t.naam);
   const hoofd = ai ? ai.onderdeel : onderdelen.find(o => DEFS[o]);
@@ -5688,7 +5704,7 @@ function postenVoorNotitie(tekst, locatie, eigen = s => eigenCodes[s], ai = null
 }
 function maakPosten(p, eigen) {
   const uit = [];
-  for (const s of p.submappen) for (const n of [...(s.notities || [])].reverse()) uit.push(...postenVoorNotitie(n.tekst, s.naam, eigen, n.aiTekst === n.tekst ? n.ai : null, n.code));
+  for (const s of p.submappen) for (const n of [...(s.notities || [])].reverse()) uit.push(...postenVoorNotitie(n.tekst, s.naam, eigen, null, n.code));
   return uit;
 }
 const postCode = p => p.object ? `${p.object} ${p.onderdeel}` : '';
@@ -5719,7 +5735,7 @@ function notitieDelen(tekst) {
   const waar = plek ? plek[0].toLowerCase().replace(/\s+/g, ' ') : '';
   return { naam, ding: ding ? ding[1].toLowerCase() : '', letter: ding ? ding[2].toUpperCase() : '', waar };
 }
-// Ruw kader rond de genoemde plek, als Gemini (nog) niet heeft gekeken.
+// Ruw kader rond de genoemde plek.
 function ruwKader(l) {
   const w = 0.22, h = 0.3, x0 = Math.max(0.04, Math.min(0.96 - w, l.x - w / 2)), y0 = Math.max(0.04, Math.min(0.92 - h, l.y - h / 2));
   return { x0, y0, x1: x0 + w, y1: y0 + h };
@@ -5774,7 +5790,7 @@ function stuksVan(tekst) {
 function formRegels(n, s) {
   const locatie = typeof s === 'string' ? s : s?.naam || '', bestek = bestekCode(n.tekst);
   const k = notitieKozijn(n, s), stuks = stuksVan(n.tekst);
-  return postenVoorNotitie(n.tekst, locatie, undefined, n.aiTekst === n.tekst ? n.ai : null, n.code).map((p, i) => {
+  return postenVoorNotitie(n.tekst, locatie, undefined, null, n.code).map((p, i) => {
     const omtrek = p.eenheid === 'M1' && (p.breedte != null && p.hoogte != null || k && i === 0);
     const vanFoto = k && i === 0 && (p.eenheid === 'M1' || p.eenheid === 'M2');
     let b = vanFoto ? k.B : p.breedte, h = vanFoto ? k.H : p.hoogte, str = null;
@@ -5848,319 +5864,8 @@ function projectTotalen(posten) {
 }
 const lijnMaten = p => p.submappen.flatMap(s => s.fotos.flatMap((f, fi) => f.lijnen.map((l, li) => ({ locatie: s.naam, foto: fi + 1, nr: li + 1, lijn: l, code: f.type?.code || '' }))));
 
-// ---------- Gemini (gratis versie): slimme laag bovenop de regels ----------
-// Alleen de ingesproken zin en de locatie gaan mee; geen klantnaam, adres of werknummer.
-// Zonder internet of sleutel blijven de regels en de geleerde correcties gewoon werken.
-const GEMINI_INGEBOUWD = ''; // vaste sleutel voor het hele team, in te vullen bij het bouwen
-const GEMINI_KEY = 'buildcalc.gemini.sleutel';
-// Volgorde van proberen. Geeft Google bij een model "limiet bereikt" (429, soms met limiet 0 voor gratis
-// sleutels), dan gaat de app meteen door naar het volgende model; elk model heeft een eigen gratis tegoed.
-const GEMINI_MODELLEN = ['gemini-3.8-flash', 'gemini-flash-latest', 'gemini-3.5-flash', 'gemini-2.5-flash'];
-// Reserve als Google het druk heeft (fout 503): eerst even wachten en opnieuw, daarna een lichter model.
-const GEMINI_RESERVE = 'gemini-flash-lite-latest';
-const geminiDruk = status => status === 503 || status === 500 || status === 502 || status === 504;
-const wachtMs = ms => new Promise(r => setTimeout(r, ms));
-const AI = { status: 'uit', fout: null, model: 0, ronde: null, nogmaals: false, luisteraars: new Set() };
-const aiEigen = () => { try { return localStorage.getItem(GEMINI_KEY) || ''; } catch { return ''; } };
-const aiSleutel = () => aiEigen() || GEMINI_INGEBOUWD;
-// AI op de telefoon zelf (Gemini Nano, bijv. op een Galaxy Z Fold7): geen sleutel en geen internet nodig.
-// stand: onbekend | klaar | downloaden | bezig | niet. Bij "klaar" gaat elke vraag eerst naar de telefoon; lukt dat niet, dan naar Gemini online (met sleutel).
-const TELAI = { stand: 'onbekend', fout: null };
-const telAi = () => TELAI.stand === 'klaar';
-const aiActief = () => telAi() || !!aiSleutel();
-// Waarom de AI van de telefoon niet aan staat, in gewone woorden (voor Instellingen).
-function telAiUitleg() {
-  if (!Native) return 'Alleen in de app op de telefoon';
-  if (telAi()) return 'Aan';
-  if (TELAI.stand === 'niet' && /not implemented|unimplemented|not available on|plugin/i.test(TELAI.fout || '')) return `Deze app is nog de oude versie. Installeer BuildCalc.apk opnieuw. (${TELAI.fout})`;
-  if (TELAI.stand === 'downloaden' && !TELAI.fout) return 'Het AI-model moet nog op de telefoon gezet worden (eenmalig). Zet wifi aan en tik op Opnieuw proberen.';
-  if (TELAI.stand === 'bezig' || TELAI.stand === 'downloaden') return `Het AI-model wordt op de telefoon gezet. Laat wifi aan; dit kan een paar minuten duren.${TELAI.fout ? ' (' + TELAI.fout + ')' : ''}`;
-  if (TELAI.stand === 'onbekend') return 'Bezig met controleren…';
-  if (TELAI.stand === 'uit') return 'Uitgezet, omdat de app de vorige keer vastliep bij het starten van de AI. Tik op Opnieuw proberen om het nog eens te proberen.';
-  return `De telefoon zegt dat de AI nu niet beschikbaar is${TELAI.fout ? ': ' + TELAI.fout : ''}. Werk in de Play Store de apps "AICore" en "Private Compute Services" bij, herstart de telefoon en tik op Opnieuw proberen.`;
-}
-// Beveiliging: viel de app uit tijdens het starten van de AI, dan blijft "bc_telai_bezig" staan.
-// Bij de volgende start slaan we de AI dan over, zodat de app niet blijft crashen. Opnieuw proberen kan in Instellingen.
-const telVlag = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch { return null; } };
-async function telAiStart(handmatig = false) {
-  const pl = plugin('TelefoonAi'); if (!pl) return;
-  if (!handmatig && telVlag('bc_telai_bezig')) { telVlag('bc_telai_bezig', null); telVlag('bc_telai_uit', '1'); }
-  if (!handmatig && telVlag('bc_telai_uit')) { TELAI.stand = 'uit'; TELAI.fout = null; return; }
-  if (handmatig) telVlag('bc_telai_uit', null);
-  TELAI.stand = 'onbekend'; TELAI.fout = null;
-  telVlag('bc_telai_bezig', '1');
-  let wachtOpDownload = false;
-  try {
-    const r = await metLimiet(pl.status(), 15000, 'De telefoon gaf geen antwoord'); TELAI.stand = r?.status || 'niet'; TELAI.fout = r?.fout || null;
-    // Het model downloaden doen we alleen als je daar zelf op tikt.
-    if (handmatig && (TELAI.stand === 'downloaden' || TELAI.stand === 'bezig')) {
-      if (!TELAI.luistert) { TELAI.luistert = true;
-        await pl.addListener?.('download', d => { if (d?.stand === 'klaar') { TELAI.stand = 'klaar'; TELAI.fout = null; aiMeld('aan'); aiBijwerken(); toast('AI van de telefoon staat klaar'); }
-          else if (d?.stand === 'mislukt') { TELAI.stand = 'downloaden'; TELAI.fout = d.fout || 'Downloaden mislukt'; } }); }
-      TELAI.stand = 'bezig'; wachtOpDownload = true; await pl.download();
-    }
-  } catch (e) { TELAI.stand = 'niet'; TELAI.fout = e?.message || String(e); }
-  // Blijft de app na het downloaden nog een halve minuut draaien, dan is het veilig.
-  if (wachtOpDownload) setTimeout(() => telVlag('bc_telai_bezig', null), 30000); else telVlag('bc_telai_bezig', null);
-  if (telAi()) { aiMeld('aan'); aiBijwerken(); }
-}
-// Korte vraag voor de kleine AI op de telefoon: alleen onderdeel, plek, materiaal en maten. De Topcalc-code kiezen de vaste regels.
-function telAiVraag(tekst, locatie) {
-  const woorden = Object.entries(geleerd.woorden).map(([w, t]) => `${w} = ${t}`).join(', ');
-  return `Je helpt een Nederlandse schilder bij het inmeten. Lees de ingesproken opname en geef alleen JSON terug, zonder uitleg, in deze vorm:
-{"onderdeel": "...", "plek": "buiten of binnen", "materiaal": "...", "glas": false, "breedte": null, "hoogte": null, "lengte": null, "herstel": 0}
-- onderdeel: precies een van: ${Object.keys(DEFS).join(', ')}; of "Onbekend".
-- plek: "binnen" bij binnendeuren, kamers, hal, interieur; anders "buiten".
-- materiaal: een van ${TOPCALC_MATERIALEN.join(', ')} (standaard hout; wanden en plafonds steen).
-- glas: true bij een deur met glas of ruiten.
-- breedte, hoogte, lengte in meters, komma is decimaalteken. "1,50 bij 1,30" is breedte 1.5 en hoogte 1.3. "25 cm" is 0.25. null als het niet genoemd is.
-- herstel: aantal plekken houtrot of scheuren, 0 als er geen is.
-${woorden ? `Eigen woorden van de gebruiker: ${woorden}.
-` : ''}
-Locatie: ${locatie}
-Opname: ${tekst}`;
-}
-async function telAiDuid(tekst, locatie) {
-  try {
-    const r = await plugin('TelefoonAi').vraag({ prompt: telAiVraag(tekst, locatie) });
-    const t = String(r?.tekst || ''), m = t.match(/\{[\s\S]*\}/); if (!m) return null;
-    const d = JSON.parse(m[0]), velden = ['onderdeel', 'plek', 'materiaal', 'glas', 'breedte', 'hoogte', 'lengte', 'herstel'];
-    if (!d || typeof d !== 'object' || !DEFS[d.onderdeel]) return null;
-    return Object.fromEntries(Object.entries(d).filter(([k, v]) => velden.includes(k) && v != null));
-  } catch (e) { TELAI.fout = e?.message || String(e); return null; }
-}
-const aiMeld = (status, fout = null) => { AI.status = status; AI.fout = fout; [...AI.luisteraars].forEach(f => f()); };
-aiMeld(aiSleutel() ? 'aan' : 'uit');
-// In de app staat de sleutel ook als bestand in de app-map. Zo overleeft hij een herstart of update
-// zeker, ook als Android de opslag van de webweergave leegmaakt. Hij gaat nooit mee in een back-up of zip.
-const GEMINI_BESTAND = 'instellingen/gemini.txt';
-async function aiSleutelNaarApp(v) {
-  if (!Native) return;
-  const fs = plugin('Filesystem');
-  try { v ? await fs.writeFile({ path: GEMINI_BESTAND, data: v, directory: 'DATA', encoding: 'utf8', recursive: true })
-    : await fs.deleteFile({ path: GEMINI_BESTAND, directory: 'DATA' }); } catch {}
-}
-async function aiSleutelUitApp() {
-  if (!Native) return;
-  try {
-    const r = await plugin('Filesystem').readFile({ path: GEMINI_BESTAND, directory: 'DATA', encoding: 'utf8' });
-    const v = String(typeof r?.data === 'string' ? r.data : await r?.data?.text?.() || '').trim();
-    if (v.length < 20) return;
-    if (!aiEigen()) { try { localStorage.setItem(GEMINI_KEY, v); } catch {} AI.model = 0; aiMeld('aan'); aiBijwerken(); }
-  } catch {
-    if (aiEigen()) aiSleutelNaarApp(aiEigen()); // sleutel van vóór deze versie ook in de app-map zetten
-  }
-}
-function topcalcKandidaten() {
-  const codes = new Set(['508']);
-  for (const d of Object.values(DEFS)) { Object.values(d.buiten).forEach(c => codes.add(c)); Object.values(d.binnen).forEach(c => codes.add(c)); if (d.sanering) codes.add(d.sanering); }
-  for (const g of Object.values(GLASDEUR)) g.forEach(c => codes.add(c));
-  return [...codes].sort().filter(c => TC.has(c)).map(c => { const o = TC.get(c);
-    return `${o.code} ${o.naam}: ${[...o.onderdelen.values()].map(ot => `${ot.code} ${ot.naam} (${ot.eenheid})`).join('; ')}`; }).join('\n');
-}
-function geminiVerzoek(tekst, locatie, snel = true) {
-  const woorden = Object.entries(geleerd.woorden).map(([w, t]) => `${w} = ${t}`).join(', ');
-  const instructie = `Je helpt een Nederlandse schilder bij het inmeten. Je krijgt een ingesproken
-opname en de locatie (bijv. Voorgevel of Woonkamer). Bepaal:
-- onderdeel: het hoofdonderdeel, precies een van: ${Object.keys(DEFS).join(', ')}; of "Onbekend".
-- plek: "buiten" of "binnen" (binnen bij binnendeuren, kamers, hal, interieur).
-- materiaal: ${TOPCALC_MATERIALEN.join(', ')} (standaard hout; wanden en plafonds standaard steen).
-- glas: true bij een deur met glas of ruiten.
-- breedte, hoogte, lengte in meters (komma is decimaalteken; "1,50 bij 1,30" is breedte 1,50 en hoogte 1,30; "25 cm" is 0,25). Laat weg wat niet genoemd is.
-- code: de beste Topcalc-code "OCODE OTCODE" uit de lijst hieronder, passend bij onderdeel, plek, materiaal en profielbreedte (A1 < 10 cm, A2 10-20 cm, A3 20-30 cm).
-- aantal: de hoeveelheid in de eenheid van die code: M2 = breedte x hoogte, M1 bij kozijnen en ramen = omtrek 2 x (breedte + hoogte), anders de lengte; ST = 1. Weglaten als een maat ontbreekt.
-- herstel: aantal plekken houtrot of scheuren dat hersteld moet worden, 0 als er geen is.
-${woorden ? `Eigen woorden van de gebruiker: ${woorden}.\n` : ''}
-Topcalc-lijst (OCODE objectnaam: OTCODE onderdeel (eenheid); ...):
-${topcalcKandidaten()}
-`;
-  const num = { type: 'NUMBER', nullable: true };
-  return {
-    systemInstruction: { parts: [{ text: instructie }] },
-    contents: [{ role: 'user', parts: [{ text: `Locatie: ${locatie}\nOpname: ${tekst}` }] }],
-    generationConfig: { temperature: 0, responseMimeType: 'application/json',
-      responseSchema: { type: 'OBJECT', properties: { onderdeel: { type: 'STRING' }, plek: { type: 'STRING', enum: ['buiten', 'binnen'] },
-        materiaal: { type: 'STRING' }, glas: { type: 'BOOLEAN' }, breedte: num, hoogte: num, lengte: num, code: { type: 'STRING' }, aantal: num,
-        herstel: { type: 'INTEGER' } },
-        required: ['onderdeel', 'plek', 'materiaal', 'code', 'herstel'] },
-      ...(snel ? { thinkingConfig: { thinkingBudget: 0 } } : {}) },
-  };
-}
-function leesGeminiAntwoord(j) {
-  try {
-    const d = JSON.parse(j.candidates[0].content.parts.map(p => p.text || '').join(''));
-    if (!d || typeof d !== 'object' || Array.isArray(d)) return null;
-    const velden = ['onderdeel', 'plek', 'materiaal', 'glas', 'breedte', 'hoogte', 'lengte', 'code', 'aantal', 'herstel'];
-    return Object.fromEntries(Object.entries(d).filter(([k, v]) => velden.includes(k) && v != null));
-  } catch { return null; }
-}
-// Wat Google zegt bij 429, kort en in gewone taal. "limit: 0" betekent: geen gratis tegoed op deze sleutel.
-function limietTekst(m) {
-  if (/limit:\s*0\b/i.test(m)) return 'Google geeft deze sleutel geen gratis tegoed (limiet 0). Maak een nieuwe sleutel in Google AI Studio.';
-  if (/per ?day|PerDay/i.test(m)) return 'Gratis daglimiet van Google op, morgen weer';
-  const kort = m.replace(/\s+/g, ' ').replace(/https?:\S+/g, '').slice(0, 140).trim();
-  return 'Gratis limiet even bereikt, later opnieuw' + (kort ? ` (Google: ${kort})` : '');
-}
-async function geminiDuid(tekst, locatie) {
-  if (telAi()) {
-    aiMeld('bezig');
-    const d = await telAiDuid(tekst, locatie);
-    if (d) { aiMeld('aan'); return d; }
-    if (!aiSleutel()) { aiMeld('aan'); return null; } // de vaste regels doen het dan
-  }
-  if (!aiSleutel()) return null;
-  aiMeld('bezig');
-  let snel = true, druk = 0, traag = 0, netwerk = 0, limiet = 0, googleMelding = '';
-  // Lukt het niet, dan over een minuut stil opnieuw (de notities blijven gewoon staan).
-  const later = () => { if (!AI.wachtTimer) AI.wachtTimer = setTimeout(() => { AI.wachtTimer = null; aiBijwerken(); }, 60000); };
-  for (let poging = 0; poging < 14; poging++) {
-    // Na drukte of een traag antwoord: het lichtere reservemodel, dat meestal sneller antwoordt.
-    const model = (druk >= 3 || traag) && !AI.geenReserve ? GEMINI_RESERVE : GEMINI_MODELLEN[AI.model];
-    // Gratis Gemini staat maar een paar vragen per minuut toe: minstens 7 seconden tussen twee vragen.
-    const rust = (AI.laatste || 0) + 7000 - Date.now(); if (rust > 0) await wachtMs(rust);
-    AI.laatste = Date.now();
-    const ctrl = new AbortController(), t = setTimeout(() => ctrl.abort(), 30000);
-    let r, body;
-    try {
-      r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
-        method: 'POST', signal: ctrl.signal,
-        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': aiSleutel() },
-        body: JSON.stringify(geminiVerzoek(tekst, locatie, snel)) });
-      body = await r.text();
-    } catch (e) {
-      clearTimeout(t);
-      // Geen antwoord binnen 30 seconden: dat ligt meestal aan Google, niet aan je internet.
-      if (e.name === 'AbortError') { if (++traag < 2) continue; later(); aiMeld('fout', navigator.onLine === false ? 'Geen internet' : 'Gemini reageert traag, later vanzelf opnieuw'); return null; }
-      // Verbinding mislukt: nog twee keer proberen voordat we "geen internet" zeggen.
-      if (++netwerk < 3 && navigator.onLine !== false) { await wachtMs(2000); continue; }
-      later(); aiMeld('fout', navigator.onLine === false ? 'Geen internet' : 'Gemini niet bereikbaar, later vanzelf opnieuw'); return null;
-    }
-    clearTimeout(t);
-    if (r.ok) { let d = null; try { d = leesGeminiAntwoord(JSON.parse(body)); } catch {} aiMeld(d ? 'aan' : 'fout', d ? null : 'Onverwacht antwoord van Gemini'); return d; }
-    if (r.status === 404 && model === GEMINI_RESERVE) { AI.geenReserve = true; continue; } // reservemodel bestaat niet (meer)
-    if (r.status === 404 && AI.model < GEMINI_MODELLEN.length - 1) { AI.model++; AI.laatste = 0; continue; }
-    // Limiet bereikt: het echte bericht van Google bewaren en direct een ander model proberen.
-    if (r.status === 429) {
-      try { googleMelding = String(JSON.parse(body).error?.message || ''); } catch {}
-      if (model !== GEMINI_RESERVE && limiet < GEMINI_MODELLEN.length - 1) { limiet++; AI.model = (AI.model + 1) % GEMINI_MODELLEN.length; AI.laatste = 0; continue; }
-      if (model !== GEMINI_RESERVE && !AI.geenReserve) { traag = 1; AI.laatste = 0; continue; } // nog één keer met het lichte model
-    }
-    if (r.status === 400 && snel && body.includes('thinking')) { snel = false; continue; }
-    // Google even overbelast: na 1, 2 en 4 seconden opnieuw, daarna met het reservemodel.
-    if (geminiDruk(r.status) && druk < 4) { druk++; await wachtMs([1000, 2000, 4000, 1000][druk - 1]); continue; }
-    if (geminiDruk(r.status) || r.status === 429) later();
-    aiMeld('fout', geminiDruk(r.status) ? 'Google is even overbelast, later vanzelf opnieuw' : [400, 401, 403].includes(r.status) ? 'Sleutel ongeldig of niet toegestaan' : r.status === 429 ? limietTekst(googleMelding) : `Gemini gaf fout ${r.status}`);
-    return null;
-  }
-  aiMeld('fout', 'Gemini werkt even niet, later vanzelf opnieuw'); later();
-  return null;
-}
-// Gemini kijkt naar de foto en wijst het kozijn aan dat je noemt ("links boven", "midden").
-// Andere letters op dezelfde foto gaan mee, zodat B niet op het kozijn van A komt.
-async function fotoVoorAi(id, max = 768) {
-  const blob = await fotoLaad(id); if (!blob) return null;
-  const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = URL.createObjectURL(blob); });
-  const k = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
-  const c = Object.assign(document.createElement('canvas'), { width: Math.round(img.naturalWidth * k), height: Math.round(img.naturalHeight * k) });
-  c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(img.src);
-  const url = c.toDataURL('image/jpeg', 0.7); c.width = c.height = 0;
-  return url.slice(url.indexOf(',') + 1);
-}
-async function geminiZoekKozijn(f, label, delen) {
-  if (!aiSleutel()) return null;
-  try {
-    const data = await fotoVoorAi(f.id); if (!data) return null;
-    const anderen = (f.labels || []).filter(l => l !== label).map(l => `${l.tekst} linksboven op ${Math.round(l.x * 1000)}, ${Math.round(l.y * 1000)}`).join('; ');
-    const vraag = `Dit is een foto van een gevel of ruimte, gemaakt door een schilder. Zoek het ${delen.ding || 'kozijn'} dat hij bedoelt met de plek "${delen.waar || 'niet genoemd'}". `
-      + `Links en rechts zijn de linker- en rechterkant van de foto, boven en onder de bovenste en onderste rij, midden het middelste. `
-      + (anderen ? `Deze onderdelen zijn al gemarkeerd, kies een ander: ${anderen}. ` : '')
-      + `Geef de buitenrand van dat ${delen.ding || 'kozijn'} als links, boven, rechts en onder, van 0 tot 1000 (links 0 = linkerrand van de foto, boven 0 = bovenrand). Zet gevonden op false als je het niet ziet.`;
-    let r = null;
-    // Bij drukte (503) nog twee keer: na 2 seconden, en daarna met het reservemodel.
-    for (let poging = 0; poging < 3; poging++) {
-      const ctrl = new AbortController(), t = setTimeout(() => ctrl.abort(), 25000);
-      r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${poging === 2 ? GEMINI_RESERVE : GEMINI_MODELLEN[AI.model]}:generateContent`, {
-        method: 'POST', signal: ctrl.signal, headers: { 'Content-Type': 'application/json', 'x-goog-api-key': aiSleutel() },
-        body: JSON.stringify({ contents: [{ role: 'user', parts: [{ inline_data: { mime_type: 'image/jpeg', data } }, { text: vraag }] }],
-          generationConfig: { temperature: 0, responseMimeType: 'application/json',
-            responseSchema: { type: 'OBJECT', properties: { gevonden: { type: 'BOOLEAN' }, links: { type: 'INTEGER' }, boven: { type: 'INTEGER' }, rechts: { type: 'INTEGER' }, onder: { type: 'INTEGER' } }, required: ['gevonden'] } } }),
-      }).finally(() => clearTimeout(t));
-      if (!geminiDruk(r.status)) break;
-      if (poging < 2) await wachtMs(2000);
-    }
-    if (!r.ok) return null;
-    const j = await r.json(), d = JSON.parse(j.candidates[0].content.parts.map(p => p.text || '').join(''));
-    const ok = v => v >= 0 && v <= 1000;
-    if (!d?.gevonden || ![d.links, d.boven, d.rechts, d.onder].every(ok) || d.rechts - d.links < 20 || d.onder - d.boven < 20) return null;
-    return { x0: d.links / 1000, y0: d.boven / 1000, x1: d.rechts / 1000, y1: d.onder / 1000 };
-  } catch { return null; }
-}
-// Notities zonder (actuele) duiding alsnog laten duiden; stopt stil bij een fout.
-function aiBijwerken() {
-  if (!aiActief()) return Promise.resolve();
-  if (AI.ronde) { AI.nogmaals = true; return AI.ronde; }
-  const ronde = async () => {
-    for (const p of [...projecten]) for (const s of [...p.submappen]) for (const n of [...(s.notities || [])]) {
-      if (n.aiTekst === n.tekst) continue;
-      const tekst = n.tekst, d = await geminiDuid(tekst, s.naam);
-      // Alleen de telefoon-AI en die begrijpt deze zin niet: overslaan, de vaste regels doen het.
-      if (!d && telAi() && !aiSleutel()) { n.aiTekst = tekst; bewaar(); continue; }
-      if (!d) return false;
-      if (n.tekst !== tekst) continue;
-      n.ai = d; n.aiTekst = tekst; bewaar();
-      if (PAG) render();
-    }
-    return true;
-  };
-  return AI.ronde = (async () => { do { AI.nogmaals = false; if (!await ronde()) break; } while (AI.nogmaals); })().finally(() => { AI.ronde = null; });
-}
-const aiPostTekst = ps => ps.map(x => `${postCode(x)} ${x.aantal == null ? '?' : getalNL(x.aantal, x.eenheid === 'ST' ? 0 : 2)} ${x.eenheid.toLowerCase()}`).join(' + ');
-const aiKnopHtml = () => `<button class="ghost" id="aiKnop" style="color:${AI.status === 'aan' || AI.status === 'bezig' ? 'var(--gold)' : 'var(--muted)'}">${ic('ster')} ${
-  telAi() ? (AI.status === 'bezig' ? 'AI denkt…' : 'AI telefoon') : { uit: 'Gemini uit', fout: 'Gemini offline', aan: 'Gemini aan', bezig: 'Gemini denkt…' }[AI.status]}</button>`;
-function koppelAiKnop(el) {
-  const knop = $('#aiKnop', el); if (!knop) return;
-  knop.onclick = toonAiInstellingen;
-  const update = () => { if (!knop.isConnected) { AI.luisteraars.delete(update); return; } knop.outerHTML = aiKnopHtml(); koppelAiKnop(el); AI.luisteraars.delete(update); };
-  AI.luisteraars.add(update);
-}
-function toonAiInstellingen() {
-  const d = dialoog(`<h2>Gemini (gratis AI)</h2>
-    <div style="color:var(--muted);font-size:13px">Met internet duidt Gemini je opname en kiest de Topcalc-code. Zonder internet werken de vaste regels en je geleerde correcties gewoon. Alleen de ingesproken zin en de locatie gaan mee, geen klantnaam of adres.</div>
-    <div id="aiInfo" style="margin:12px 0 4px"></div>
-    <label class="field"><span>API-sleutel uit Google AI Studio</span><input id="aiS" type="password" autocomplete="off" placeholder="AIza…"></label>
-    <div id="aiTest" style="font-size:13px"></div>
-    <div class="actions"><button id="aiWis">Wissen</button><button id="aiTst">Testen</button><button id="aiOk" class="primary" disabled>Opslaan</button></div>`);
-  const info = () => {
-    const tel = { klaar: '<div style="color:var(--ok);margin-bottom:6px">De AI van je telefoon staat aan. Een sleutel is niet nodig; die is alleen nog een reserve.</div>',
-      bezig: '<div style="color:var(--muted);margin-bottom:6px">De AI van je telefoon wordt klaargezet. Dat kan even duren.</div>' }[TELAI.stand] || '';
-    $('#aiInfo', d).innerHTML = tel + `<b>${aiEigen() ? 'Eigen sleutel op dit toestel' : GEMINI_INGEBOUWD ? 'Ingebouwde sleutel' : 'Nog geen sleutel'}</b>${AI.fout ? `<div style="color:var(--open)">${esc(AI.fout)}</div>` : ''}`;
-    $('#aiWis', d).style.display = aiEigen() ? '' : 'none'; $('#aiTst', d).style.display = aiSleutel() ? '' : 'none';
-  };
-  info();
-  const inp = $('#aiS', d), ok = $('#aiOk', d);
-  inp.oninput = () => { ok.disabled = inp.value.trim().length < 20; };
-  const zet = v => { try { v ? localStorage.setItem(GEMINI_KEY, v) : localStorage.removeItem(GEMINI_KEY); } catch {} aiSleutelNaarApp(v); AI.model = 0; aiMeld(aiSleutel() ? 'aan' : 'uit'); inp.value = ''; ok.disabled = true; info(); };
-  const test = async () => {
-    const zin = 'kozijn 1,50 bij 1,30 houtrot gronden en 2x aflakken', uit = $('#aiTest', d);
-    uit.textContent = 'Testen…';
-    const r = await geminiDuid(zin, 'Voorgevel');
-    uit.textContent = r ? `Werkt. "${zin}" werd ${aiPostTekst(postenVoorNotitie(zin, 'Voorgevel', () => null, r))}.` : `Niet gelukt: ${AI.fout || 'onbekende fout'}`;
-    info(); return !!r;
-  };
-  // Opslaan zet Gemini direct aan: sleutel bewaren, meteen testen en bij succes het venster sluiten.
-  // Het venster sluit meteen; het testen gebeurt op de achtergrond, zodat de app nooit blijft wachten.
-  ok.onclick = () => {
-    zet(inp.value.replace(/\s+/g, ''));
-    sluit(d); toast('Sleutel opgeslagen. Gemini wordt getest…');
-    geminiDuid('kozijn 1,50 bij 1,30 houtrot gronden en 2x aflakken', 'Voorgevel')
-      .then(r => { toast(r ? 'Gemini staat aan en werkt.' : `Gemini werkt nog niet: ${AI.fout || 'onbekende fout'}`); if (r) aiBijwerken(); });
-  };
-  $('#aiWis', d).onclick = () => zet('');
-  $('#aiTst', d).onclick = test;
-}
-
 // ---------- back-up: alles of één project in één bestand, ook terug te zetten in de Android-app ----------
-// Bevat projecten, mappen, foto's, lijnen, notities, geleerde correcties en eigen Topcalc-codes; niet de Gemini-sleutel.
+// Bevat projecten, mappen, foto's, lijnen, notities, geleerde correcties en eigen Topcalc-codes.
 const fotoTal = n => `${n} ${n === 1 ? 'foto' : "foto's"}`;
 const naarBase64 = blob => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1]); r.onerror = () => rej(r.error); r.readAsDataURL(blob); });
 const uitBase64 = b64 => { const s = atob(b64), a = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) a[i] = s.charCodeAt(i); return new Blob([a], { type: 'image/jpeg' }); };
@@ -6890,12 +6595,6 @@ function sjWeg(f) {
 function sjBalk(f) {
   const el = $('#vbalk', V.el); if (!el) return;
   const w = sjWand(f);
-  if (!w && gvAan(f) && f.gevel.overzicht) return gvOverBalk(f, el);
-  if (!w && gvAan(f)) return gvBalk(f, el);
-  if (!w && f.gevelZoom) return gvZoomBalk(f, el);
-  // Al zelf lijnen getrokken en nog niets ingezoomd: dan was het geen flat (bijv. een tussenwoning van dichtbij).
-  // Een flat meet je net als een woning: de oude flat-balk niet meer tonen.
-  if (!w && f.flat) { delete f.flat; bewaar(); }
   if (!w) { el.hidden = true; el.innerHTML = ''; return; }
   const nu = V.sel ? f.lijnen.find(l => l.id === V.sel && l.rol) || null : sjNu(f), vorm = SJ_KEUZES.find(k => k[0] === w.vorm)?.[1] || 'Vorm';
   const knopVorm = `<button class="vbvorm" id="vbVorm">${esc(vorm)} ▾</button>`;
@@ -6918,729 +6617,227 @@ function sjBalk(f) {
     ['close', 'Geen sjabloon (lege lijnen weg)', () => { sjWeg(f); V.sel = null; bewaar(); tekenUI(); }]]);
 }
 function trilKort() { try { navigator.vibrate?.(60); } catch (e) {} }
-// ---------- Gevel: kozijnen vanzelf vinden, beneden laseren, boven uit de foto met de stenen als controle ----------
-// Overzichtsfoto van een gevel met metselwerk: de app zoekt de kozijnen (waar het metselwerk ophoudt) en zet per kozijn
-// een breedte- en een hoogtelijn. Kozijnen die je vanaf de grond haalt laser je (gouden balk), plus één lange hoogte langs
-// de gevel. De kozijnen boven rekent de app uit de rechtgezette foto (≈), en telt de steenlagen ernaast als controle.
-// Ingezoomde foto's vanaf dezelfde plek worden over het overzicht gelegd: scherpere randen en beter te tellen stenen.
-const GV_ROL = {
-  GB: ['breedte', 'Waterpas, van zijkant tot zijkant van het kozijn'],
-  GH: ['hoogte', 'Van de onderdorpel tot onder het bovenkozijn'],
-  GL: ['lange hoogte', 'Laser op de grond tegen de gevel, recht omhoog tot onder de dakrand'],
-};
-const GV_BIJ = 0.3;   // kozijnen in het onderste 30% van de gevel haal je vanaf de grond
-const gvAan = f => !!f?.gevel?.aan;
-const gvKozijnen = f => ondVan(f).filter(o => o.gv);
-const gvLijn = (f, o, rol) => f.lijnen.find(l => l.kozijn === o.letter && l.rol === rol && !l.zelfde);
-// Lijnen die je met de laser meet, in volgorde: per bereikbaar kozijn breedte en hoogte, dan de lange hoogte.
-function gvLijnen(f) {
-  if (!gvAan(f)) return [];
-  const uit = [];
-  for (const o of gvKozijnen(f)) if (o.gv.soort === 'laser') for (const r of ['GB', 'GH']) { const l = gvLijn(f, o, r); if (l) uit.push(l); }
-  const gl = f.lijnen.find(l => l.rol === 'GL'); if (gl) uit.push(gl);
-  return uit;
+// ---------- Stenen tellen: per raam twee hoeken aantikken, de app telt de lagen en de stenen ----------
+// Op locatie laser je beneden de ramen (Lijn) en per gevel één keer 10 lagen steen (knop "10 lagen"): dat geeft de laaghoogte.
+// Op kantoor tik je per raam linksboven en rechtsonder van het kozijn aan (knop "Tellen"). Naast het raam herhalen de lichte
+// voegen zich om de laag: uit die herhaling telt de app de lagen (hoogte). Onder of boven het raam telt hij zo de stenen (breedte).
+// Hoogte = lagen × laaghoogte, breedte = stenen × 22 cm. Met + en − pas je de telling aan. De app zoekt zelf geen kozijnranden.
+// Zonder stenen (stucwerk, trappenhuis): eerst de 4 hoeken van een vlak aantikken dat je met de laser gemeten hebt (referentievlak).
+const LAGEN_REF = 10, VLAK_L = '#vlak';
+const laagUitRef = f => { const l = (f?.lijnen || []).find(x => x.lagen10 && x.maat > 0); return l ? l.maat * 100 / LAGEN_REF : null; };
+// Laaghoogte (cm, steen + voeg) voor deze foto: de 10 lagen op deze foto, anders op deze gevel (map), anders in het project.
+function laagVoor(f) {
+  const eigen = laagUitRef(f); if (eigen) return { cm: eigen, bron: 'foto' };
+  const plek = f && fotoPlek(f);
+  if (plek) { const m = mediaan(plek.s.fotos.map(laagUitRef)); if (m) return { cm: m, bron: 'gevel' };
+    const pr = mediaan(plek.p.submappen.flatMap(s => s.fotos).map(laagUitRef)); if (pr) return { cm: pr, bron: 'project' }; }
+  const lp = f?.laagCm || laagProject(f); if (lp) return { cm: lp, bron: 'laser' };
+  return { cm: STEEN_LAAG, bron: 'standaard' };
 }
-const gvNu = f => gvLijnen(f).find(l => l.maat == null && !l.uitRef) || null;
+const cmKort = v => String(Math.round(v * 10) / 10).replace('.', ',');
+const laagUitleg = lv => ({ foto: '10 lagen gelaserd op deze foto', gevel: '10 lagen gelaserd op deze gevel', project: '10 lagen gelaserd in dit project',
+  laser: 'uit je lasermaten op de foto', standaard: 'standaard, nog geen 10 lagen gelaserd' })[lv.bron];
+// Getelde lijnen rekenen opnieuw zodra de laaghoogte verandert (bijv. de 10 lagen later ingevuld).
+function stenenHerreken(f) {
+  if (!f?.lijnen?.some(l => l.bron === 'stenen')) return false;
+  const laag = laagVoor(f).cm; let anders = false;
+  for (const l of f.lijnen) if (l.bron === 'stenen' && l.stenen > 0 && (l.richting === 'horizontaal' || l.richting === 'verticaal')) {
+    const m = Math.round(l.stenen * (l.richting === 'horizontaal' ? STEEN_LANG : laag)) / 100; if (m !== l.maat) { l.maat = m; anders = true; } }
+  return anders;
+}
+// Helderheid van de foto (max 1600 px), één foto in het geheugen.
+let TELPX = null;
+function telPixels(f) {
+  const img = V && $('#vimg', V.el); if (!img?.naturalWidth) return null;
+  if (TELPX && TELPX.id === f.id && TELPX.src === img.src) return TELPX;
+  const k = Math.min(1, 1600 / Math.max(img.naturalWidth, img.naturalHeight)), W = Math.round(img.naturalWidth * k), H = Math.round(img.naturalHeight * k);
+  const c = document.createElement('canvas'); c.width = W; c.height = H; const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(img, 0, 0, W, H);
+  const d = g.getImageData(0, 0, W, H).data, lum = new Float32Array(W * H);
+  for (let i = 0, j = 0; i < lum.length; i++, j += 4) lum[i] = .299 * d[j] + .587 * d[j + 1] + .114 * d[j + 2];
+  return TELPX = { id: f.id, src: img.src, W, H, lum };
+}
+// Langzaam verloop (schaduw, licht) eraf: verschil met het gemiddelde over een venster.
+function telVlak(a, win) {
+  const n = a.length, o = new Float32Array(n), h = Math.max(2, win >> 1), pre = new Float64Array(n + 1);
+  for (let i = 0; i < n; i++) pre[i + 1] = pre[i] + a[i];
+  for (let i = 0; i < n; i++) { const l = Math.max(0, i - h), r = Math.min(n, i + h + 1); o[i] = a[i] - (pre[r] - pre[l]) / (r - l); }
+  return o;
+}
+// Randen: hoe sterk de helderheid verspringt. Liggend (voegen tussen de lagen) per rij, staand (stootvoegen) per kolom.
+function telRandRij(P, x0, x1, y0, y1) {
+  x0 = Math.max(1, Math.round(x0)); x1 = Math.min(P.W - 2, Math.round(x1)); y0 = Math.max(1, Math.round(y0)); y1 = Math.min(P.H - 2, Math.round(y1));
+  const o = new Float32Array(Math.max(0, y1 - y0)); if (x1 < x0) return o;
+  for (let y = 0; y < o.length; y++) { let s = 0; const r = (y + y0) * P.W; for (let x = x0; x <= x1; x++) s += Math.abs(P.lum[r + x + P.W] - P.lum[r + x - P.W]); o[y] = s / (x1 - x0 + 1); }
+  return o;
+}
+function telRandKol(P, x0, x1, y0, y1) {
+  x0 = Math.max(1, Math.round(x0)); x1 = Math.min(P.W - 2, Math.round(x1)); y0 = Math.max(1, Math.round(y0)); y1 = Math.min(P.H - 2, Math.round(y1));
+  const o = new Float32Array(Math.max(0, x1 - x0)); if (y1 < y0) return o;
+  for (let x = 0; x < o.length; x++) { let s = 0; for (let y = y0; y <= y1; y++) { const q = y * P.W + x + x0; s += Math.abs(P.lum[q + 1] - P.lum[q - 1]); } o[x] = s / (y1 - y0 + 1); }
+  return o;
+}
+// Hoe sterk een herhaling om de p pixels is (som over de profielen, los van waar de voegen precies vallen), met de boventoon erbij.
+function telKracht(profielen, p) {
+  let t = 0;
+  for (const a of profielen) for (const [d, w] of [[1, 1], [2, .5]]) {
+    const k = 2 * Math.PI * d / p, c = Math.cos(k), sn = Math.sin(k); let re = 0, im = 0, cr = 1, ci = 0;
+    for (let i = 0; i < a.length; i++) { re += a[i] * cr; im += a[i] * ci; const nr = cr * c - ci * sn; ci = cr * sn + ci * c; cr = nr; }
+    t += w * (re * re + im * im) / a.length; }
+  return t;
+}
+function telSpectrum(profielen, pMin, pMax) {
+  if (!(pMax > pMin)) return null;
+  let best = null, gem = 0, n = 0;
+  for (let p = pMin; p <= pMax; p *= 1.004) { const k = telKracht(profielen, p); gem += k; n++; if (!best || k > best.k) best = { p, k }; }
+  if (!best) return null;
+  for (let p = best.p * .995; p <= best.p * 1.005; p += best.p * .0005) { const k = telKracht(profielen, p); if (k > best.k) best = { p, k }; }
+  // Om de twee lagen (of stenen) herhaalt het patroon ook; een half zo grote herhaling die bijna even sterk is, is de echte.
+  for (const m of [2, 3]) { const q = best.p / m; if (q < pMin) continue;
+    let b2 = null; for (let p = q * .97; p <= q * 1.03; p += q * .001) { const k = telKracht(profielen, p); if (!b2 || k > b2.k) b2 = { p, k }; }
+    if (b2.k >= best.k * .6) { best = b2; break; } }
+  return { lag: best.p, score: best.k / (gem / n || 1) };
+}
+const telNorm = a => { let e = 0; for (const v of a) e += v * v; e = Math.sqrt(e / (a.length || 1)) || 1; return a.map(v => v / e); };
+// Lagen naast het kozijn: links en rechts een strook metselwerk, een stukje van het kozijn af. t in pixels van P.
+// Elke strook apart; een strook zonder duidelijke voegen (pui, regenpijp, stucwerk) telt niet mee.
+function telLagen(P, t) {
+  const dy = t.bottom - t.top, w = t.right - t.left;
+  const sw = Math.max(14, Math.min(140, w * .25)), gap = Math.max(6, w * .03);
+  const stroken = [[t.left - gap - sw, t.left - gap], [t.right + gap, t.right + gap + sw]].filter(s => s[0] >= 1 && s[1] < P.W - 1);
+  if (!stroken.length || dy < 20) return null;
+  const per = stroken.map(s => { const a = telNorm(telVlak(telRandRij(P, s[0], s[1], t.top, t.bottom), 40)); return { a, L: telSpectrum([a], 4, dy / 3) }; }).filter(x => x.L && x.L.score >= 3);
+  if (!per.length) return null;
+  per.sort((x, y) => y.L.score - x.L.score);
+  let L = per[0].L;
+  const mee = per.filter(x => Math.abs(x.L.lag / L.lag - 1) < .06);
+  if (mee.length > 1) { const s = telSpectrum(mee.map(x => x.a), L.lag * .94, L.lag * 1.06); if (s) L = { lag: s.lag, score: L.score }; }
+  return { lag: L.lag, score: L.score, count: dy / L.lag };
+}
+// Stenen onder (of boven) het raam: per laag de stootvoegen. Die verspringen per laag een halve steen; elke laag telt apart mee.
+function telStenen(P, t, laagPx) {
+  const dx = t.right - t.left, xa = t.left - dx * .05, xb = t.right + dx * .05;
+  const band = dir => {
+    const prof = [];
+    for (let k = 0; k < 6; k++) { const yc = dir > 0 ? t.bottom + laagPx * (1.5 + k) : t.top - laagPx * (1.5 + k);
+      if (yc - laagPx * .3 < 1 || yc + laagPx * .3 > P.H - 2) break;
+      prof.push(telNorm(telVlak(telRandKol(P, xa, xb, yc - laagPx * .25, yc + laagPx * .25), Math.round(laagPx * 9)))); }
+    if (prof.length < 2) return null;
+    const L = telSpectrum(prof, laagPx * 2.6, laagPx * 4.6); if (!L || L.score < 3) return null;
+    return { lag: L.lag, score: L.score, count: (t.right - t.left) / L.lag, dir };
+  };
+  const a = band(1), b = band(-1);
+  return a && b ? (a.score >= b.score * .9 ? a : b) : a || b;
+}
+const telBestek = s => BINNEN.test(String(s?.naam || '').toLowerCase()) ? 'ONI' : 'ONB';
+// Twee hoeken aangetikt (0..1): nieuw onderdeel met een getelde breedte (onderkant) en hoogte (rechterkant).
+// De lijnen liggen op de rand van het kozijn; de streepjes van de telling vallen dan op het metselwerk ernaast.
+function telMaak(f, a, b) {
+  const x0 = Math.min(a[0], b[0]), x1 = Math.max(a[0], b[0]), y0 = Math.min(a[1], b[1]), y1 = Math.max(a[1], b[1]);
+  if ((x1 - x0) * V.w < 12 || (y1 - y0) * V.h < 12) { toast('Tik linksboven en rechtsonder van het kozijn aan.'); return null; }
+  const L = volgendeLetter(f), tel = {};
+  const hor = { id: nieuwId(), kozijn: L, richting: 'horizontaal', x1: x0, y1, x2: x1, y2: y1, maat: null, kant: true };
+  const ver = { id: nieuwId(), kozijn: L, richting: 'verticaal', x1, y1: y0, x2: x1, y2: y1, maat: null, kant: true };
+  if (refVan(f)) {
+    // Referentievlak op deze foto: de maten komen uit de rechtgezette foto.
+    for (const l of [hor, ver]) { const m = refMaat(f, l); if (m != null) Object.assign(l, { maat: m, bron: 'foto', uitRef: true }); }
+    tel.vlak = true;
+  } else {
+    const P = telPixels(f); if (!P) { toast('De foto is nog niet geladen, probeer het zo nog eens.'); return null; }
+    const t = { top: y0 * P.H, bottom: y1 * P.H, left: x0 * P.W, right: x1 * P.W }, lg = telLagen(P, t);
+    if (!lg) { toast('Geen voegen gevonden naast dit kozijn. Stucwerk of een vlakke muur? Kies "Vlak zonder stenen" en tik de 4 hoeken van een gemeten vlak aan.', 8000); return null; }
+    const st = telStenen(P, t, lg.lag);
+    tel.lagen = Math.round(lg.count * 10) / 10;
+    Object.assign(ver, { stenen: Math.max(1, Math.round(lg.count)), bron: 'stenen' });
+    if (st) tel.stenen = Math.round(st.count * 10) / 10;
+    else { tel.schat = true; tel.stenen = Math.round((t.right - t.left) / lg.lag * laagVoor(f).cm / STEEN_LANG * 10) / 10; }
+    Object.assign(hor, { stenen: Math.max(.5, Math.round(tel.stenen * 2) / 2), bron: 'stenen' });
+  }
+  nieuwOnderdeel(f, L, 'Kozijn', [hor, ver]);
+  const o = ondVan(f).find(x => x.letter === L);
+  Object.assign(o, { bestek: telBestek(fotoPlek(f)?.s), kader: [[x0, y0], [x1, y0], [x1, y1], [x0, y1]], tel });
+  f.lijnen.push(hor, ver); stenenHerreken(f);
+  return o;
+}
+// Referentievlak: 4 hoeken aangetikt van een vlak dat je met de laser gemeten hebt. Breedte en hoogte komen van je lasermaten
+// op deze foto (de langste liggende en staande), anders vul je ze in. Daarmee zet de app de foto recht.
+function vlakKlaar(f, p) {
+  const q = hoekVolgorde(p, V.w, V.h);
+  const laser = f.lijnen.filter(l => l.maat > 0 && !l.uitRef && !l.vlakRef && !l.lagen10 && l.bron !== 'foto' && l.bron !== 'stenen' && (!l.kozijn || l.ref));
+  const langste = r => laser.filter(l => l.richting === r).sort((a, b) => b.maat - a.maat)[0];
+  const lb = langste('horizontaal'), lh = langste('verticaal');
+  f.lijnen = f.lijnen.filter(l => !l.vlakRef);
+  const b = { id: nieuwId(), richting: 'horizontaal', x1: q[0][0], y1: q[0][1], x2: q[1][0], y2: q[1][1], maat: lb?.maat ?? null, ref: true, vlakRef: true, bron: lb ? 'laser' : null };
+  const h = { id: nieuwId(), richting: 'verticaal', x1: q[0][0], y1: q[0][1], x2: q[3][0], y2: q[3][1], maat: lh?.maat ?? null, ref: true, vlakRef: true, bron: lh ? 'laser' : null };
+  f.lijnen.push(b, h); f.ref = { L: VLAK_L, p: q }; bewaar();
+  const open = [b, h].find(l => l.maat == null);
+  if (open) { V.sel = open.id; tekenUI(); toast(`Vul de ${open === b ? 'breedte' : 'hoogte'} van het vlak in (laser of typen).`); if (opKantoorNu()) maatSheet(open); return; }
+  toast(`Referentievlak ${maatLabel(b.maat)} × ${maatLabel(h.maat)} (je lasermaten). Tik nu de ramen aan.`, 5000);
+  V.hoeken = { soort: 'tel', p: [] };
+}
+// 10 lagen: één staande referentielijn per foto. De laser of een getypte maat vult hem; de lijn schuif je op het metselwerk.
+function plus10Lagen(f) {
+  let l = f.lijnen.find(x => x.lagen10);
+  if (!l) { l = { id: nieuwId(), richting: 'verticaal', x1: .08, y1: .52, x2: .08, y2: .78, maat: null, ref: true, lagen10: true }; f.lijnen.push(l); }
+  V.sel = l.id; V.modus = 'bekijken'; V.hoeken = null; bewaar(); tekenUI();
+  if (Laser.status === 'verbonden') toast('Laser nu 10 lagen steen, van voeg tot voeg. Schuif de lijn eventueel op die plek.', 6000);
+  else { toast('10 lagen steen, van voeg tot voeg: laser of typ de maat.', 5000); maatSheet(l); }
+}
+// Onder de foto tijdens het tellen: het laatst getelde raam, met + en − en het aantal gelijke ramen.
+function telPaneel(f, st) {
+  const o = ondVan(f).find(x => x.letter === V.telNu); if (!o) { V.telNu = null; return false; }
+  const eigen = f.lijnen.filter(l => l.kozijn === o.letter && !l.ref), b = eigen.find(l => l.richting === 'horizontaal'), h = eigen.find(l => l.richting === 'verticaal');
+  const lv = laagVoor(f), getal = v => String(v).replace('.', ',');
+  const rij = (l, naam, eenheid, uitleg) => `<div class="teller"><span>${naam} <b style="color:var(--text)">${l?.maat != null ? maatLabel(l.maat) : '?'}</b><br><small>${uitleg}</small></span>${l?.stenen
+    ? `<button data-tmin="${l.id}" aria-label="Minder">−</button><input data-tnum="${l.id}" inputmode="decimal" style="width:3.4em" value="${getal(l.stenen)}"><button data-tplus="${l.id}" aria-label="Meer">+</button><small style="width:3.2em">${eenheid}</small>` : ''}</div>`;
+  st.className = 'status sel';
+  st.innerHTML = `<div class="selbar"><b style="flex:1;color:var(--gold);font-size:15px">${esc(o.letter)} ${esc(o.naam || 'Kozijn')}${b?.maat != null && h?.maat != null ? ` · ${cmTekst(b.maat)} × ${cmTekst(h.maat)} cm` : ''}</b><button class="iconbtn" id="tmenu" aria-label="Meer">${ic('more')}</button></div>
+    ${o.tel?.vlak ? `${rij(b, 'Breedte', '', '≈ uit het referentievlak')}${rij(h, 'Hoogte', '', '≈ uit het referentievlak')}`
+      : `${rij(h, 'Hoogte', 'lagen', `${h?.stenen ?? '?'} lagen × ${cmKort(lv.cm)} cm${lv.bron === 'standaard' ? ' <b style="color:#FFA726">(standaard: laser 10 lagen)</b>' : ''}`)}${rij(b, 'Breedte', 'stenen', `${b?.stenen != null ? getal(b.stenen) : '?'} stenen × ${STEEN_LANG} cm${o.tel?.schat ? ' <b style="color:#FFA726">(geschat, tel na)</b>' : ''}`)}`}
+    <div class="teller"><span>Aantal gelijke ramen</span><button data-amin="${o.letter}" aria-label="Minder">−</button><input data-anum="${o.letter}" type="number" inputmode="numeric" min="1" max="999" value="${o.aantal || 1}"><button data-aplus="${o.letter}" aria-label="Meer">+</button><small style="width:3.2em"></small></div>
+    <div class="ondrij" style="margin:0">${['Kozijn', 'Raam', 'Deur', 'Dakkapel', 'Paneel'].map(n => `<button class="ondchip${(o.naam || 'Kozijn') === n ? ' on' : ''}" data-tnaam="${n}" style="padding:4px 10px;font-size:13px">${n}</button>`).join('')}<button class="ondchip" data-tnaam="" style="padding:4px 10px;font-size:13px">Anders…</button></div>
+    <div style="display:flex;gap:8px"><button class="primary" id="tvolg" style="flex:2">＋ Volgend raam</button><button class="outline" id="tklaar" style="flex:1">Klaar</button></div>`;
+  const zet = (l, n) => { const stap = l.richting === 'horizontaal' ? .5 : 1; n = Math.round((+String(n).replace(',', '.') || 0) / stap) * stap;
+    l.stenen = Math.max(stap, Math.min(400, n)); stenenHerreken(f); bewaar(); tekenUI(); };
+  st.querySelectorAll('[data-tmin]').forEach(k => k.onclick = () => { const l = f.lijnen.find(x => x.id === k.dataset.tmin); if (l) zet(l, l.stenen - (l.richting === 'horizontaal' ? .5 : 1)); });
+  st.querySelectorAll('[data-tplus]').forEach(k => k.onclick = () => { const l = f.lijnen.find(x => x.id === k.dataset.tplus); if (l) zet(l, l.stenen + (l.richting === 'horizontaal' ? .5 : 1)); });
+  st.querySelectorAll('[data-tnum]').forEach(k => k.onchange = () => { const l = f.lijnen.find(x => x.id === k.dataset.tnum); if (l) zet(l, k.value); });
+  st.querySelectorAll('[data-tnaam]').forEach(k => k.onclick = async () => { let n = k.dataset.tnaam;
+    if (!n) { n = await vraagTekst(`Onderdeel ${o.letter}`, 'Omschrijving', 'Bijv. Kozijn 1e verdieping', o.naam || '', onderdeelNamen()); if (!n) return; }
+    o.naam = n; bewaar(); tekenUI(); });
+  $('#tvolg', st).onclick = () => telStart();
+  $('#tklaar', st).onclick = () => { V.telNu = null; tekenUI(); };
+  $('#tmenu', st).onclick = () => menu([['ruler', 'Vlak zonder stenen (4 hoeken)', () => vlakStart()],
+    ...(f.ref?.L === VLAK_L ? [['close', 'Referentievlak weghalen', () => { delete f.ref; f.lijnen = f.lijnen.filter(l => !l.vlakRef); bewaar(); tekenUI(); }]] : []),
+    ['ruler', 'Hoeken opnieuw aantikken', () => { verwijderOnderdeel(f, o.letter); V.telNu = null; bewaar(); telStart(); }],
+    ['trash', `${o.letter} weghalen`, () => { const oud = { lijnen: JSON.parse(JSON.stringify(f.lijnen)), ond: JSON.parse(JSON.stringify(f.onderdelen || [])) };
+      verwijderOnderdeel(f, o.letter); V.telNu = null; bewaar(); tekenUI();
+      ongedaanToast(`${o.letter} weg.`, () => { f.lijnen = oud.lijnen; f.onderdelen = oud.ond; V.telNu = o.letter; bewaar(); tekenUI(); }); }]]);
+  return true;
+}
+const telStart = () => { V.hoeken = { soort: 'tel', p: [] }; V.telNu = null; V.sel = null; V.modus = 'bekijken'; V.alles = true; tekenUI(); };
+const vlakStart = () => { V.hoeken = { soort: 'vlak', p: [] }; V.telNu = null; V.sel = null; V.modus = 'bekijken'; tekenUI(); };
 // Waar staat deze foto (project en map)?
 function fotoPlek(f) {
   for (const p of projecten) for (const s of p.submappen) if (s.fotos.includes(f)) return { p, s };
   return null;
 }
-function fotoVanId(id) { for (const p of projecten) for (const s of p.submappen) { const f = s.fotos.find(x => x.id === id); if (f) return f; } return null; }
-// Schaal (m per eenheid op de muur) uit een paar gemeten lijnen: de langste is het anker, lijnen die meer dan 3% afwijken tellen niet mee.
-function schaalUit(lijnen, d) {
-  const v = lijnen.map(l => ({ m: l.maat, d: d(l) })).filter(x => x.m > 0 && x.d > 0 && isFinite(x.d));
-  if (!v.length) return null;
-  const a = v.reduce((p, c) => c.d > p.d ? c : p), ka = a.m / a.d, goed = v.filter(x => Math.abs(x.m / x.d / ka - 1) < .03);
-  return goed.reduce((s, x) => s + x.m, 0) / goed.reduce((s, x) => s + x.d, 0);
-}
-// De foto rechtgezet als raster, in vaste richting: U naar rechts, V naar beneden (zoals op de foto). Werkt op rgba-pixels.
-function gvRecht(px, W, H, punt, doelPx = 1.1e6) {
-  const a = punt(.4, .5), b = punt(.6, .5), c = punt(.5, .4), d = punt(.5, .6);
-  if ([a, b, c, d].some(p => !p || !isFinite(p[0]) || !isFinite(p[1]))) return null;
-  if (Math.abs(b[0] - a[0]) < Math.abs(b[1] - a[1]) || Math.abs(d[1] - c[1]) < Math.abs(d[0] - c[0])) return null;
-  const su = Math.sign(b[0] - a[0]) || 1, sv = Math.sign(d[1] - c[1]) || 1;
-  const can = (x, y) => { const p = punt(x, y); return [su * p[0], sv * p[1]]; };
-  const hk = [[0, 0], [1, 0], [1, 1], [0, 1]].map(([x, y]) => can(x, y));
-  if (hk.some(p => !isFinite(p[0]) || !isFinite(p[1]))) return null;
-  const us = hk.map(p => p[0]), vs = hk.map(p => p[1]), U0 = Math.min(...us), V0 = Math.min(...vs), du = Math.max(...us) - U0, dv = Math.max(...vs) - V0;
-  if (!(du > 0 && dv > 0) || du / dv > 8 || dv / du > 8) return null;
-  const s = Math.sqrt(doelPx / (du * dv)), RW = Math.ceil(du * s), RH = Math.ceil(dv * s);
-  const bron = [[.2, .2], [.8, .2], [.8, .8], [.2, .8]], beeld = bron.map(([x, y]) => [x * W, y * H]), doel = bron.map(([x, y]) => { const [U, V] = can(x, y); return [(U - U0) * s, (V - V0) * s]; });
-  const Mri = homografie(doel, beeld), Mir = homografie(beeld, doel); if (!Mri || !Mir) return null;
-  const n = RW * RH, rgb = new Uint8ClampedArray(n * 3), ok = new Uint8Array(n), gr = new Float32Array(n);
-  for (let j = 0; j < RH; j++) for (let i = 0; i < RW; i++) {
-    const w = Mri[6] * (i + .5) + Mri[7] * (j + .5) + Mri[8];
-    const x = (Mri[0] * (i + .5) + Mri[1] * (j + .5) + Mri[2]) / w - .5, y = (Mri[3] * (i + .5) + Mri[4] * (j + .5) + Mri[5]) / w - .5;
-    if (!(x >= 0 && y >= 0 && x < W - 1 && y < H - 1)) continue;
-    const x0 = x | 0, y0 = y | 0, fx = x - x0, fy = y - y0, pa = (y0 * W + x0) * 4, pb = pa + 4, pc = pa + W * 4, pd = pc + 4, q = j * RW + i;
-    for (let ch = 0; ch < 3; ch++) rgb[q * 3 + ch] = (px[pa + ch] * (1 - fx) + px[pb + ch] * fx) * (1 - fy) + (px[pc + ch] * (1 - fx) + px[pd + ch] * fx) * fy;
-    ok[q] = 1; gr[q] = rgb[q * 3] * .3 + rgb[q * 3 + 1] * .59 + rgb[q * 3 + 2] * .11;
-  }
-  return { RW, RH, s, U0, V0, W, H, Mri, Mir, rgb, ok, gr,
-    naarBeeld: (i, j) => { const [x, y] = hPunt(Mri, i, j); return [x / W, y / H]; },
-    naarRecht: (xn, yn) => hPunt(Mir, xn * W, yn * H),
-    naarCan: (i, j) => [i / s + U0, j / s + V0], vanCan: (U, V) => [(U - U0) * s, (V - V0) * s] };
-}
-// Vakje-filter (aan/uit) met een rechthoekig venster: 'groei' = ergens in het venster aan, 'krimp' = overal aan.
-function gvVenster(m, RW, RH, k, groei) {
-  const pad = groei ? 0 : 1, w = 2 * k + 1, t = new Uint8Array(m.length), u = new Uint8Array(m.length), ps = new Int32Array(Math.max(RW, RH) + 1);
-  const zet = (c) => groei ? (c > 0 ? 1 : 0) : (c >= w ? 1 : 0);
-  for (let j = 0; j < RH; j++) { const r = j * RW; for (let i = 0; i < RW; i++) ps[i + 1] = ps[i] + m[r + i];
-    for (let i = 0; i < RW; i++) { const a = i - k, b = i + k + 1, aa = Math.max(0, a), bb = Math.min(RW, b); t[r + i] = zet(ps[bb] - ps[aa] + pad * ((aa - a) + (b - bb))); } }
-  for (let i = 0; i < RW; i++) { for (let j = 0; j < RH; j++) ps[j + 1] = ps[j] + t[j * RW + i];
-    for (let j = 0; j < RH; j++) { const a = j - k, b = j + k + 1, aa = Math.max(0, a), bb = Math.min(RH, b); u[j * RW + i] = zet(ps[bb] - ps[aa] + pad * ((aa - a) + (b - bb))); } }
-  return u;
-}
-// Welke pixels zijn metselwerk: rood/bruin (rood duidelijk boven groen). Ook in de schaduw, waar de stenen blauwig worden
-// door de lucht, blijft rood boven groen. Crème en wit (rolluiken, boeiboord, kozijnen), grijze tegels en groene kozijnen vallen af.
-// De voegen worden daarna dichtgemaakt.
-function gvSteenMasker(R, laagPx) {
-  const { RW, RH, rgb, ok } = R, n = RW * RH, m = new Uint8Array(n); let okc = 0, aan = 0;
-  for (let q = 0; q < n; q++) { if (!ok[q]) continue; okc++;
-    const r = rgb[q * 3], g = rgb[q * 3 + 1], b = rgb[q * 3 + 2], sum = r + g + b + 1;
-    if (r > g + 5 && (r - g) / sum > .028 && (r - b) / sum > -.04) { m[q] = 1; aan++; } }
-  if (!okc || aan < okc * .12) return null;
-  const k = Math.max(1, Math.round(laagPx * .3));
-  const dicht = gvVenster(gvVenster(m, RW, RH, k, true), RW, RH, k, false);
-  for (let q = 0; q < n; q++) if (!ok[q]) dicht[q] = 0;
-  // Kleine losse vlekken weg: rode weerspiegeling in het glas en lijntjes in een rolluik zijn geen metselwerk,
-  // en een donker plekje in de muur is geen kozijn.
-  gvKleinWeg(dicht, ok, RW, RH, 1, laagPx * laagPx * 50); gvKleinWeg(dicht, ok, RW, RH, 0, laagPx * laagPx * 12);
-  return dicht;
-}
-// Samenhangende stukjes met waarde 'w' kleiner dan 'min' pixels omzetten naar de andere waarde.
-function gvKleinWeg(m, ok, RW, RH, w, min) {
-  const n = RW * RH, gezien = new Uint8Array(n), stapel = new Int32Array(n), deel = [];
-  for (let q0 = 0; q0 < n; q0++) { if (gezien[q0] || !ok[q0] || m[q0] !== w) continue;
-    let sp = 0, c = 0; stapel[sp++] = q0; gezien[q0] = 1; deel.length = 0;
-    while (sp) { const q = stapel[--sp]; c++; if (c <= min) deel.push(q);
-      const i = q % RW, buren = [i > 0 ? q - 1 : -1, i < RW - 1 ? q + 1 : -1, q - RW, q + RW];
-      for (const b of buren) if (b >= 0 && b < n && !gezien[b] && ok[b] && m[b] === w) { gezien[b] = 1; stapel[sp++] = b; } }
-    if (c < min) for (const q of deel) m[q] = 1 - w; }
-}
-const gvMed = a => { const c = [...a].sort((x, y) => x - y); return c.length ? c[c.length >> 1] : null; };
-// Kozijnen: rijen waar het metselwerk links en rechts ophoudt en weer begint, onder elkaar met dezelfde randen.
-function gvRechthoeken(m, R, laagPx) {
-  const { RW, RH, ok } = R, tol = Math.max(4, laagPx * .8), minW = laagPx * 6, minH = laagPx * 6, gat = Math.max(2, laagPx * .5);
-  const open = [], klaar = [];
-  for (let j = 0; j < RH; j++) {
-    const rij = j * RW, runs = [];
-    for (let i = 1; i < RW - 1; i++) {
-      if (!(ok[rij + i - 1] && m[rij + i - 1] && ok[rij + i] && !m[rij + i])) continue;
-      let b = i; while (b < RW && ok[rij + b] && !m[rij + b]) b++;
-      if (b - i >= minW) runs.push([i, b, b < RW && ok[rij + b] && m[rij + b]]);
-      i = b;
-    }
-    const gebruikt = new Set();
-    for (const [a, b, dicht] of runs) {
-      const r = dicht && open.find(r => !gebruikt.has(r) && Math.abs(a - r.a) <= tol && Math.abs(b - r.b) <= tol);
-      if (r) { r.L.push(a); r.R.push(b); r.j1 = j; r.a = r.a * .8 + a * .2; r.b = r.b * .8 + b * .2; gebruikt.add(r); continue; }
-      // Eén kant klopt en aan de andere kant loopt het open stuk door (regenpijp, schaduw naast het kozijn): telt mee voor die ene kant.
-      const h = open.find(r => !gebruikt.has(r) && r.L.length >= minH / 2 && ((Math.abs(a - r.a) <= tol && b > r.b + tol) || (dicht && Math.abs(b - r.b) <= tol && a < r.a - tol)));
-      if (h) { if (Math.abs(a - h.a) <= tol) h.L.push(a); else h.R.push(b); h.j1 = j; gebruikt.add(h); continue; }
-      if (!dicht) continue;
-      const nr = { a, b, j0: j, j1: j, L: [a], R: [b] }; open.push(nr); gebruikt.add(nr);
-    }
-    for (let k = open.length - 1; k >= 0; k--) if (j - open[k].j1 > gat) klaar.push(...open.splice(k, 1));
-  }
-  klaar.push(...open);
-  const rs = klaar.map(r => ({ x0: gvMed(r.L), x1: gvMed(r.R), y0: r.j0, y1: r.j1 + 1, n: r.L.length + r.R.length - Math.min(r.L.length, r.R.length) })).filter(r => r.n >= (r.y1 - r.y0) * .6 && r.y1 - r.y0 >= laagPx * 1.5);
-  // Stukken van één kozijn samenvoegen: een deur met bovenlicht of zijlicht valt soms in delen uiteen
-  // (een spijl of een rode weerspiegeling in het glas). Naast elkaar: zelfde hoogte en bijna tegen elkaar.
-  // Onder elkaar: zelfde breedte en een kleine tussenruimte.
-  const tolV = laagPx * 2.5;
-  for (let veranderd = true; veranderd;) { veranderd = false;
-    for (let a = 0; a < rs.length && !veranderd; a++) for (let b = 0; b < rs.length && !veranderd; b++) { if (a === b) continue;
-      const A = rs[a], B = rs[b];
-      const binnenX = (P, Q) => P.x0 >= Q.x0 - tol && P.x1 <= Q.x1 + tol, binnenY = (P, Q) => P.y0 >= Q.y0 - tol && P.y1 <= Q.y1 + tol;
-      // Ook: een zijlicht naast de deur (valt binnen de hoogte) of een bovenlicht erboven (valt binnen de breedte), vlak ertegen of overlappend.
-      const onder = (B.y0 > A.y0 && B.y0 - A.y1 <= laagPx * 1.5 && (binnenX(A, B) || binnenX(B, A))) || (B.y0 >= A.y1 - tol && B.y0 - A.y1 <= tolV && Math.abs(A.x0 - B.x0) <= tolV && Math.abs(A.x1 - B.x1) <= tolV);
-      const naast = !onder && B.x0 >= A.x1 - tol && B.x0 - A.x1 <= laagPx && (binnenY(A, B) || binnenY(B, A) || (Math.abs(A.y0 - B.y0) <= tolV && Math.abs(A.y1 - B.y1) <= tolV));
-      const binnen = binnenX(B, A) && binnenY(B, A);
-      if (!naast && !onder && !binnen) continue;
-      const y0 = Math.min(A.y0, B.y0), y1 = Math.max(A.y1, B.y1);
-      rs[a] = { x0: Math.min(A.x0, B.x0), x1: Math.max(A.x1, B.x1), y0, y1, n: binnen ? A.n : Math.min(y1 - y0, onder ? A.n + B.n + Math.max(0, B.y0 - A.y1) : Math.max(A.n, B.n)) };
-      rs.splice(b, 1); veranderd = true; } }
-  return rs
-    .filter(r => r.x1 - r.x0 >= minW && r.y1 - r.y0 >= minH && r.n >= (r.y1 - r.y0) * .6 && (r.x1 - r.x0) / (r.y1 - r.y0) < 8 && (r.y1 - r.y0) / (r.x1 - r.x0) < 8);
-}
-// Steenlagen naast het kozijn tellen (links en rechts ervan), over de hoogte van het kozijn. Geeft het aantal lagen (met decimalen).
-function gvLagenBij(R, m, r, laagPx) {
-  const { RW, RH, gr } = R, n = Math.round(r.y1 - r.y0); if (n < laagPx * 4) return null;
-  const banden = [[r.x0 - laagPx * 4, r.x0 - laagPx * .6], [r.x1 + laagPx * .6, r.x1 + laagPx * 4]].map(([a, b]) => [Math.max(0, Math.round(a)), Math.min(RW, Math.round(b))]).filter(([a, b]) => b - a >= 3);
-  const prof = new Float64Array(n), tel = new Uint16Array(n);
-  for (let k = 0; k < n; k++) { const j = Math.round(r.y0) + k; if (j < 0 || j >= RH) continue;
-    for (const [a, b] of banden) for (let i = a; i < b; i++) { const q = j * RW + i; if (m[q]) { prof[k] += gr[q]; tel[k]++; } } }
-  let goed = 0; for (let k = 0; k < n; k++) if (tel[k] >= 3) { prof[k] /= tel[k]; goed++; } else prof[k] = NaN;
-  if (goed < n * .7) return null;
-  for (let k = 0; k < n; k++) if (isNaN(prof[k])) { let a = k - 1, b = k + 1; while (a >= 0 && isNaN(prof[a])) a--; while (b < n && isNaN(prof[b])) b++;
-    prof[k] = a >= 0 && b < n ? (prof[a] + prof[b]) / 2 : a >= 0 ? prof[a] : prof[b] ?? 0; }
-  const w = Math.max(2, Math.round(laagPx * .75)), d = new Float64Array(n);
-  for (let k = 0; k < n; k++) { let s = 0, c = 0; for (let t = Math.max(0, k - w); t <= Math.min(n - 1, k + w); t++) { s += prof[t]; c++; } d[k] = prof[k] - s / c; }
-  let e = 0; for (let k = 0; k < n; k++) e += d[k] * d[k]; if (!e) return null;
-  const ac = p => { let s = 0; for (let k = 0; k + p < n; k++) s += d[k] * d[k + p]; return s / e * n / (n - p); };
-  const lo = Math.max(2, Math.floor(laagPx * .7)), hi = Math.ceil(laagPx * 1.4); let best = lo, bv = -Infinity;
-  for (let p = lo; p <= hi && p < n / 2; p++) { const v = ac(p); if (v > bv) { bv = v; best = p; } }
-  if (bv < .15) return null;
-  // Fijner: de piek bij een veelvoud (zo ver als het kozijn hoog is) en delen.
-  let fijn = best + (() => { const a = ac(best - 1), b = ac(best), c = ac(best + 1); return (a - c) / (2 * (a - 2 * b + c) || 1); })();
-  for (const k of [6, 5, 4, 3, 2]) { const q0 = Math.round(k * fijn); if (q0 + 2 >= n * .75) continue;
-    let q = q0; for (let t = -2; t <= 2; t++) if (ac(q0 + t) > ac(q)) q = q0 + t;
-    if (ac(q) < bv * .5) continue;
-    const a = ac(q - 1), b = ac(q), c = ac(q + 1); fijn = (q + (a - c) / (2 * (a - 2 * b + c) || 1)) / k; break; }
-  return fijn > 0 ? n / fijn : null;
-}
-// Alles zoeken in één rechtgezette foto: kozijnen, onderkant en bovenkant van het metselwerk, en een kolom metselwerk
-// van onder tot boven voor de lange hoogte. Rechthoeken in rasterpixels van R.
-// Bovenkant precies op het kozijn: een latei, de balk onder een afdakje of de schaduw daaronder hoort er niet bij.
-// Zoek de binnenrand van het kozijn (waar raam of deur begint) en kies de horizontale lijn een kozijnhout-dikte daarboven.
-function gvBovenkant(R, r, laagPx) {
-  const { RW, RH, gr } = R, w = r.x1 - r.x0, h = r.y1 - r.y0, th = 20;
-  const xa = Math.max(1, Math.round(r.x0 + w * .06)), xb = Math.min(RW - 2, Math.round(r.x1 - w * .06));
-  const ma = Math.round(r.y0 + h * .3), mb = Math.round(r.y0 + h * .7);
-  if (xb - xa < 10 || ma < 3 || mb >= RH - 2) return;
-  const ve = (i, j) => { const q = j * RW + i; return Math.abs(gr[q + 1] - gr[q - 1]) > th; };
-  const E = (i, j) => ve(i, j) || ve(i - 1, j) || ve(i + 1, j);
-  // Kolommen met staande randen (stijlen, tussenstijlen, deur): daar loopt het kozijn van boven naar beneden
-  const kol = [];
-  for (let i = xa + 1; i < xb - 1; i++) { let c = 0; for (let j = ma; j < mb; j++) c += E(i, j); if (c > (mb - ma) * .7) kol.push(i); }
-  if (kol.length < 2) return;
-  let top = ma, mis = 0;
-  for (let j = ma; j > r.y0; j--) { let c = 0; for (const i of kol) c += E(i, j); if (c >= kol.length * .5) { top = j; mis = 0; } else if (++mis > 3) break; }
-  // Liggende lijnen die bijna de hele breedte doorlopen
-  const a = Math.max(2, Math.round(r.y0) - 2), fr = [];
-  for (let j = a; j <= top; j++) { let c = 0; for (let i = xa; i < xb; i++) { const q = j * RW + i; c += Math.abs(gr[q + RW] - gr[q - RW]) > th; } fr.push(c / (xb - xa)); }
-  const piek = [];
-  for (let k = 0; k < fr.length; k++) {
-    if (fr[k] < .5) continue; let max = 0; for (let t = Math.max(0, k - 3); t <= Math.min(fr.length - 1, k + 3); t++) max = Math.max(max, fr[t]);
-    if (fr[k] === max && !(piek.length && a + k - piek[piek.length - 1] <= 2)) piek.push(a + k);
-  }
-  if (!piek.length) return;
-  const binnen = piek[piek.length - 1], nieuw = piek.find(p => binnen - p >= laagPx * .5 && binnen - p <= laagPx * 1.7);
-  if (nieuw != null && nieuw > r.y0 + laagPx * .3) r.y0 = nieuw;
-}
-function gvZoek(R, laagPx) {
-  const m = gvSteenMasker(R, laagPx); if (!m) return null;
-  const { RW, RH } = R, perRij = new Uint32Array(RH);
-  for (let j = 0; j < RH; j++) { let c = 0; for (let i = 0, q = j * RW; i < RW; i++, q++) c += m[q]; perRij[j] = c; }
-  let top = 0; while (top < RH && perRij[top] < RW * .1) top++;
-  // Onderkant: van boven naar beneden het metselwerk volgen tot er een flink stuk (3 lagen) niets meer is.
-  // Losse rode dingen op de grond (tegels, een krat) tellen dan niet mee.
-  const genoeg = Math.max(8, RW * .04); let grond = top, leeg = 0;
-  for (let j = top; j < RH; j++) { if (perRij[j] >= genoeg) { grond = j; leeg = 0; } else if (++leeg > laagPx * 3) break; }
-  if (grond - top < laagPx * 10) return null;
-  const kozijnen = gvRechthoeken(m, R, laagPx).filter(r => r.y0 >= top - laagPx && r.y1 <= grond + laagPx);
-  // Onderste kozijnen: de onderkant zit vaak achter tuinmeubels. Doorzoeken langs een zijkant zolang daar metselwerk naast staat.
-  const deel = (i0, i1, j) => { let c = 0, n = 0; for (let i = Math.max(0, Math.round(i0)); i < Math.min(RW, Math.round(i1)); i++) { c += m[j * RW + i]; n++; } return n ? c / n : 0; };
-  for (const r of kozijnen) if (r.y1 > top + (grond - top) * .6 && r.y1 < grond - 2) {
-    // Staat er onder het kozijn (na de vensterbank) gewoon muur, dan is het een raam en klopt de onderkant al.
-    let muur = 0, tel = 0;
-    for (let j = Math.round(r.y1 + laagPx * 2); j < Math.min(grond, r.y1 + laagPx * 4); j++) { muur += deel(r.x0 + (r.x1 - r.x0) * .2, r.x1 - (r.x1 - r.x0) * .2, j); tel++; }
-    if (tel && muur / tel > .5) continue;
-    let laatst = r.y1, j = r.y1;
-    for (; j <= grond; j++) {
-      const rechts = deel(r.x1 + 2, r.x1 + laagPx * 1.5, j) > .6 && deel(r.x1 - laagPx * 1.5, r.x1 - 2, j) < .3;
-      const links = deel(r.x0 - laagPx * 1.5, r.x0 - 2, j) > .6 && deel(r.x0 + 2, r.x0 + laagPx * 1.5, j) < .3;
-      if (rechts || links) laatst = j + 1; else if (j - laatst > laagPx) break;
-    }
-    r.y1 = Math.min(grond + 1, laatst);
-  }
-  for (const r of kozijnen) gvBovenkant(R, r, laagPx);
-  for (const r of kozijnen) r.lagen = gvLagenBij(R, m, r, laagPx);
-  // Lange hoogte: de kolom met het meeste metselwerk van boven tot onder, niet vlak naast een kozijn.
-  let lang = null, bf = .6;
-  for (let i = Math.round(laagPx * 2); i < RW - laagPx * 2; i += 2) {
-    if (kozijnen.some(r => i > r.x0 - laagPx * 2.5 && i < r.x1 + laagPx * 2.5)) continue;
-    let c = 0; for (let j = top; j <= grond; j++) c += m[j * RW + i];
-    const fr = c / (grond - top + 1); if (fr > bf) { bf = fr; lang = i; }
-  }
-  return { m, kozijnen, top, grond, lang };
-}
-// Gevel op de foto zetten: onderdelen (letters) per kozijn met een breedte- en hoogtelijn, en de lange hoogte.
-function gvMaak(f, px, W, H, vl) {
-  if (!vl?.ok || !vl.laag) return 0;
-  const R = gvRecht(px, W, H, vl.punt); if (!R) return 0;
-  const laagPx = vl.laag * R.s, z = gvZoek(R, laagPx); if (!z || !z.kozijnen.length) return 0;
-  const hoog = z.grond - z.top, grens = z.grond - hoog * GV_BIJ;
-  // Flat, ingezoomd op een deel: op de bovenste delen haal je niets met de laser, die rekent de app met de stenen.
-  // Alleen beneden: die laser je, en ze zijn de referentie voor boven. Boven trek je zelf je lijnen (≈ uit de foto).
-  if (f.deel?.wat === 'boven') return 0;
-  // Iets kleins dat onderaan op de grond staat (bloempot, kliko, bankje) is geen kozijn: lager dan 12 lagen (± 75 cm)
-  // en met de onderkant bij de vloer (de onderkant van de deur). Een raam beneden zit hoger, met muur eronder.
-  const lagenH = r => (r.y1 - r.y0) / laagPx, groot = z.kozijnen.filter(r => lagenH(r) >= 12);
-  const vloer = groot.length ? Math.max(...groot.map(r => r.y1)) : null;
-  const echt = z.kozijnen.filter(r => !(vloer != null && lagenH(r) < 12 && r.y1 > vloer - laagPx * 3));
-  if (!echt.length) return 0;
-  const alle = echt.map(r => ({ ...r, laser: r.y1 >= grens }));
-  if (!alle.some(k => k.laser)) alle.reduce((a, c) => c.y1 > a.y1 ? c : a).laser = true;
-  // Een raam naast de deur op dezelfde verdieping laser je ook vanaf de grond, ook als de onderkant hoger zit dan de deur.
-  for (const k of alle) if (!k.laser && alle.some(d => d.laser && Math.min(k.y1, d.y1) - Math.max(k.y0, d.y0) >= (k.y1 - k.y0) * .5)) k.laser = true;
-  // Overzichtsfoto: alle kozijnen (boven en beneden) krijgen een kader, nog geen lijnen. De app vraagt per kozijn om een close-up.
-  // Close-up van één kozijn: alleen het kozijn midden op de foto, met de lijnen om te laseren.
-  // Alleen een echte overzichtsfoto (ruim 60 lagen, ± 4 m muur in beeld); een foto van dichtbij laser je meteen.
-  const over = !f.closeup && !f.deel && R.RH / laagPx >= 60;
-  let ks;
-  if (f.closeup) { const sc = r => (r.x1 - r.x0) * (r.y1 - r.y0) / (1 + 3 * Math.hypot((r.x0 + r.x1) / 2 / R.RW - .5, (r.y0 + r.y1) / 2 / R.RH - .5));
-    const b = alle.reduce((a, c) => sc(c) > sc(a) ? c : a); b.laser = true; ks = [b]; }
-  else ks = over ? alle : alle.filter(k => k.laser);
-  const boven = false;
-  // Verdiepingen: van onder naar boven, kozijnen met ongeveer dezelfde onderkant horen bij elkaar.
-  ks.sort((a, b) => b.y1 - a.y1);
-  // Een kozijn hoort bij dezelfde verdieping als zijn onderkant nog naast de kozijnen eronder zit (een raam naast een hoge deur).
-  let vd = -1, vTop = null;
-  for (const k of ks) { if (vTop == null || k.y1 < vTop + laagPx * 2) { vd++; vTop = k.y0; } else vTop = Math.min(vTop, k.y0); k.vd = vd; }
-  ks.sort((a, b) => a.vd - b.vd || a.x0 - b.x0);
-  const vdNaam = v => boven ? `hoger, rij ${v + 1}` : v === 0 ? 'begane grond' : `${v}e verdieping`;
-  let code = ''; try { code = JSON.parse(localStorage.getItem('bc_soortcode') || '{}')['ONB Kozijn'] || ''; } catch (e) {}
-  f.onderdelen ??= [];
-  const pt = (i, j) => R.naarBeeld(i, j), kl = v => Math.min(.995, Math.max(.005, v));
-  const ov = f.closeup ? fotoVanId(f.closeup.van) : null, ovO = ov ? ondVan(ov).find(x => x.letter === f.closeup.letter) : null;
-  let vraag = 0;
-  for (const k of ks) {
-    const L = volgendeLetter(f), opVd = ks.filter(x => x.vd === k.vd), nr = opVd.indexOf(k);
-    const waar = opVd.length === 1 ? '' : opVd.length === 2 ? (nr ? ' rechts' : ' links') : ` ${nr + 1}`;
-    const kader = [[k.x0, k.y0], [k.x1, k.y0], [k.x1, k.y1], [k.x0, k.y1]].map(([i, j]) => pt(i, j).map(kl));
-    // Staat het kozijn al groot op de foto (bijv. een deur vlak voor je), dan is geen close-up nodig.
-    const ys = kader.map(q => q[1]), close = over && Math.max(...ys) - Math.min(...ys) < .45;
-    const o = { letter: L, naam: ovO?.naam || `Kozijn ${vdNaam(k.vd)}${waar}`, bestek: 'ONB', kader,
-      gv: { soort: k.laser ? 'laser' : 'foto', rect: [...R.naarCan(k.x0, k.y0), ...R.naarCan(k.x1, k.y1)], ...(k.lagen ? { lagen: Math.round(k.lagen * 100) / 100 } : {}), ...(close ? { close: 'vraag' } : {}) } };
-    if (code) o.codes = [{ code, bestek: 'ONB' }];
-    f.onderdelen.push(o);
-    if (close) { vraag++; continue; }
-    const ym = k.y0 + (k.y1 - k.y0) * .62, xm = k.x0 + (k.x1 - k.x0) * .35;
-    const [x1, y1] = pt(k.x0, ym), [x2, y2] = pt(k.x1, ym), [x3, y3] = pt(xm, k.y0), [x4, y4] = pt(xm, k.y1);
-    const foto = k.laser ? {} : { uitRef: true, bron: 'foto' };
-    f.lijnen.push({ id: nieuwId(), kozijn: L, rol: 'GB', richting: 'horizontaal', x1: kl(x1), y1: kl(y1), x2: kl(x2), y2: kl(y2), maat: null, ...foto },
-      { id: nieuwId(), kozijn: L, rol: 'GH', richting: 'verticaal', x1: kl(x3), y1: kl(y3), x2: kl(x4), y2: kl(y4), maat: null, ...foto });
-  }
-  if (false) { const [x1, y1] = pt(z.lang, z.grond), [x2, y2] = pt(z.lang, z.top);
-    f.lijnen.push({ id: nieuwId(), rol: 'GL', ref: true, richting: 'verticaal', x1: kl(x1), y1: kl(y1), x2: kl(x2), y2: kl(y2), maat: null }); }
-  f.gevel = { aan: true, zooms: [], ...(vraag ? { overzicht: true } : {}) };
-  bewaar();
-  return ks.length;
-}
-// Na het rechtzetten: een verse foto van een gevel met metselwerk krijgt vanzelf de lijnen; een ingezoomde foto wordt over het overzicht gelegd.
-function gvNaVlak(f, px, W, H, vl) {
-  if (f.gevelZoom) { if (!f.gevelZoom.klaar) gvZoomKoppel(f, px, W, H, vl); return; }
-  if (f.gevelGezocht || gvAan(f) || f.controle || f.lijnen.length || ondVan(f).length) return;
-  if (Date.now() - new Date(f.gemaakt).getTime() > 10 * 60e3) return;
-  const plek = fotoPlek(f); if (!plek) return;
-  const naam = String(plek.s.naam || '').toLowerCase();
-  if (trapMap(plek.s) || BINNEN.test(naam) || BINNEN.test(String(f.map || '').toLowerCase())) return;
-  f.gevelGezocht = true;
-  if (f.deel?.wat === 'boven') { bewaar(); return; }
-  const n = vl?.ok && vl.laag ? gvMaak(f, px, W, H, vl) : 0;
-  if (!n) {
-    if (f.deel) toast('⚠ Op deze foto zijn de kozijnen beneden niet herkend. Zoom iets minder ver in, of trek de lijnen zelf.', 7000);
-    if (f.closeup) toast('⚠ Het kozijn is niet herkend op deze close-up. Trek de breedte en hoogte zelf (Lijn) en laser ze. Zet er de volgende keer wat muur naast op de foto.', 8000);
-    // Geen aparte flat-stand: een flat meet je op locatie net als een woning (besloten 18 november).
-    bewaar(); return; }
-  if (V && foto() === f) { V.alles = true; V.sel = null; tekenUI(); }
-  else toast(f.gevel?.overzicht ? `Gevel herkend: ${n} ${n === 1 ? 'kozijn' : 'kozijnen'}. Open de foto voor de close-ups.` : `Gevel herkend: ${n} ${n === 1 ? 'kozijn' : 'kozijnen'} beneden om te laseren. Open de foto.`, 6000);
-}
-// Zelf zoeken vanuit het menu (ook bij een oudere foto).
-function gvZoekNu(f) {
-  const img = $('#vimg', V.el), vl = VLAK.get(f.id);
-  if (!img?.naturalWidth || !vl) return toast('De foto is nog niet geladen, probeer het zo nog eens.');
-  if (!vl.ok) return toast('Deze foto is niet recht te zetten (te weinig rechte lijnen). Trek de lijnen zelf.');
-  if (!vl.laag) return toast('Geen metselwerk gevonden op deze foto. Trek de lijnen zelf.');
-  const k = Math.min(1, 1200 / Math.max(img.naturalWidth, img.naturalHeight)), W = Math.round(img.naturalWidth * k), H = Math.round(img.naturalHeight * k);
-  const c = document.createElement('canvas'); c.width = W; c.height = H; const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(img, 0, 0, W, H);
-  // Het vlak opnieuw op deze pixels, zodat alles op dezelfde rechtzetting staat.
-  const px = g.getImageData(0, 0, W, H).data, r = muurVlak(px, W, H, f.f35);
-  if (!r.ok) return toast('Deze foto is niet recht te zetten (te weinig rechte lijnen). Trek de lijnen zelf.');
-  const st = laagInVlak(px, W, H, r.punt); if (st && st.sterkte >= LAAG_STERKTE && st.n >= 8 && st.n <= 400) r.laag = st.laag;
-  if (!r.laag) return toast('Geen metselwerk gevonden op deze foto. Trek de lijnen zelf.');
-  VLAK.set(f.id, r);
-  const n = gvMaak(f, px, W, H, r); f.gevelGezocht = true;
-  if (!n) { bewaar(); return toast('Geen kozijnen gevonden in het metselwerk. Trek de lijnen zelf.'); }
-  V.alles = true; V.sel = null; bewaar(); tekenUI(); toast(`${n} ${n === 1 ? 'kozijn' : 'kozijnen'} gevonden.`);
-}
-// "Zelf lijnen": de automatische lijnen zonder maat gaan weg; wat je al gemeten hebt blijft staan (als losse lijn).
-function gvWeg(f) {
-  const ks = gvKozijnen(f), letters = new Set(ks.map(o => o.letter));
-  f.lijnen = f.lijnen.filter(l => !((letters.has(l.kozijn) || l.rol === 'GL') && (l.maat == null || l.uitRef)));
-  f.lijnen.forEach(l => { if (letters.has(l.kozijn) || l.rol === 'GL') { delete l.kozijn; delete l.rol; delete l.stenenOk; } });
-  f.onderdelen = ondVan(f).filter(o => !o.gv);
-  delete f.gevel;
-}
-// Een kozijn dat je toch niet haalt ("geen"): dan rekent de app hem ook uit de foto.
-function gvNaarFoto(f, o) {
-  o.gv.soort = 'foto';
-  for (const r of ['GB', 'GH']) { const l = gvLijn(f, o, r); if (l && l.bron !== 'laser') Object.assign(l, { uitRef: true, bron: 'foto', maat: null }); }
-}
-// Stenencontrole: de lagen naast het kozijn × de laaghoogte van deze gevel moeten de hoogte uit de foto geven.
-function gvControle(f) {
-  if (!gvAan(f)) return;
-  // Op locatie geen stenencontrole: lagen tellen en nalopen doe je op kantoor.
-  if (!opKantoorNu()) { for (const o of gvKozijnen(f)) { delete o.gv.stenen; const h = gvLijn(f, o, 'GH'); if (h) delete h.stenenOk; } return; }
-  const laag = f.laagCm;
-  for (const o of gvKozijnen(f)) {
-    const h = gvLijn(f, o, 'GH'); if (!h) continue;
-    if (!h.uitRef || h.maat == null || !o.gv.lagen || !laag) { delete o.gv.stenen; delete h.stenenOk; continue; }
-    const m = o.gv.lagen * laag / 100, ok = Math.abs(m - h.maat) <= Math.max(.04, h.maat * .03);
-    o.gv.stenen = { lagen: Math.round(o.gv.lagen), m: Math.round(m * 1000) / 1000, ok, laag };
-    h.stenenOk = ok;
-  }
-}
-// Overzichtsfoto van een gevel, maar de kozijnen beneden heb je op aparte close-ups gelaserd (breedte en hoogte).
-// Dan nemen we die maten over op de overzicht: het kozijn met (bijna) dezelfde hoogte als de steenlagen ernaast.
-// Ze worden referentielijnen: ze geven de schaal voor boven (ook de breedte), maar tellen niet dubbel in de lijst.
-function gvVanCloseups(f) {
-  if (!gvAan(f) || !opKantoorNu()) return 0;
-  if (f.gevel.overzicht) return gvOverKoppel(f);
-  const plek = fotoPlek(f); if (!plek) return 0;
-  const kand = [];
-  for (const g of plek.s.fotos) {
-    if (g === f) continue;
-    // Ook een close-up waarop de app zelf de kozijnen vond (gevelstand): de gelaserde maten tellen.
-    for (const o of ondVan(g)) {
-      if (o.gv?.soort === 'foto' || isWand(o)) continue;
-      const ls = laserLijnen(g).filter(l => l.kozijn === o.letter && l.maat > 0);
-      const b = Math.max(0, ...ls.filter(l => l.richting === 'horizontaal').map(l => l.maat)), h = Math.max(0, ...ls.filter(l => l.richting === 'verticaal').map(l => l.maat));
-      if (b > .2 && h > .2) kand.push({ b, h });
-    }
-  }
-  if (!kand.length) return 0;
-  const laag = f.laagCm || laagProject(f), m = fotoMeter(f), gebruikt = new Set(), namen = [];
-  const neem = (o, gb, gh, k) => {
-    gebruikt.add(k);
-    Object.assign(gb, { maat: k.b, bron: 'closeup', ref: true }); Object.assign(gh, { maat: k.h, bron: 'closeup', ref: true });
-    for (const l of [gb, gh]) { delete l.kozijn; delete l.rol; delete l.stenenOk; }
-    f.onderdelen = ondVan(f).filter(x => x !== o);
-    namen.push(`${maatLabel(k.b)} × ${maatLabel(k.h)}`);
-  };
-  // Eerst zonder schaal: de kozijnen op de overzicht en op de close-ups op volgorde van hoogte naast elkaar.
-  // Dat klopt als de verhoudingen kloppen: (echte maat ÷ lengte op de foto) is voor alle kozijnen bijna gelijk.
-  const open = gvKozijnen(f).filter(o => o.gv.soort === 'laser').map(o => ({ o, gb: gvLijn(f, o, 'GB'), gh: gvLijn(f, o, 'GH') }))
-    .filter(x => x.gb && x.gh && x.gb.maat == null && x.gh.maat == null).map(x => ({ ...x, ph: Math.abs(x.gh.y2 - x.gh.y1), pw: Math.abs(x.gb.x2 - x.gb.x1) }))
-    .filter(x => x.ph > .005 && x.pw > .005).sort((a, b) => a.ph - b.ph);
-  if (open.length && kand.length >= open.length && kand.length <= 8) {
-    const spreid = a => Math.max(...a) / Math.min(...a);
-    let best = null;
-    const kies = (start, gekozen) => {
-      if (gekozen.length === open.length) {
-        const ks = [...gekozen].sort((a, b) => a.h - b.h), sh = ks.map((k, i) => k.h / open[i].ph), sw = ks.map((k, i) => k.b / open[i].pw);
-        const sc = open.length > 1 ? spreid(sh) : 1;
-        const ok = open.length > 1 ? sc <= 1.2 && spreid(sw) <= 1.25 : (() => { const o = open[0], hE = o.o.gv.lagen && laag ? o.o.gv.lagen * laag / 100 : null; return hE != null && Math.abs(ks[0].h - hE) / ks[0].h <= .2; })();
-        if (ok && (!best || sc < best.sc)) best = { ks, sc };
-        return;
-      }
-      for (let i = start; i < kand.length; i++) kies(i + 1, [...gekozen, kand[i]]);
-    };
-    kies(0, []);
-    if (best) open.forEach((x, i) => neem(x.o, x.gb, x.gh, best.ks[i]));
-  }
-  for (const o of gvKozijnen(f)) {
-    if (o.gv.soort !== 'laser') continue;
-    const gb = gvLijn(f, o, 'GB'), gh = gvLijn(f, o, 'GH'); if (!gb || !gh || gb.maat != null || gh.maat != null) continue;
-    const hEst = o.gv.lagen && laag ? o.gv.lagen * laag / 100 : m?.soort === 'stenen' ? m.maat(gh) : null;
-    if (!(hEst > .2)) continue;
-    const afst = k => Math.abs(k.h - hEst);
-    const ok = kand.filter(k => !gebruikt.has(k) && afst(k) / k.h <= .08).sort((a, b) => afst(a) - afst(b));
-    if (!ok.length) continue;
-    // Twee verschillende kozijnen die allebei passen: niet gokken.
-    if (ok[1] && (Math.abs(ok[1].h - ok[0].h) > .03 || Math.abs(ok[1].b - ok[0].b) > .03) && afst(ok[1]) - afst(ok[0]) < .02) continue;
-    neem(o, gb, gh, ok[0]);
-  }
-  if (namen.length) { bewaar(); toast(`Maten van je close-up${namen.length > 1 ? 's' : ''} overgenomen als schaal: ${namen.join(', ')}.`, 6000); }
-  return namen.length;
-}
-// Gouden balk bij een gevel.
-// Alles beneden gemeten: de gevelstand stopt. De lasermaten beneden worden referentielijnen (tellen niet mee);
-// alle lijnen die je daarna zelf trekt (beneden en boven) krijgen hun maat uit de foto (≈).
-function gvKlaar(f) {
-  for (const o of gvKozijnen(f)) {
-    if (o.gv.soort === 'foto') { f.lijnen = f.lijnen.filter(l => !(l.kozijn === o.letter && l.uitRef)); f.lijnen.forEach(l => { if (l.kozijn === o.letter) { delete l.kozijn; l.ref = true; } }); f.onderdelen = ondVan(f).filter(x => x !== o); continue; }
-    // Gelaserd: het kozijn blijft staan met zijn lijnen en lasermaten (telt mee). Soort en code vul je op kantoor in.
-    // De gemeten lijnen geven op kantoor ook de schaal voor de lijnen die je boven trekt.
-    f.lijnen.forEach(l => { if (l.kozijn === o.letter) { delete l.rol; delete l.stenenOk; } });
-  }
-  f.lijnen = f.lijnen.filter(l => !(l.rol === 'GL' && !(l.maat > 0)));
-  f.lijnen.forEach(l => { if (l.rol === 'GL') { delete l.rol; l.ref = true; } });
-  delete f.gevel; bewaar();
-}
-// ---------- Overzicht + close-ups ----------
-// Volgorde: eerst de kozijnen boven (inzoomen vanaf de straat, niets laseren), van boven naar beneden; dan beneden van links naar rechts (close-up en laseren).
-const gvKaderY = o => { const ys = (o.kader || []).map(q => q[1]); return ys.length ? Math.max(...ys) : 1; };
-const gvKaderX = o => { const xs = (o.kader || []).map(q => q[0]); return xs.length ? Math.min(...xs) : 0; };
-function gvOverVolg(f) {
-  if (!f?.gevel?.overzicht) return null;
-  const ks = gvKozijnen(f).filter(o => o.gv.close === 'vraag');
-  const boven = ks.filter(o => o.gv.soort === 'foto').sort((a, b) => gvKaderY(a) - gvKaderY(b) || gvKaderX(a) - gvKaderX(b));
-  const beneden = ks.filter(o => o.gv.soort !== 'foto').sort((a, b) => gvKaderX(a) - gvKaderX(b));
-  return boven[0] || beneden[0] || null;
-}
-function gvCloseup(f, o) {
-  const plek = fotoPlek(f); if (!plek) return;
-  const boven = o.gv.soort === 'foto';
-  toast(boven ? `Blijf hier staan en zoom in op ${o.letter} met de 3× camera (niet knijpen). Een stukje muur ernaast mag erop. Laseren hoeft niet.`
-    : `Loop naar ${o.letter} en maak een foto recht ervoor, met wat muur ernaast. Daarna laser je de lijnen.`, 7000);
-  FOTO_DOEL = boven ? { p: plek.p, s: plek.s, zoomVan: f.id } : { p: plek.p, s: plek.s, closeVan: f.id, closeL: o.letter, open: true };
-  neemFoto();
-}
-function gvOverBalk(f, el) {
-  const ks = gvKozijnen(f), menuKnop = '<button class="vbvorm" id="gvMenu">⋯</button>';
-  const nu = opKantoorNu() ? null : gvOverVolg(f);
-  if (!nu && !opKantoorNu() && gvNu(f)) return gvBalk(f, el);   // een kozijn dat groot genoeg op het overzicht stond: hier laseren
-  el.hidden = false;
-  const zoom = ks.filter(o => o.gv.soort === 'foto' && o.gv.close === 'ok').length, close = ks.filter(o => o.gv.soort !== 'foto' && o.gv.close === 'ok').length;
-  const ref = f.lijnen.filter(l => l.bron === 'closeup' && l.richting === 'verticaal').length;
-  if (nu) {
-    const boven = nu.gv.soort === 'foto', open = ks.filter(o => o.gv.close === 'vraag').length;
-    el.className = 'vbalk';
-    el.innerHTML = `<div class="vbt"><b>${boven ? 'Inzoomen' : 'Close-up'}: ${esc(nu.letter)} ${esc((nu.naam || '').replace(/^Kozijn /, ''))}</b><small>${boven ? 'Vanaf hier inzoomen, de lijnen komen er vanzelf op. Niets laseren.' : 'Foto recht voor het kozijn, daarna laseren.'} · nog ${open}</small></div><div class="vbk"><button class="vbgeen" id="gvCl">📷 ${boven ? 'Zoom in' : 'Close-up'}</button><button class="vbgeen" id="gvSla">Overslaan</button>${menuKnop}</div>`;
-    $('#gvCl', el).onclick = () => gvCloseup(f, nu);
-    $('#gvSla', el).onclick = () => { nu.gv.close = 'over'; bewaar(); tekenUI(); toast(`${nu.letter} overgeslagen: die rekent de app op kantoor uit de foto.`); };
-  } else {
-    const foto = ks.filter(o => o.gv.soort === 'foto'), goed = foto.filter(o => o.gv.stenen?.ok).length, let_ = foto.filter(o => o.gv.stenen && !o.gv.stenen.ok).length;
-    el.className = 'vbalk klaar';
-    el.innerHTML = opKantoorNu()
-      ? `<div class="vbt"><b>✓ Overzicht: ${foto.length} ${foto.length === 1 ? 'kozijn' : 'kozijnen'} uit de foto</b><small>${ref ? `${ref} gelaserd op close-ups, als schaal` : 'Nog geen gelaserde close-up gekoppeld'}${goed ? ` · ${goed} ✓ stenen` : ''}${let_ ? ` · ${let_} ⚠ narekenen` : ''}</small></div><div class="vbk">${menuKnop}</div>`
-      : `<div class="vbt"><b>✓ Close-ups klaar</b><small>${zoom} ingezoomd · ${close} close-up${close === 1 ? '' : 's'} · de maten boven rekent de app op kantoor</small></div><div class="vbk">${menuKnop}</div>`;
-  }
-  $('#gvMenu', el).onclick = () => menu([
-    ...ks.filter(o => o.gv.close).map(o => ['camera', `${o.gv.soort === 'foto' ? 'Inzoomen' : 'Close-up'} ${o.letter} (opnieuw)`, () => gvCloseup(f, o)]),
-    ['ruler', 'Kozijnen opnieuw zoeken', () => { gvWeg(f); gvZoekNu(f); }],
-    ['close', 'Zelf lijnen trekken (automatische lijnen weg)', () => { gvWeg(f); V.sel = null; bewaar(); tekenUI(); toast('Automatische lijnen weg. Gemeten maten blijven staan.'); }]]);
-}
-// Op kantoor: de gelaserde close-ups beneden worden referentielijnen op het overzicht (schaal, tellen niet dubbel);
-// de andere kozijnen krijgen lijnen met de maat uit de foto (≈), die de stenencontrole nakijkt.
-function gvOverKoppel(f) {
-  if (!f.gevel?.overzicht) return 0;
-  const plek = fotoPlek(f); if (!plek) return 0;
-  const punt = (k, u, v) => { const [a, b, c, d] = k, t = [a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u], o = [d[0] + (c[0] - d[0]) * u, d[1] + (c[1] - d[1]) * u];
-    return [t[0] + (o[0] - t[0]) * v, t[1] + (o[1] - t[1]) * v]; };
-  let n = 0; const namen = [];
-  for (const o of gvKozijnen(f)) {
-    if (o.kader?.length !== 4) continue;
-    const g = o.gv.closeId ? plek.s.fotos.find(x => x.id === o.gv.closeId) : null;
-    let b = 0, h = 0;
-    if (g) { const ls = laserLijnen(g).filter(l => l.maat > 0 && l.kozijn), ko = ondVan(g).find(x => ls.some(l => l.kozijn === x.letter));
-      const eigen = ko ? ls.filter(l => l.kozijn === ko.letter) : [];
-      b = Math.max(0, ...eigen.filter(l => l.richting === 'horizontaal').map(l => l.maat)); h = Math.max(0, ...eigen.filter(l => l.richting === 'verticaal').map(l => l.maat)); }
-    const [x1, y1] = punt(o.kader, 0, .62), [x2, y2] = punt(o.kader, 1, .62), [x3, y3] = punt(o.kader, .35, 0), [x4, y4] = punt(o.kader, .35, 1);
-    if (b > .2 && h > .2) {
-      f.lijnen = f.lijnen.filter(l => l.kozijn !== o.letter);
-      f.lijnen.push({ id: nieuwId(), richting: 'horizontaal', x1, y1, x2, y2, maat: b, bron: 'closeup', ref: true },
-        { id: nieuwId(), richting: 'verticaal', x1: x3, y1: y3, x2: x4, y2: y4, maat: h, bron: 'closeup', ref: true });
-      f.onderdelen = ondVan(f).filter(x => x !== o); namen.push(`${maatLabel(b)} × ${maatLabel(h)}`); n++;
-    } else if (!gvLijn(f, o, 'GB') && !gvLijn(f, o, 'GH')) {
-      o.gv.soort = 'foto';
-      f.lijnen.push({ id: nieuwId(), kozijn: o.letter, rol: 'GB', richting: 'horizontaal', x1, y1, x2, y2, maat: null, uitRef: true, bron: 'foto' },
-        { id: nieuwId(), kozijn: o.letter, rol: 'GH', richting: 'verticaal', x1: x3, y1: y3, x2: x4, y2: y4, maat: null, uitRef: true, bron: 'foto' });
-      n++;
-    }
-  }
-  if (n) bewaar();
-  if (namen.length) toast(`Gelaserde close-up${namen.length > 1 ? 's' : ''} op het overzicht gezet als schaal: ${namen.join(', ')}.`, 6000);
-  return n;
-}
-function gvBalk(f, el) {
-  if (!V.sel && !gvNu(f)) { gvKlaar(f); el.hidden = true; el.innerHTML = '';
-    // Op locatie: meteen door naar de volgende foto waar nog iets te laseren is. Lijnen trekken doe je op kantoor.
-    setTimeout(() => { if (!V) return;
-      if (!opKantoorNu() && f.closeup) { const fo = fotoVanId(f.closeup.van), oi = fo ? V.s.fotos.indexOf(fo) : -1;
-        if (oi >= 0 && (gvOverVolg(fo) || gvNu(fo))) { toast('✓ Gelaserd. Terug naar het overzicht voor de volgende close-up.', 3000); naarFoto(oi); return; } }
-      if (!opKantoorNu()) { const fs = V.s.fotos, na = fs.findIndex((g, gi) => gi > V.i && gvAan(g) && gvNu(g)), volg = na >= 0 ? na : V.i + 1 < fs.length ? V.i + 1 : -1;
-        if (volg >= 0) { toast('✓ Gelaserd. Door naar de volgende foto.', 3000); naarFoto(volg); return; }
-        toast('✓ Alles in deze map gelaserd. De lijnen boven trek je op kantoor.', 5000); tekenUI(); return; }
-      toast('✓ Gelaserd. De lijnen boven trek je zelf (Lijn): de maten komen uit de foto (≈).', 6000); tekenUI(); }, 30); return; }
-  const nu = V.sel ? null : gvNu(f), ks = gvKozijnen(f), menuKnop = '<button class="vbvorm" id="gvMenu">⋯</button>';
-  const zonderCode = ks.some(o => !o.codes?.length), codeKnop = zonderCode ? '<button class="vbgeen" id="gvCode">Code</button>' : '';
-  el.hidden = false;
-  if (nu) {
-    const o = nu.kozijn ? ks.find(x => x.letter === nu.kozijn) : null, [naam, uit] = GV_ROL[nu.rol];
-    const n = gvLijnen(f), i = n.indexOf(nu) + 1;
-    el.className = 'vbalk';
-    el.innerHTML = `<div class="vbt"><b>Meet nu: ${o ? `${esc(o.letter)} ${esc((o.naam || '').replace(/^Kozijn /, ''))} ` : ''}${naam}</b><small>${i} van ${n.length} · ${uit}</small></div><div class="vbk">${i > 1 ? '<button class="vbgeen" id="vbVorige" aria-label="Vorige maat opnieuw">‹ Vorige</button>' : ''}<button class="vbgeen" id="vbGeen">geen</button>${f.deel ? '<button class="vbgeen" id="gvDeel">＋ Deel</button>' : ''}${menuKnop}</div>`;
-    if ($('#gvDeel', el)) $('#gvDeel', el).onclick = () => flatDeel(fotoVanId(f.deel.van) || f, 'boven');
-    // Vorige: de maat die je net deed is fout of vergeten. Die lijn is dan weer aan de beurt; de maat die er stond verdwijnt.
-    if ($('#vbVorige', el)) $('#vbVorige', el).onclick = () => { const vorige = n[i - 2]; if (!vorige) return;
-      vorige.maat = null; vorige.bron = null; delete vorige.stenen; delete vorige.uitRef; V.sel = null; bewaar(); tekenUI();
-      toast('Meet deze maat opnieuw.'); };
-    $('#vbGeen', el).onclick = () => {
-      if (o) { gvNaarFoto(f, o); toast(`${o.letter}: niet te halen, de app rekent hem uit de foto.`); }
-      else { nu.maat = 0; nu.bron = 'geen'; }
-      V.sel = null; bewaar(); trilKort(); tekenUI(); };
-  } else {
-    const foto = ks.filter(o => o.gv.soort === 'foto'), goed = foto.filter(o => o.gv.stenen?.ok).length, let_ = foto.filter(o => o.gv.stenen && !o.gv.stenen.ok).length;
-    const z = (f.gevel.zooms || []).length;
-    el.className = 'vbalk klaar';
-    el.innerHTML = `<div class="vbt"><b>✓ Gevel klaar: ${ks.length} ${ks.length === 1 ? 'kozijn' : 'kozijnen'}</b><small>${foto.length ? `${foto.length} uit de foto${goed ? ` · ${goed} ✓ stenen` : ''}${let_ ? ` · ${let_} ⚠ narekenen` : ''}` : 'Alles gelaserd'}${z ? ` · ${z} ingezoomd` : ''}</small></div><div class="vbk">${codeKnop}<button class="vbgeen" id="gvZoom">${f.deel ? '＋ Volgend deel' : '＋ Inzoomen'}</button>${menuKnop}</div>`;
-    $('#gvZoom', el).onclick = () => f.deel ? flatDeel(fotoVanId(f.deel.van) || f, 'boven') : gvInzoomen(f);
-  }
-  if ($('#gvCode', el)) $('#gvCode', el).onclick = async () => {
-    const c = await kiesBestekCode('ONB', 'ONB-code voor de kozijnen van deze gevel', ''); if (!c) return;
-    for (const o of gvKozijnen(f)) if (!o.codes?.length) { o.codes = [{ code: c, bestek: 'ONB' }]; o.bestek = 'ONB'; }
-    try { const m = JSON.parse(localStorage.getItem('bc_soortcode') || '{}'); m['ONB Kozijn'] = c; localStorage.setItem('bc_soortcode', JSON.stringify(m)); } catch (e) {}
-    bewaar(); tekenUI(); };
-  $('#gvMenu', el).onclick = () => menu([
-    ['ruler', 'Kozijnen opnieuw zoeken', () => { gvWeg(f); gvZoekNu(f); }],
-    ['close', 'Zelf lijnen trekken (automatische lijnen weg)', () => { gvWeg(f); V.sel = null; bewaar(); tekenUI(); toast('Automatische lijnen weg. Gemeten maten blijven staan.'); }]]);
-}
-// Ingezoomde foto: blijf op dezelfde plek staan, gebruik de 3× camera. De foto komt in dezelfde map, de viewer blijft op het overzicht.
-// ---------- Flat: het overzicht is alleen om te zien, per deel een ingezoomde foto met eigen kaders ----------
-// De stenen zijn overal aan de flat even hoog: de lasermaten op het onderste deel geven de cm per laag,
-// en daarmee rekent de app de ingezoomde foto's van de hogere delen uit.
-const flatDelen = f => (fotoPlek(f)?.s.fotos || []).filter(x => x.deel?.van === f.id);
-function flatDeel(o, wat) {
-  const plek = fotoPlek(o); if (!plek) return;
-  toast(wat === 'onder'
-    ? 'Blijf hier staan en zoom in met de 3× camera. Zet de begane grond en de verdieping erboven helemaal op de foto, met muur naast de kozijnen. Maak eerst alle ingezoomde foto\'s, daarna loop je één keer naar beneden om te laseren.'
-    : 'Zelfde plek, zoom in op de verdiepingen erboven. Zet elke verdieping maar op één foto, met muur naast de kozijnen.', 8000);
-  FOTO_DOEL = { p: plek.p, s: plek.s, deelVan: o.id, deelWat: wat, open: true }; neemFoto();
-}
-function flatBalk(f, el) {
-  const d = flatDelen(f), onder = d.some(x => x.deel.wat === 'onder'), n = d.length;
-  el.hidden = false; el.className = 'vbalk';
-  el.innerHTML = `<div class="vbt"><b>${onder ? `Flat: zoom in op het volgende deel` : 'Flat: zoom in op de onderste verdiepingen'}</b><small>${n ? `${n} ingezoomd · ` : ''}${onder ? 'Hoger: trek zelf je lijnen, de maten komen uit de stenen en je lasermaten' : 'Beneden zet de app de lijnen om te laseren. Boven trek je zelf lijnen, de maten komen uit de stenen'}</small></div><div class="vbk"><button class="vbgeen" id="flZoom">＋ Zoom in</button><button class="vbvorm" id="flMenu">⋯</button></div>`;
-  $('#flZoom', el).onclick = () => flatDeel(f, onder ? 'boven' : 'onder');
-  $('#flMenu', el).onclick = () => menu([
-    ...(onder ? [['camera', 'Onderste verdiepingen opnieuw', () => flatDeel(f, 'onder')]] : []),
-    ...d.map((x, i) => ['ruler', `Naar ingezoomde foto ${i + 1} (${x.deel.wat === 'onder' ? 'onder' : 'hoger'})`, () => naarFoto(V.s.fotos.indexOf(x))]),
-    ['close', 'Geen flat: zelf lijnen trekken', () => { delete f.flat; bewaar(); tekenUI(); }]]);
-}
-function gvInzoomen(f) {
-  const plek = fotoPlek(f); if (!plek) return;
-  toast('Blijf op dezelfde plek staan en zoom in met de 3× camera (niet knijpen). Richt op de bovenste kozijnen.', 6000);
-  FOTO_DOEL = { p: plek.p, s: plek.s, zoomVan: f.id }; neemFoto();
-}
-// Schaal en verschuiving tussen ingezoomde foto en overzicht zoeken: beide zijn rechtgezet op dezelfde muur vanaf dezelfde plek,
-// dus het verschil is alleen een schaal en een kleine verschuiving. Gezocht met de beste overeenkomst van de randen.
-function gvVervaag(gr, ok, RW, RH, k) {
-  const n = RW * RH, s = new Float64Array((RW + 1) * (RH + 1)), c = new Float64Array((RW + 1) * (RH + 1)), uit = new Float32Array(n);
-  for (let j = 0; j < RH; j++) { let rs = 0, rc = 0; for (let i = 0; i < RW; i++) { const q = j * RW + i; rs += ok[q] ? gr[q] : 0; rc += ok[q];
-    s[(j + 1) * (RW + 1) + i + 1] = s[j * (RW + 1) + i + 1] + rs; c[(j + 1) * (RW + 1) + i + 1] = c[j * (RW + 1) + i + 1] + rc; } }
-  for (let j = 0; j < RH; j++) for (let i = 0; i < RW; i++) {
-    const a = Math.max(0, i - k), b = Math.min(RW, i + k + 1), d = Math.max(0, j - k), e = Math.min(RH, j + k + 1);
-    const S = s[e * (RW + 1) + b] - s[d * (RW + 1) + b] - s[e * (RW + 1) + a] + s[d * (RW + 1) + a], C = c[e * (RW + 1) + b] - c[d * (RW + 1) + b] - c[e * (RW + 1) + a] + c[d * (RW + 1) + a];
-    uit[j * RW + i] = C ? S / C : 0; }
-  return uit;
-}
-const gvMonster = (g, RW, RH, x, y) => { if (!(x >= 0 && y >= 0 && x < RW - 1 && y < RH - 1)) return null;
-  const x0 = x | 0, y0 = y | 0, fx = x - x0, fy = y - y0, q = y0 * RW + x0;
-  return (g[q] * (1 - fx) + g[q + 1] * fx) * (1 - fy) + (g[q + RW] * (1 - fx) + g[q + RW + 1] * fx) * fy; };
-async function gvKoppel(Ro, Rz, a0) {
-  // Punten in de ingezoomde foto met duidelijke randen (op de schaal van het overzicht bekeken).
-  const kz = Math.max(1, Math.round(Rz.s / Ro.s / a0)), gz = gvVervaag(Rz.gr, Rz.ok, Rz.RW, Rz.RH, kz), go = gvVervaag(Ro.gr, Ro.ok, Ro.RW, Ro.RH, 1);
-  const kand = [], stap = Math.max(2, kz * 2);
-  for (let j = stap; j < Rz.RH - stap; j += stap) for (let i = stap; i < Rz.RW - stap; i += stap) { const q = j * Rz.RW + i;
-    if (!Rz.ok[q] || !Rz.ok[q - stap] || !Rz.ok[q + stap]) continue;
-    kand.push([i, j, Math.hypot(gz[q + kz] - gz[q - kz], gz[q + kz * Rz.RW] - gz[q - kz * Rz.RW])]); }
-  if (kand.length < 200) return null;
-  kand.sort((x, y) => y[2] - x[2]);
-  // Grof zoeken op een vagere versie (randen breder, zodat een grove stap ze niet mist), fijn op de scherpe.
-  const gzG = gvVervaag(Rz.gr, Rz.ok, Rz.RW, Rz.RH, kz * 3), goG = gvVervaag(Ro.gr, Ro.ok, Ro.RW, Ro.RH, 3);
-  const alle = kand.slice(0, Math.min(5000, Math.max(800, kand.length * .35 | 0))).map(([i, j]) => [...Rz.naarCan(i, j), gz[j * Rz.RW + i], gzG[j * Rz.RW + i]]);
-  for (let i = alle.length - 1; i > 0; i--) { const j = (i * 7919) % (i + 1); [alle[i], alle[j]] = [alle[j], alle[i]]; }   // vaste menging
-  // Overeenkomst (correlatie) bij Uo = ax·Uz + tx, Vo = ay·Vz + ty (eenheden van de muur).
-  const score = (pt, ax, ay, tx, ty, vaag = false) => { let n = 0, so = 0, so2 = 0, sp = 0, sz = 0, sz2 = 0;
-    for (const [U, Vv, z0, z1] of pt) { const z = vaag ? z1 : z0, [i, j] = Ro.vanCan(ax * U + tx, ay * Vv + ty), o = gvMonster(vaag ? goG : go, Ro.RW, Ro.RH, i, j);
-      if (o == null) continue; n++; so += o; so2 += o * o; sp += o * z; sz += z; sz2 += z * z; }
-    if (n < pt.length * .6) return -1;
-    const om = so / n, zm = sz / n, os = Math.sqrt(Math.max(1e-9, so2 / n - om * om)), zs = Math.sqrt(Math.max(1e-9, sz2 / n - zm * zm));
-    return (sp / n - om * zm) / (os * zs); };
-  // Grof zoeken met weinig punten, dan fijner met alle punten rond de beste kandidaten.
-  const grof = alle.slice(0, 200), px = 1 / Ro.s, bereik = .4, st = 4 * px, top = [], N = 30;
-  for (let m1 = .78; m1 <= 1.36; m1 += .03) { await new Promise(r => setTimeout(r, 0));   // de app blijft bruikbaar tijdens het zoeken
-   for (let m2 = .9; m2 <= 1.21; m2 += .03) { const ax = a0 * m1, ay = ax * m2;
-    for (let ty = -bereik; ty <= bereik; ty += st) for (let tx = -bereik; tx <= bereik; tx += st) {
-      const v = score(grof, ax, ay, tx, ty, true); if (top.length < N || v > top[top.length - 1].v) { top.push({ v, ax, ay, tx, ty }); top.sort((a, b) => b.v - a.v); if (top.length > N) top.pop(); } } } }
-  let best = { v: -2 };
-  for (const k of top) { let b = { ...k, v: score(alle, k.ax, k.ay, k.tx, k.ty) };
-    for (const [d, da] of [[2 * px, .01], [1 * px, .005], [.5 * px, .0025], [.25 * px, .0012]]) { const b0 = b;
-      for (const [dx, dy, ex, ey] of [[0, 0, 0, 0], [1, 0, 0, 0], [-1, 0, 0, 0], [0, 1, 0, 0], [0, -1, 0, 0], [0, 0, 1, 0], [0, 0, -1, 0], [0, 0, 0, 1], [0, 0, 0, -1], [1, 1, 0, 0], [-1, -1, 0, 0], [1, -1, 0, 0], [-1, 1, 0, 0]]) {
-        const c = { ax: b0.ax * (1 + ex * da), ay: b0.ay * (1 + ey * da), tx: b0.tx + dx * d, ty: b0.ty + dy * d }; c.v = score(alle, c.ax, c.ay, c.tx, c.ty); if (c.v > b.v) b = c; } }
-    if (b.v > best.v) best = b; }
-  return best.v >= .5 ? best : null;
-}
-async function gvPixels(blob, max = 1200) {
-  const bm = await createImageBitmap(blob), k = Math.min(1, max / Math.max(bm.width, bm.height)), W = Math.round(bm.width * k), H = Math.round(bm.height * k);
-  const c = document.createElement('canvas'); c.width = W; c.height = H; const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(bm, 0, 0, W, H); bm.close?.();
-  return { px: g.getImageData(0, 0, W, H).data, W, H };
-}
-async function gvZoomKoppel(fz, pxz, Wz, Hz, vlz) {
-  const fo = fotoVanId(fz.gevelZoom.van), klaar = (ok, tekst) => { fz.gevelZoom.klaar = true; fz.gevelZoom.ok = ok; bewaar(); if (V) tekenUI(); toast(tekst, 7000); };
-  if (!fo || !gvAan(fo)) return klaar(false, 'Ingezoomde foto: het overzicht is niet gevonden.');
-  if (!vlz?.ok || !vlz.laag) return klaar(false, '⚠ Ingezoomde foto niet samen te voegen: te weinig metselwerk te zien. Zoom iets minder ver in en probeer opnieuw.');
-  try {
-    const blob = await fotoLaad(fo.id); if (!blob) return klaar(false, 'Ingezoomde foto: het overzicht ontbreekt.');
-    const { px, W, H } = await gvPixels(blob);
-    let vlo = VLAK.get(fo.id);
-    if (!vlo?.ok || !vlo.laag) { vlo = muurVlak(px, W, H, fo.f35); if (vlo.ok) { const st = laagInVlak(px, W, H, vlo.punt); if (st && st.sterkte >= .05) vlo.laag = st.laag; } }
-    if (!vlo.ok || !vlo.laag) return klaar(false, '⚠ Het overzicht is niet recht te zetten, samenvoegen lukt niet.');
-    VLAK.set(fo.id, vlo);
-    await new Promise(r => setTimeout(r, 20));
-    const Ro = gvRecht(px, W, H, vlo.punt, 4e5), Rz = gvRecht(pxz, Wz, Hz, vlz.punt, 1.1e6);
-    if (!Ro || !Rz) return klaar(false, '⚠ Samenvoegen lukte niet. Zoom iets minder ver in en probeer opnieuw.');
-    const b = await gvKoppel(Ro, Rz, fz.f35 && fo.f35 ? 1 : vlo.laag / vlz.laag);
-    if (!b) return klaar(false, '⚠ Samenvoegen lukte niet: de foto past niet op het overzicht. Sta je op dezelfde plek? Zoom iets minder ver in en probeer opnieuw.');
-    // Kozijnen in de ingezoomde foto zoeken en naar het overzicht omrekenen.
-    const naarO = (U, Vv) => [b.ax * U + b.tx, b.ay * Vv + b.ty];
-    const laagPx = vlz.laag * Rz.s, z = gvZoek(Rz, laagPx);
-    const Rb = gvRecht(px, W, H, vlo.punt, 2.5e5);   // alleen om van de muur naar de foto te rekenen
-    const naarBeeld = (U, Vv) => { const [i, j] = Rb.vanCan(U, Vv); return Rb.naarBeeld(i, j).map(v => Math.min(.995, Math.max(.005, v))); };
-    const voet = [[0, 0], [Rz.RW, 0], [Rz.RW, Rz.RH], [0, Rz.RH]].map(([i, j]) => naarBeeld(...naarO(...Rz.naarCan(i, j))));
-    let bijgewerkt = 0, nieuw = 0;
-    for (const r of z?.kozijnen || []) {
-      if (r.x0 < laagPx || r.y0 < laagPx || r.x1 > Rz.RW - laagPx || r.y1 > Rz.RH - laagPx) continue;   // half in beeld
-      const [U0, V0] = naarO(...Rz.naarCan(r.x0, r.y0)), [U1, V1] = naarO(...Rz.naarCan(r.x1, r.y1));
-      const overlap = o => { const [a0, b0, a1, b1] = o.gv.rect, w = Math.min(a1, U1) - Math.max(a0, U0), h = Math.min(b1, V1) - Math.max(b0, V0);
-        return w > 0 && h > 0 ? w * h / ((a1 - a0) * (b1 - b0) + (U1 - U0) * (V1 - V0) - w * h) : 0; };
-      let o = gvKozijnen(fo).map(o => [o, overlap(o)]).filter(x => x[1] > .4).sort((x, y) => y[1] - x[1])[0]?.[0];
-      if (!o) { const L = volgendeLetter(fo); o = { letter: L, naam: `Kozijn ${L}`, bestek: 'ONB', gv: { soort: 'foto' } };
-        const zc = gvKozijnen(fo).find(x => x.codes?.length); if (zc) o.codes = zc.codes.map(c => ({ ...c }));
-        fo.onderdelen.push(o); nieuw++; }
-      o.gv.rect = [U0, V0, U1, V1]; o.gv.zoom = fz.id; if (r.lagen) o.gv.lagen = Math.round(r.lagen * 100) / 100;
-      o.kader = [[U0, V0], [U1, V0], [U1, V1], [U0, V1]].map(p => naarBeeld(...p));
-      const ym = V0 + (V1 - V0) * .62, xm = U0 + (U1 - U0) * .35;
-      const zet = (rol, richting, p1, p2) => { let l = gvLijn(fo, o, rol);
-        if (!l) { l = { id: nieuwId(), kozijn: o.letter, rol, richting, maat: null, uitRef: true, bron: 'foto' }; fo.lijnen.push(l); }
-        if (l.verplaatst) return;
-        const [x1, y1] = naarBeeld(...p1), [x2, y2] = naarBeeld(...p2); Object.assign(l, { x1, y1, x2, y2 }); if (l.uitRef) l.maat = null; };
-      if (o.gv.close === 'vraag') o.gv.close = 'ok';
-      if (o.gv.soort === 'foto' && !(fo.gevel.overzicht && !opKantoorNu() && !gvLijn(fo, o, 'GB'))) { zet('GB', 'horizontaal', [U0, ym], [U1, ym]); zet('GH', 'verticaal', [xm, V0], [xm, V1]); }
-      bijgewerkt++;
-    }
-    fo.gevel.zooms = [...(fo.gevel.zooms || []).filter(x => x.id !== fz.id), { id: fz.id, voet }];
-    fz.gevelZoom.a = [b.ax, b.ay].map(v => Math.round(v * 1000) / 1000); fz.gevelZoom.score = Math.round(b.v * 100) / 100;
-    if (V && foto() === fo) { herrekenRef(fo); gvControle(fo); }
-    klaar(true, `✓ Ingezoomde foto samengevoegd met het overzicht${bijgewerkt ? `: ${bijgewerkt} ${bijgewerkt === 1 ? 'kozijn' : 'kozijnen'} scherper bepaald` : ''}${nieuw ? `, ${nieuw} nieuw gevonden` : ''}.`);
-  } catch (e) { console.warn(e); klaar(false, '⚠ Samenvoegen lukte niet. Probeer de ingezoomde foto opnieuw.'); }
-}
-// Balk op de ingezoomde foto zelf.
-function gvZoomBalk(f, el) {
-  const z = f.gevelZoom, fo = fotoVanId(z.van), nr = fo ? V.s.fotos.indexOf(fo) + 1 : 0;
-  el.hidden = false; el.className = z.klaar && !z.ok ? 'vbalk' : 'vbalk klaar';
-  el.innerHTML = `<div class="vbt"><b>${!z.klaar ? 'Samenvoegen met het overzicht…' : z.ok ? `✓ Ingezoomd, samengevoegd met foto ${nr}` : '⚠ Samenvoegen met het overzicht lukte niet'}</b><small>${z.klaar && !z.ok ? 'Zoom iets minder ver in, vanaf dezelfde plek' : 'Lijnen en maten staan op het overzicht'}</small></div><div class="vbk">${fo ? '<button class="vbgeen" id="gvNaarO">Naar overzicht</button>' : ''}</div>`;
-  if ($('#gvNaarO', el)) $('#gvNaarO', el).onclick = () => naarFoto(V.s.fotos.indexOf(fo));
-}
-// Voetafdruk van de ingezoomde foto's op het overzicht (dun, met ✓).
-function gvZoomSvg(f, W, H) {
-  if (!gvAan(f) || !(f.gevel.zooms || []).length) return '';
-  const z = V.zoom?.s || 1, k = 1 / Math.pow(z, .75);
-  return f.gevel.zooms.map(({ voet }) => `<polygon points="${voet.map(([x, y]) => `${x * W},${y * H}`).join(' ')}" fill="none" stroke="#57E0D2" stroke-width="${1.4 * k}" stroke-dasharray="${5 * k} ${4 * k}" opacity=".8"/><text x="${voet[0][0] * W + 4 * k}" y="${voet[0][1] * H + 12 * k}" fill="#57E0D2" stroke="#000" stroke-width="${2 * k}" paint-order="stroke" font-size="${10 * k}" font-weight="700">✓ ingezoomd</text>`).join('');
-}
 // Zelfde kozijn: de lijnen van het tweede kozijn gaan naar het eerste (telt dan 2×); de letter staat op beide.
-function gvZelfde(f, o, doel) {
+function ondZelfde(f, o, doel) {
   for (const l of f.lijnen) if (l.kozijn === o.letter) { l.kozijn = doel.letter; l.zelfde = true; }
   doel.aantal = (doel.aantal || 1) + (o.aantal || 1);
   (doel.zelfdeKaders ??= []).push(o.kader || null);
   (doel.zelfdeOnd ??= []).push({ ...o });
   f.onderdelen = ondVan(f).filter(x => x !== o);
 }
-// Rapport: waar de maten van een onderdeel vandaan komen (laser, of uit de foto met de stenen als controle).
-function gvHerkomst(f, o) {
+// Rapport: waar de maten van een onderdeel vandaan komen (geteld met de stenen, of uit de rechtgezette foto).
+// Alleen tekens die de PDF-letter (Helvetica) kent: geen ≈, ✓ of ⚠.
+function ondHerkomst(f, o) {
   const eigen = f.lijnen.filter(l => l.kozijn === o.letter && !l.zelfde && !l.ref && l.maat != null);
   const b = eigen.find(l => l.richting === 'horizontaal'), h = eigen.find(l => l.richting === 'verticaal');
   if (!b && !h) return null;
-  if (![b, h].some(l => l?.uitRef)) return o.gv ? { tekst: 'laser', kleur: '#E65100' } : null;
-  // Alleen tekens die de PDF-letter (Helvetica) kent: geen ≈, ✓ of ⚠.
-  const maat = `ca. ${b ? cmTekst(b.maat) : '?'} × ${h ? cmTekst(h.maat) : '?'} cm`, st = o.gv?.stenen;
-  return st ? (st.ok ? { tekst: `${maat} · foto, stenen kloppen`, kleur: '#2E7D32' } : { tekst: `${maat} · foto, NAREKENEN`, kleur: '#E65100' })
-    : { tekst: `${maat} · uit de foto`, kleur: '#555555' };
+  if (o.tel && !o.tel.vlak && (b?.stenen || h?.stenen)) return { tekst: `geteld: ${h?.stenen ?? '?'} lagen, ${b?.stenen != null ? String(b.stenen).replace('.', ',') : '?'} stenen`, kleur: '#2E7D32' };
+  if (![b, h].some(l => l?.uitRef)) return null;
+  return { tekst: `ca. ${b ? cmTekst(b.maat) : '?'} x ${h ? cmTekst(h.maat) : '?'} cm - uit de foto`, kleur: '#555555' };
 }
 // Rapport: welke foto en welk onderdeel bij een regel van de Topcalc-lijst horen.
 function rijOnd(r) {
@@ -7649,7 +6846,7 @@ function rijOnd(r) {
   return o ? { f, o } : null;
 }
 // Delen van een kozijn (raam, luik in B) komen direct onder het kozijn.
-function gvRapportVolgorde(rijen) {
+function rapportVolgorde(rijen) {
   const info = rijen.map(r => ({ r, b: rijOnd(r) }));
   if (!info.some(x => x.b?.o.in)) return rijen;
   const uit = info.filter(x => !x.b?.o.in);
@@ -7659,20 +6856,7 @@ function gvRapportVolgorde(rijen) {
   }
   return uit.map(x => x.r);
 }
-// Rapportfoto: kader en letter om elk kozijn van de gevel (wit = zeker, oranje gestippeld = narekenen).
-function gvKadersCanvas(g, foto, w, h, s) {
-  if (!gvAan(foto)) return;
-  for (const o of gvKozijnen(foto)) for (const k of [o.kader, ...(o.zelfdeKaders || [])].filter(Boolean)) {
-    const let_ = o.gv.stenen && !o.gv.stenen.ok, kl = let_ ? '#FF9800' : '#FFFFFF';
-    g.save(); g.strokeStyle = kl; g.lineWidth = 2 * s; g.setLineDash(let_ ? [8 * s, 5 * s] : []);
-    g.beginPath(); k.forEach(([x, y], i) => i ? g.lineTo(x * w, y * h) : g.moveTo(x * w, y * h)); g.closePath(); g.stroke(); g.setLineDash([]);
-    const r = 11 * s, cx = k[0][0] * w + r + 4 * s, cy = k[0][1] * h + r + 4 * s;
-    g.fillStyle = '#1E2422'; g.beginPath(); g.arc(cx, cy, r, 0, 7); g.fill(); g.lineWidth = 1.5 * s; g.stroke();
-    g.fillStyle = '#D4AF37'; g.font = `700 ${13 * s}px Helvetica, Arial, sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(o.letter, cx, cy + .5 * s);
-    g.restore();
-  }
-}
-function gvNietZelfde(f, doel) {
+function ondNietZelfde(f, doel) {
   const oud = (doel.zelfdeOnd || []).pop(); if (!oud) return;
   const L = volgendeLetter(f), o = { ...oud, letter: L };
   const lijnen = f.lijnen.filter(l => l.kozijn === doel.letter && l.zelfde), per = new Set();
@@ -7742,7 +6926,7 @@ async function verkleindBeeld(blob, maxB) {
   return { bron: img, w: Math.round(img.naturalWidth * k), h: Math.round(img.naturalHeight * k), klaar: () => URL.revokeObjectURL(img.src) };
 }
 async function fotoMetLijnen(foto, maxB = PDF_FOTO_MAX, zonderLetters = false) {
-  const sleutel = foto.id + '|' + JSON.stringify([foto.lijnen, foto.opmerkingen, zonderLetters ? null : foto.labels, maxB, zonderLetters, foto.gevel ? foto.onderdelen : null, schoneFoto(foto) ? foto.onderdelen : null]);
+  const sleutel = foto.id + '|' + JSON.stringify([foto.lijnen, foto.opmerkingen, zonderLetters ? null : foto.labels, maxB, zonderLetters, schoneFoto(foto) ? foto.onderdelen : null]);
   if (PDF_BEELD.has(sleutel)) return PDF_BEELD.get(sleutel);
   const blob = await fotoLaad(foto.id); if (!blob) return null;
   const bb = await verkleindBeeld(blob, maxB), w = bb.w, h = bb.h;
@@ -7751,9 +6935,8 @@ async function fotoMetLijnen(foto, maxB = PDF_FOTO_MAX, zonderLetters = false) {
   const s = w / 600; // lijndikte en tekst schalen mee met de foto
   // Onderdelen met een letter (ONB enz.): geen lijnen en maten op de foto, die staan in de lijst. Alleen de letter.
   for (const l of schoneFoto(foto) ? [] : telLijnen(foto))
-    canvasPijl(g, l.x1 * w, l.y1 * h, l.x2 * w, l.y2 * h, zonderLetters ? lijnLabel({ ...l, kozijn: null }) : lijnLabel(l, foto), l.maat == null ? '#FFA726' : l.stenenOk === false ? '#FF9800' : '#FFFFFF', s);
-  try { gvKadersCanvas(g, foto, w, h, s); } catch (e) { console.warn(e); }
-  try { if (!gvAan(foto)) for (const o of ondVan(foto).filter(o => !o.kader && !o.in && !isWand(o))) { const pl = ondLetterPlek(foto, o); if (!pl) continue;
+    canvasPijl(g, l.x1 * w, l.y1 * h, l.x2 * w, l.y2 * h, zonderLetters ? lijnLabel({ ...l, kozijn: null }) : lijnLabel(l, foto), l.maat == null ? '#FFA726' : '#FFFFFF', s);
+  try { for (const o of ondVan(foto).filter(o => !o.kader && !o.in && !isWand(o))) { const pl = ondLetterPlek(foto, o); if (!pl) continue;
     const r = 11 * s, cx = pl[0] * w, cy = pl[1] * h; g.save(); g.fillStyle = '#D4AF37'; g.strokeStyle = '#000'; g.lineWidth = 1.5 * s; g.beginPath(); g.arc(cx, cy, r, 0, 7); g.fill(); g.stroke();
     g.fillStyle = '#000'; g.font = `700 ${13 * s}px Helvetica, Arial, sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(o.letter, cx, cy + .5 * s); g.restore(); } } catch (e) { console.warn(e); }
   for (const b of foto.opmerkingen || []) canvasBallon(g, b, w, h, s * 1.4);
@@ -7923,13 +7106,11 @@ async function maakRapportPdf(p, voortgang) {
     // Regels zonder foto: onder de foto's, in dezelfde tabel-vorm.
     const los = rijen.filter(r => !r.f);
     if (los.length) tabel(los);
-    const gvf = s.fotos.filter(f => gvAan(f) && !f.gevelZoom);
-    if (gvf.length) gvUitleg(gvf);
     function tabel(eigen) {
       if (ruimte(40)) mapBalk(s, n, factor, true);
       tabelKop();
       let vorige = null;
-      for (const r of gvRapportVolgorde(eigen)) {
+      for (const r of rapportVolgorde(eigen)) {
         if (ruimte(34)) { mapBalk(s, n, factor, true); tabelKop(); }
         const bo = rijOnd(r), kind = !!bo?.o.in;
         if (vorige !== r.st) {
@@ -7937,45 +7118,13 @@ async function maakRapportPdf(p, voortgang) {
           const titel = r.st.naam || (r.f ? `Foto ${r.fi + 1}` : r.titel);
           if (kind) regel('- ' + titel, '', '', { vet: true, inspring: 12 });
           else regel(((bo ? bo.o.letter + '   ' : '') + titel).toUpperCase(), '', '', { vet: true, grijs: true });
-          const h = bo && gvHerkomst(bo.f, bo.o);
+          const h = bo && ondHerkomst(bo.f, bo.o);
           if (h) pdf.tekst(xm, y - 5, h.tekst, 8.5, { vet: true, rechts: true, kleur: h.kleur });
           vorige = r.st;
         }
         regel(soortNaam(r) + (r.z ? ` · ${r.z[1].naam}` : ''), `${r.aantal * factor} st`, meters(r.hoeveel, r.eenheid, factor), { inspring: kind ? 22 : 10, kleur: r.klaar ? null : '#E65100' });
       }
       y += 8;
-    }
-    // Gevel: hoe je de maten leest, en hoe ze bepaald zijn (voor de uitvoerder of projectleider).
-    function gvUitleg(fotos) {
-      const alinea = (t, kleur = '#333333', vet = false, insp = 0) => { for (const x of breek(t, 8.5, B - 14 - insp)) { ruimte(12); pdf.tekst(M + 6 + insp, y + 9, x, 8.5, { kleur, vet }); y += 11.5; } };
-      ruimte(110); y += 2;
-      pdf.tekst(M + 6, y + 10, 'Zo lees je de maten', 10, { vet: true }); y += 16;
-      for (const [lab, kl, t] of [['laser', '#E65100', 'Op locatie gemeten met de lasermeter.'],
-        ['foto, stenen kloppen', '#2E7D32', 'Uit de foto berekend (ca.), en het aantal steenlagen geeft dezelfde maat. Betrouwbaar.'],
-        ['foto, NAREKENEN', '#E65100', 'Uit de foto berekend (ca.), maar de stenen geven een andere maat. Bij uitvoering even nameten.'],
-        ['uit de foto', '#555555', 'Uit de foto berekend (ca.), geen stenen ernaast om te tellen (bijv. een paneel).']]) {
-        ruimte(14); pdf.tekst(M + 6, y + 9, lab, 8.5, { vet: true, kleur: kl }); for (const [i, x] of breek(t, 8.5, B - 140).entries()) { if (i) ruimte(12); pdf.tekst(M + 122, y + 9, x, 8.5, { kleur: '#333333' }); y += 11.5; } y += 1.5; }
-      y += 4;
-      for (const f of fotos) {
-        const fi = s.fotos.indexOf(f), ks = gvKozijnen(f), refs = [];
-        for (const o of ks.filter(o => o.gv.soort === 'laser')) { const b = gvLijn(f, o, 'GB'), h = gvLijn(f, o, 'GH');
-          if (b?.maat && h?.maat && !b.uitRef && !h.uitRef) refs.push(`${o.letter} ${cmTekst(b.maat)} × ${cmTekst(h.maat)} cm`); }
-        const gl = f.lijnen.find(l => l.rol === 'GL'); if (gl?.maat) refs.push(`hoogte tot de dakrand ${cmTekst(gl.maat)} cm`);
-        const foto = ks.filter(o => o.gv.soort === 'foto'), laag = ks.find(o => o.gv.stenen)?.gv.stenen.laag;
-        let t = `Hoe gemeten (foto ${fi + 1}): `;
-        t += foto.length ? `${foto.map(o => o.letter).join(', ')} ${foto.length === 1 ? 'is' : 'zijn'} niet bereikbaar zonder ladder en berekend uit de rechtgezette foto${refs.length ? `, met de lasermaten beneden als referentie (${refs.join(', ')})` : ''}${laag ? `, gecontroleerd door de steenlagen te tellen (${getalNL(laag, 1)} cm per laag)` : ''}.`
-          : `alle kozijnen zijn met de laser gemeten${refs.length ? ` (${refs.join(', ')})` : ''}.`;
-        if ((f.gevel.zooms || []).length) t += ` Met ${f.gevel.zooms.length} ingezoomde ${f.gevel.zooms.length === 1 ? 'foto' : "foto's"} vanaf dezelfde plek voor scherpere randen.`;
-        alinea(t);
-        for (const o of ks) {
-          const h = gvLijn(f, o, 'GH'), st = o.gv.stenen;
-          if (st && !st.ok && h?.maat) alinea(`Let op ${o.letter}: de foto zegt ${cmTekst(h.maat)} cm hoog, de stenen zeggen ${cmTekst(st.m)} cm (${st.lagen} lagen). Bij uitvoering nameten.`, '#E65100', true, 8);
-          if (o.zelfdeOnd?.length) { const br = f.lijnen.filter(l => l.kozijn === o.letter && l.richting === 'horizontaal' && l.maat != null).map(l => cmTekst(l.maat));
-            alinea(`${o.letter}: ${o.aantal || 2}× hetzelfde kozijn${br.length > 1 ? ` (apart uit de foto: ${br.join(' en ')} cm breed)` : ''}.`, '#333333', false, 8); }
-        }
-        y += 4;
-      }
-      y += 6;
     }
     // Totaal per soort voor deze map
     if (rijen.length) {
@@ -8102,7 +7251,7 @@ function nietMee(p) {
     for (const o of ondVan(f)) {
       const naam = `${o.letter}${o.naam ? ' ' + o.naam : ''}`, maten = f.lijnen.filter(l => !l.ref && l.kozijn === o.letter && l.maat != null);
       const code = (o.codes || []).some(c => String(c.code || '').trim());
-      if (maten.length && !code) bij(`${naam}: geen Topcalc-code, telt nergens mee`);
+      if (maten.length && !code && !o.tel) bij(`${naam}: geen Topcalc-code, telt nergens mee`);
       if (!isWand(o) || o.lambVan) continue;
       const w = wandMaten(f, o.letter);
       if (maten.length && !w) bij(`${naam}: wand mist een breedte of een hoogte`);
@@ -8126,7 +7275,8 @@ function tcVanOnderdeel(f, o, c) {
   const bestek = bestekVan(o, c), dk = hor?.maat != null ? diktekant(o, bestek) : 0;
   // Met diktekant telt de strekkend met de bredere maat (2 × 85 + 2 × 118), net als wanneer je 85 in Topcalc typt.
   // De diktekant komt ook bij elke extra dorpel (die loopt over dezelfde, bredere maat).
-  const st = z && z[1].eenheid === 'M1' && k ? String(k.lengte ? cmOp(k.totaal) : cmOp(k.totaal) + (2 + (k.dp || 0)) * dk) : '';
+  // Geteld raam zonder code: strekkend = de omtrek (2 × breedte + 2 × hoogte). Code, type en bestek vul je zelf in TopCalc in.
+  const st = z && z[1].eenheid === 'M1' && k ? String(k.lengte ? cmOp(k.totaal) : cmOp(k.totaal) + (2 + (k.dp || 0)) * dk) : !code && o.tel && k ? String(cmOp(k.totaal)) : '';
   const w = wandMaten(f, o.letter);
   // Hoogte zo dat Topcalc (hele cm) breedte × hoogte = de m² van de wand geeft.
   // Wand: breedte naar boven, en de hoogte zo dat breedte × hoogte nooit minder m² geeft dan gemeten.
@@ -8135,13 +7285,13 @@ function tcVanOnderdeel(f, o, c) {
 }
 function tcVanFotos(s) {
   const lijst = s.tc, gezien = new Set();
-  for (const f of s.fotos) for (const o of ondVan(f)) (o.codes || []).forEach((c, ci) => {
-    if (!c?.code) return;
+  for (const f of s.fotos) { stenenHerreken(f); for (const o of ondVan(f)) (o.tel && !(o.codes || []).some(c => c?.code) ? [{ code: '' }] : o.codes || []).forEach((c, ci) => {
+    if (!c?.code && !o.tel) return;
     const bron = `${f.id}|${o.letter}|${ci}`; gezien.add(bron);
     let r = lijst.find(x => x.bron === bron);
     if (!r) { r = { id: nieuwId(), n: '1', bron, foto: f.id }; lijst.push(r); }
     Object.assign(r, tcVanOnderdeel(f, o, c));
-  });
+  }); }
   for (let i = lijst.length - 1; i >= 0; i--) if (lijst[i].bron && !gezien.has(lijst[i].bron)) lijst.splice(i, 1);
 }
 function tcLijst(s) {
@@ -8156,8 +7306,9 @@ function tcLijstBasis(s) {
 const tcLeeg = r => !['code', 'type', 'oms', 'b', 'h', 'st'].some(k => String(r[k] || '').trim()) && (!r.n || r.n === '1');
 // Hoeveel een regel is: m2 = breedte × hoogte, m1 = strekkend (of rondom als strekkend 0 is, of alleen de breedte/hoogte), st = aantal.
 function tcReken(r) {
-  const z = zoekCode(`${r.code || ''} ${r.type || ''}`), eenheid = z?.[1].eenheid || null;
-  const B = getal(r.b) || 0, H = getal(r.h) || 0, St = getal(r.st) || 0, n = getal(r.n) ?? 1;
+  const z = zoekCode(`${r.code || ''} ${r.type || ''}`), B = getal(r.b) || 0, H = getal(r.h) || 0, St = getal(r.st) || 0, n = getal(r.n) ?? 1;
+  // Zonder code maar met strekkend (een geteld raam): als m1 rekenen.
+  const eenheid = z?.[1].eenheid || (!String(r.code || '').trim() && St ? 'M1' : null);
   let hoeveel = null;
   if (eenheid === 'M2') hoeveel = B && H ? B * H / 1e4 * n : null;
   else if (eenheid === 'ST') hoeveel = n;
@@ -8940,7 +8091,7 @@ const VERTALING = {
   "Tik op Lijn en trek een lijn over het kozijn. Spreek daarna de maat in.": ["Tap Line and draw a line across the frame. Then say the measurement.", "Tippe auf Linie und zieh eine Linie über den Rahmen. Sprich danach das Maß ein."],
   "Tik op Lijn en trek een lijn over het kozijn. Tik daarna op de lijn om de maat in te vullen.": ["Tap Line and draw a line across the frame. Then tap the line to enter the measurement.", "Tippe auf Linie und zieh eine Linie über den Rahmen. Tippe danach auf die Linie, um das Maß einzugeben."],
   "Laser verbonden": ["Laser connected", "Laser verbunden"], "Laser zoeken…": ["Searching laser…", "Laser wird gesucht…"],
-  "SLIM HERKENNEN": ["SMART RECOGNITION", "INTELLIGENTE ERKENNUNG"], "AI van de telefoon": ["Phone AI", "KI des Telefons"], "Geleerde woorden": ["Learned words", "Gelernte Wörter"],
+  "SLIM HERKENNEN": ["SMART RECOGNITION", "INTELLIGENTE ERKENNUNG"], "Geleerde woorden": ["Learned words", "Gelernte Wörter"],
   "Inspreken": ["Dictate", "Einsprechen"], "Niet beschikbaar op dit toestel of in deze versie": ["Not available on this device or in this version", "Auf diesem Gerät oder in dieser Version nicht verfügbar"],
   "Extra stijlen": ["Extra mullions", "Zusätzliche Pfosten"], "Extra dorpels": ["Extra transoms", "Zusätzliche Kämpfer"],
   "Project ontvangen": ["Receive project", "Projekt empfangen"], "Rapport openen": ["Open report", "Bericht öffnen"], "PDF opslaan": ["Save PDF", "PDF speichern"], "OPSLAG": ["STORAGE", "SPEICHER"],
@@ -9012,13 +8163,6 @@ const VERTALING = {
   "Alle geleerde woorden, verbeteringen en eigen codes worden gewist.": ["All learned words, corrections and own codes will be erased.", "Alle gelernten Wörter, Korrekturen und eigenen Codes werden gelöscht."],
   "Alle woorden in deze tekst ken ik al.": ["I already know all words in this text.", "Ich kenne schon alle Wörter in diesem Text."],
   "1 keer verbeterd": ["corrected once", "einmal korrigiert"],
-  "Gemini (gratis AI)": ["Gemini (free AI)", "Gemini (kostenlose KI)"],
-  "Gemini aan": ["Gemini on", "Gemini an"],
-  "Gemini uit": ["Gemini off", "Gemini aus"],
-  "Gemini offline": ["Gemini offline", "Gemini offline"],
-  "Gemini denkt…": ["Gemini is thinking…", "Gemini denkt nach…"],
-  "Met internet duidt Gemini je opname en kiest de Topcalc-code. Zonder internet werken de vaste regels en je geleerde correcties gewoon. Alleen de ingesproken zin en de locatie gaan mee, geen klantnaam of adres.": ["With internet, Gemini interprets your entry and picks the Topcalc code. Without internet the fixed rules and your learned corrections still work. Only the dictated sentence and the location are sent, no client name or address.", "Mit Internet deutet Gemini deine Aufnahme und wählt den Topcalc-Code. Ohne Internet funktionieren die festen Regeln und deine gelernten Korrekturen weiter. Nur der diktierte Satz und der Ort werden gesendet, kein Kundenname und keine Adresse."],
-  "API-sleutel uit Google AI Studio": ["API key from Google AI Studio", "API-Schlüssel aus Google AI Studio"],
   "Eigen sleutel op dit toestel": ["Own key on this device", "Eigener Schlüssel auf diesem Gerät"],
   "Ingebouwde sleutel": ["Built-in key", "Eingebauter Schlüssel"],
   "Nog geen sleutel": ["No key yet", "Noch kein Schlüssel"],
@@ -9026,7 +8170,6 @@ const VERTALING = {
   "Geen antwoord (geen of traag internet)": ["No response (no or slow internet)", "Keine Antwort (kein oder langsames Internet)"],
   "Gratis limiet even bereikt, later opnieuw": ["Free limit reached for now, try again later", "Kostenloses Limit vorerst erreicht, später erneut"],
   "Sleutel ongeldig of niet toegestaan": ["Key invalid or not allowed", "Schlüssel ungültig oder nicht erlaubt"],
-  "Onverwacht antwoord van Gemini": ["Unexpected response from Gemini", "Unerwartete Antwort von Gemini"],
   "Testen…": ["Testing…", "Teste…"],
   "Excel maken…": ["Making Excel…", "Excel wird erstellt…"],
   "PDF maken…": ["Creating PDF…", "PDF wird erstellt…"],
@@ -9112,7 +8255,6 @@ const VERTALING = {
   "Lasermeter": ["Laser meter", "Lasermessgerät"],
   "Laser verbonden": ["Laser connected", "Laser verbunden"],
   "Zoeken…": ["Searching…", "Suche…"],
-  "Spraak met Gemini": ["Voice with Gemini", "Sprache mit Gemini"],
   "Rapporten": ["Reports", "Berichte"],
   "RAPPORTEN": ["REPORTS", "BERICHTE"],
   "Nog geen rapporten": ["No reports yet", "Noch keine Berichte"],
@@ -9790,23 +8932,23 @@ function renderInstellingen(m) {
   });
   m.querySelectorAll('[data-taal]').forEach(b => b.onclick = () => { zetTaal(b.dataset.taal); render(); });
   inmInstKoppel(m);
-  toonFotoOpslag(m); // Slim herkennen (AI, Gemini, geleerde woorden) is weg: de app werkt zonder AI.
-  if ($('#iTelAi', m)) $('#iTelAi', m).onclick = async () => { $('#iTelAi', m).disabled = true; await telAiStart(true); if (tab === 'instellingen') render(); toast(telAi() ? 'AI van de telefoon staat aan' : telAiUitleg()); }; 
+  toonFotoOpslag(m);
   $('#iMaak', m).onclick = () => backupMaken();
   $('#iTerug', m).onclick = backupTerugzetten;
   $('#iDrive', m).onclick = backupNaarDrive;
   if ($('#iUpd', m)) $('#iUpd', m).onclick = () => zoekUpdate(true);
   const vak = $('#iLaser', m), laser = () => { if (!vak.isConnected) { Laser.luisteraars.delete(laser); return; } vak.innerHTML = laserKnopHtml(); koppelLaserKnop(vak); };
   Laser.luisteraars.add(laser); laser();
-  const bij = () => { if (!m.isConnected || tab !== 'instellingen' || !$('#iUpd', m) && Native) { UPD.luisteraars.delete(bij); AI.luisteraars.delete(bij); return; } UPD.luisteraars.delete(bij); AI.luisteraars.delete(bij); render(); };
-  UPD.luisteraars.add(bij); AI.luisteraars.add(bij);
+  const bij = () => { if (!m.isConnected || tab !== 'instellingen' || !$('#iUpd', m) && Native) { UPD.luisteraars.delete(bij); return; } UPD.luisteraars.delete(bij); render(); };
+  UPD.luisteraars.add(bij);
 }
 $('#instel').onclick = () => { tab = 'instellingen'; render(); };
 
 render();
 if (/koppel=BCK1/.test(location.hash)) { const k = decodeURIComponent(location.hash); history.replaceState(null, '', location.pathname + location.search); setTimeout(() => inmKoppelCode(k), 300); }
 else if (inmGekoppeld()) setTimeout(() => inmHaal(true), 2000); // aantal voor het bolletje op Inmeten
-// Geen AI meer bij het starten (spraak en Gemini zijn uit de app): dat scheelt batterij en netwerk.
+// De app werkt zonder AI. Een oude Gemini-sleutel wordt van het toestel gehaald.
+try { localStorage.removeItem('buildcalc.gemini.sleutel'); } catch {}
 if (Native) setTimeout(zoekUpdate, 1500);
 // Android-terugknop: één scherm terug, net als de terug-pijl linksboven. Op het beginscherm gaat de app naar de achtergrond.
 function androidTerug() {
