@@ -2415,18 +2415,12 @@ function openViewer(p, s, i) {
     // "kozijn A links boven": een kleine A op die plek van de foto; dezelfde letter opnieuw inspreken verplaatst hem.
     if (delen.letter) {
       f.labels = (f.labels || []).filter(l => l.tekst !== delen.letter);
-      // Eigen maatlijnen voor dit kozijn (breedte eronder, hoogte links), eerst op de ruwe plek;
-      // Gemini zoekt daarna het kozijn op de foto en legt de lijnen er precies langs.
+      // Eigen maatlijnen voor dit kozijn (breedte eronder, hoogte links) op de genoemde plek; zelf te verschuiven.
       const label = { id: n.id, tekst: delen.letter, notitie: tekst, ...labelPlek(delen.waar) };
       f.labels.push(label);
       const p0 = postenVoorNotitie(tekst, '')[0] || {}, m0 = herken(zonderExtra(tekst));
       const maten = { b: p0.breedte ?? m0.breedte, h: p0.hoogte ?? m0.hoogte };
       kozijnLijnen(f, label, ruwKader(label), maten);
-      geminiZoekKozijn(f, label, delen).then(kader => {
-        if (!kader || !(f.labels || []).includes(label)) return;
-        kozijnLijnen(f, label, kader, maten); bewaar();
-        if (V && foto() === f) tekenUI();
-      });
     }
     bewaar();
     if (r.length || delen.letter) tekenUI();
@@ -4473,7 +4467,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.20-1';
+const APP_VERSIE = '2026.11.20-2';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
@@ -5744,7 +5738,7 @@ function notitieDelen(tekst) {
   const waar = plek ? plek[0].toLowerCase().replace(/\s+/g, ' ') : '';
   return { naam, ding: ding ? ding[1].toLowerCase() : '', letter: ding ? ding[2].toUpperCase() : '', waar };
 }
-// Ruw kader rond de genoemde plek, als Gemini (nog) niet heeft gekeken.
+// Ruw kader rond de genoemde plek.
 function ruwKader(l) {
   const w = 0.22, h = 0.3, x0 = Math.max(0.04, Math.min(0.96 - w, l.x - w / 2)), y0 = Math.max(0.04, Math.min(0.92 - h, l.y - h / 2));
   return { x0, y0, x1: x0 + w, y1: y0 + h };
@@ -6079,46 +6073,6 @@ async function geminiDuid(tekst, locatie) {
   }
   aiMeld('fout', 'Gemini werkt even niet, later vanzelf opnieuw'); later();
   return null;
-}
-// Gemini kijkt naar de foto en wijst het kozijn aan dat je noemt ("links boven", "midden").
-// Andere letters op dezelfde foto gaan mee, zodat B niet op het kozijn van A komt.
-async function fotoVoorAi(id, max = 768) {
-  const blob = await fotoLaad(id); if (!blob) return null;
-  const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = URL.createObjectURL(blob); });
-  const k = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
-  const c = Object.assign(document.createElement('canvas'), { width: Math.round(img.naturalWidth * k), height: Math.round(img.naturalHeight * k) });
-  c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(img.src);
-  const url = c.toDataURL('image/jpeg', 0.7); c.width = c.height = 0;
-  return url.slice(url.indexOf(',') + 1);
-}
-async function geminiZoekKozijn(f, label, delen) {
-  if (!aiSleutel()) return null;
-  try {
-    const data = await fotoVoorAi(f.id); if (!data) return null;
-    const anderen = (f.labels || []).filter(l => l !== label).map(l => `${l.tekst} linksboven op ${Math.round(l.x * 1000)}, ${Math.round(l.y * 1000)}`).join('; ');
-    const vraag = `Dit is een foto van een gevel of ruimte, gemaakt door een schilder. Zoek het ${delen.ding || 'kozijn'} dat hij bedoelt met de plek "${delen.waar || 'niet genoemd'}". `
-      + `Links en rechts zijn de linker- en rechterkant van de foto, boven en onder de bovenste en onderste rij, midden het middelste. `
-      + (anderen ? `Deze onderdelen zijn al gemarkeerd, kies een ander: ${anderen}. ` : '')
-      + `Geef de buitenrand van dat ${delen.ding || 'kozijn'} als links, boven, rechts en onder, van 0 tot 1000 (links 0 = linkerrand van de foto, boven 0 = bovenrand). Zet gevonden op false als je het niet ziet.`;
-    let r = null;
-    // Bij drukte (503) nog twee keer: na 2 seconden, en daarna met het reservemodel.
-    for (let poging = 0; poging < 3; poging++) {
-      const ctrl = new AbortController(), t = setTimeout(() => ctrl.abort(), 25000);
-      r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${poging === 2 ? GEMINI_RESERVE : GEMINI_MODELLEN[AI.model]}:generateContent`, {
-        method: 'POST', signal: ctrl.signal, headers: { 'Content-Type': 'application/json', 'x-goog-api-key': aiSleutel() },
-        body: JSON.stringify({ contents: [{ role: 'user', parts: [{ inline_data: { mime_type: 'image/jpeg', data } }, { text: vraag }] }],
-          generationConfig: { temperature: 0, responseMimeType: 'application/json',
-            responseSchema: { type: 'OBJECT', properties: { gevonden: { type: 'BOOLEAN' }, links: { type: 'INTEGER' }, boven: { type: 'INTEGER' }, rechts: { type: 'INTEGER' }, onder: { type: 'INTEGER' } }, required: ['gevonden'] } } }),
-      }).finally(() => clearTimeout(t));
-      if (!geminiDruk(r.status)) break;
-      if (poging < 2) await wachtMs(2000);
-    }
-    if (!r.ok) return null;
-    const j = await r.json(), d = JSON.parse(j.candidates[0].content.parts.map(p => p.text || '').join(''));
-    const ok = v => v >= 0 && v <= 1000;
-    if (!d?.gevonden || ![d.links, d.boven, d.rechts, d.onder].every(ok) || d.rechts - d.links < 20 || d.onder - d.boven < 20) return null;
-    return { x0: d.links / 1000, y0: d.boven / 1000, x1: d.rechts / 1000, y1: d.onder / 1000 };
-  } catch { return null; }
 }
 // Notities zonder (actuele) duiding alsnog laten duiden; stopt stil bij een fout.
 function aiBijwerken() {
