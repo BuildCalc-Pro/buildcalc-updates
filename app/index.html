@@ -2544,13 +2544,14 @@ function tekenUI2() {
     const n = V.hoeken.p.length;
     st.className = 'status uitleg';
     const soort = V.hoeken.soort, lv = soort === 'tel' && laagVoor(f);
-    st.innerHTML = `<div class="vuitleg">${soort === 'tel' ? `Tellen: tik <b>${['linksboven', 'rechtsonder'][n]}</b> van het kozijn aan (buitenkant)${n ? '' : `. Laaghoogte ${cmKort(lv.cm)} cm, ${laagUitleg(lv)}`}.`
+    st.innerHTML = `<div class="vuitleg">${soort === 'tel' && V.telDeel ? `Deel in ${esc(V.telDeel)}: tik <b>${['linksboven', 'rechtsonder'][n]}</b> van het raam of paneel aan (binnen het kozijn). Het wordt een ${esc(V.deelSoort || 'Draairaam')}; de soort kies je daarna.`
+      : soort === 'tel' ? `Tellen: tik <b>${['linksboven', 'rechtsonder'][n]}</b> van het kozijn aan (buitenkant)${n ? '' : `. Laaghoogte ${cmKort(lv.cm)} cm, ${laagUitleg(lv)}`}.`
       : soort === 'vlak' ? `Vlak zonder stenen: tik hoek ${n + 1} van 4 aan, <b>${HOEK_NAMEN[n]}</b>, van een vlak dat je met de laser gemeten hebt (breedte en hoogte).`
       : `Referentie ${V.hoeken.L ? V.hoeken.L + ' ' : ''}: tik hoek ${n + 1} van 4 aan, <b>${HOEK_NAMEN[n]}</b> (buitenkant kozijn).`} Houd je vinger op de foto voor het vergrootglas; loslaten zet de hoek. Knijp om in te zoomen.</div>
       <div style="display:flex;gap:8px;margin-top:6px">${n ? '<button class="ghost" id="hterug">Vorige hoek terug</button>' : ''}<button class="ghost" id="hstop" style="color:var(--open)">Stoppen</button>${soort === 'tel' && !n ? '<button class="ghost" id="hvlak" style="color:var(--gold);margin-left:auto">Vlak zonder stenen</button>' : ''}</div>`;
     if ($('#hvlak', st)) $('#hvlak', st).onclick = () => vlakStart();
     if ($('#hterug', st)) $('#hterug', st).onclick = () => { V.hoeken.p.pop(); tekenUI(); };
-    $('#hstop', st).onclick = () => { V.hoeken = null; tekenUI(); };
+    $('#hstop', st).onclick = () => { V.hoeken = null; V.telDeel = null; tekenUI(); };
   } else if (V.telNu && !V.sel && telPaneel(f, st)) {
     // Tellen: het laatst getelde raam met + en −, het aantal gelijke ramen en "Volgend raam".
   } else if (V.sel) {
@@ -2735,6 +2736,7 @@ function tekenUI2() {
         bewaar(); tekenUI();
         if (!o.codes?.length) { const c = await kiesBestekCode(nb, `${nb}-code voor ${o.letter}${o.naam ? ' ' + o.naam : ''}`, ''); if (c) { o.codes = [{ code: c, bestek: nb }]; bewaar(); tekenUI(); } }
         toast(`${o.letter}${o.naam ? ' ' + o.naam : ''} staat nu bij ${nb} (${BESTEKKEN[nb][0].toLowerCase()}).`); }]] : []),
+      ...(!isWand(o) && !o.in ? [['plus', `Delen in ${o.letter} aantikken (vaste ramen, draairamen…)`, () => telStart(o.letter)]] : []),
       ...(!isWand(o) && !o.in ? [['plus', `Deel toevoegen aan ${o.letter} (deur, paneel…)`, () => menu(SOORTEN.map(sn => ['plus', sn, () => plusDeel(f, o, sn)]))]] : []),
       // Twee kozijnen die hetzelfde zijn: één regel in de lijst met 2×, de letter staat op beide.
       ...(!isWand(o) && !o.in ? [['plus', 'Zelfde kozijn als…', () => { const ander = ond.filter(x => x !== o && !isWand(x) && !x.in);
@@ -3419,7 +3421,7 @@ function fotoMeter(f) {
     const [ax, ay] = hPunt(ref.M, l.x1, l.y1), [bx, by] = hPunt(ref.M, l.x2, l.y2); return Math.hypot(bx - ax, by - ay); },
     delen: l => { const [ax, ay] = hPunt(ref.M, l.x1, l.y1), [bx, by] = hPunt(ref.M, l.x2, l.y2); return [Math.abs(bx - ax), Math.abs(by - ay)]; } };
   const vl = VLAK.get(f?.id); if (!vl?.ok) return null;
-  const gemeten = f.lijnen.filter(l => l.maat != null && !l.uitRef && l.bron !== 'foto');
+  const gemeten = f.lijnen.filter(l => l.maat != null && !l.uitRef && l.bron !== 'foto' && l.bron !== 'stenen' && l.bron !== 'deel');
   const d = l => vlakD(vl, l);
   const sx = mediaan(gemeten.filter(l => l.richting === 'horizontaal').map(l => l.maat / d(l)[0]));
   const sy = mediaan(gemeten.filter(l => l.richting === 'verticaal').map(l => l.maat / d(l)[1]));
@@ -3435,7 +3437,7 @@ function fotoMeter(f) {
 const vlakD = (vl, l) => { const a = vl.punt(l.x1, l.y1), b = vl.punt(l.x2, l.y2); return [Math.abs(b[0] - a[0]), Math.abs(b[1] - a[1])]; };
 const mediaan = a => { a = a.filter(v => isFinite(v) && v > 0).sort((x, y) => x - y); return a.length ? a[a.length >> 1] : null; };
 // Maten met de laser (of getypt/ingesproken): die tellen altijd. Niet uit de foto en niet met stenen geteld.
-const laserLijnen = f => f.lijnen.filter(l => l.maat != null && !l.uitRef && l.bron !== 'foto' && l.bron !== 'stenen');
+const laserLijnen = f => f.lijnen.filter(l => l.maat != null && !l.uitRef && l.bron !== 'foto' && l.bron !== 'stenen' && l.bron !== 'deel');
 // Controle: wijkt een lasermaat flink af van wat de foto zegt (referentiekozijn, je andere maten in dezelfde richting, of de stenen)?
 // Geeft de verwachte maat (m) terug als het meer dan 4 cm en 4% scheelt, anders null. De lasermaat blijft gewoon staan.
 function afwijking(f, l) {
@@ -3443,7 +3445,7 @@ function afwijking(f, l) {
   if (l.aftrek || isWand(ond)) return null;   // wand: hoogtes mogen verschillen
   // Lengte (daklijst, goot): je typt vaak de hele lengte (Google Earth) en de foto toont maar een stuk. Dan geen controle.
   if (isLengte(ond)) return null;
-  if (l.maat == null || l.uitRef || l.bron === 'foto' || l.bron === 'stenen' || !['horizontaal', 'verticaal'].includes(l.richting)) return null;
+  if (l.maat == null || l.uitRef || l.bron === 'foto' || l.bron === 'stenen' || l.bron === 'deel' || !['horizontaal', 'verticaal'].includes(l.richting)) return null;
   let v = null;
   const ref = refVan(f);
   if (ref && l !== ref.b && l !== ref.h) { const [ax, ay] = hPunt(ref.M, l.x1, l.y1), [bx, by] = hPunt(ref.M, l.x2, l.y2); v = Math.hypot(bx - ax, by - ay); }
@@ -4452,7 +4454,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.20-4';
+const APP_VERSIE = '2026.11.20-5';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
@@ -6623,11 +6625,12 @@ const cmKort = v => String(Math.round(v * 10) / 10).replace('.', ',');
 const laagUitleg = lv => ({ foto: '10 lagen gelaserd op deze foto', gevel: '10 lagen gelaserd op deze gevel', standaard: 'standaard, nog geen 10 lagen gelaserd' })[lv.bron];
 // Getelde lijnen rekenen opnieuw zodra de laaghoogte verandert (bijv. de 10 lagen later ingevuld).
 function stenenHerreken(f) {
-  if (!f?.lijnen?.some(l => l.bron === 'stenen')) return false;
-  const laag = laagVoor(f).cm; let anders = false;
-  for (const l of f.lijnen) if (l.bron === 'stenen' && l.stenen > 0 && (l.richting === 'horizontaal' || l.richting === 'verticaal')) {
-    const m = Math.round(l.stenen * (l.richting === 'horizontaal' ? STEEN_LANG : laag)) / 100; if (m !== l.maat) { l.maat = m; anders = true; } }
-  return anders;
+  if (!f?.lijnen) return false;
+  let anders = false;
+  if (f.lijnen.some(l => l.bron === 'stenen')) { const laag = laagVoor(f).cm;
+    for (const l of f.lijnen) if (l.bron === 'stenen' && l.stenen > 0 && (l.richting === 'horizontaal' || l.richting === 'verticaal')) {
+      const m = Math.round(l.stenen * (l.richting === 'horizontaal' ? STEEN_LANG : laag)) / 100; if (m !== l.maat) { l.maat = m; anders = true; } } }
+  return deelHerreken(f) || anders;
 }
 // Helderheid van de foto (max 1600 px), één foto in het geheugen.
 let TELPX = null;
@@ -6713,11 +6716,52 @@ function telStenen(P, t, laagPx) {
   return a && b ? (a.score >= b.score * .9 ? a : b) : a || b;
 }
 const telBestek = s => BINNEN.test(String(s?.naam || '').toLowerCase()) ? 'ONI' : 'ONB';
+// ---------- Delen in een kozijn (vaste ramen, draairamen…) ----------
+// Tik binnen een kozijn twee hoeken van een raam aan: dat wordt een deel van het kozijn ("Draairaam in A").
+// De maat komt uit de maat van het kozijn: zoveel keer zo breed en hoog als het stuk op de foto. Met + en − per cm bij te stellen.
+const DEEL_SOORTEN = ['Vast raam', 'Draairaam', 'Klepraam', 'Valraam', 'Paneel', 'Deur'];
+// Rechthoek van een onderdeel op de foto (0..1): het aangetikte kader, anders de breedte- en hoogtelijn.
+function ondBox(f, o) {
+  if (o.kader) { const xs = o.kader.map(p => p[0]), ys = o.kader.map(p => p[1]); return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]; }
+  const eigen = f.lijnen.filter(l => l.kozijn === o.letter && !l.ref), hor = eigen.find(l => l.richting === 'horizontaal'), ver = eigen.find(l => l.richting === 'verticaal');
+  if (!hor || !ver) return null;
+  return [Math.min(hor.x1, hor.x2), Math.min(ver.y1, ver.y2), Math.max(hor.x1, hor.x2), Math.max(ver.y1, ver.y2)];
+}
+// Het kozijn waar deze rechthoek in valt (alleen kozijnen, geen wand of deel).
+function deelOuder(f, x0, y0, x1, y1) {
+  if (V.telDeel) return ondVan(f).find(o => o.letter === V.telDeel) || null;
+  const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+  return ondVan(f).find(o => { if (o.in || isWand(o)) return false; const b = ondBox(f, o);
+    return b && cx > b[0] && cx < b[2] && cy > b[1] && cy < b[3] && (x1 - x0) * (y1 - y0) < (b[2] - b[0]) * (b[3] - b[1]) * .85; }) || null;
+}
+function deelMaak(f, ouder, x0, y0, x1, y1) {
+  const box = ondBox(f, ouder), k = kozijnMaten(f, ouder.letter);
+  if (!box || !k?.B || !k?.H) { toast(`${ouder.letter} heeft nog geen breedte en hoogte. Meet of tel eerst het kozijn, dan de delen.`, 6000); return null; }
+  const rw = Math.min(1, (x1 - x0) / (box[2] - box[0])), rh = Math.min(1, (y1 - y0) / (box[3] - box[1]));
+  const L = volgendeLetter(f), soort = V.deelSoort || 'Draairaam';
+  const hor = { id: nieuwId(), kozijn: L, richting: 'horizontaal', x1: x0, y1, x2: x1, y2: y1, maat: Math.round(k.B * rw * 100) / 100, bron: 'deel', kant: true };
+  const ver = { id: nieuwId(), kozijn: L, richting: 'verticaal', x1, y1: y0, x2: x1, y2: y1, maat: Math.round(k.H * rh * 100) / 100, bron: 'deel', kant: true };
+  nieuwOnderdeel(f, L, `${soort} in ${ouder.letter}`, [hor, ver]);
+  const o = ondVan(f).find(x => x.letter === L);
+  Object.assign(o, { in: ouder.letter, kader: [[x0, y0], [x1, y0], [x1, y1], [x0, y1]], tel: { deel: [rw, rh] } });
+  if (ouder.bestek) o.bestek = ouder.bestek;
+  f.lijnen.push(hor, ver);
+  return o;
+}
+// Delen rekenen mee als de maat van het kozijn verandert (niet de maten die je zelf met + en − bijstelde).
+function deelHerreken(f) {
+  let anders = false;
+  for (const o of ondVan(f)) { if (!o.in || !o.tel?.deel) continue; const k = kozijnMaten(f, o.in); if (!k?.B || !k?.H) continue;
+    for (const l of f.lijnen) if (l.kozijn === o.letter && l.bron === 'deel' && !l.hand) {
+      const m = Math.round((l.richting === 'horizontaal' ? k.B * o.tel.deel[0] : k.H * o.tel.deel[1]) * 100) / 100; if (m !== l.maat) { l.maat = m; anders = true; } } }
+  return anders;
+}
 // Twee hoeken aangetikt (0..1): nieuw onderdeel met een getelde breedte (onderkant) en hoogte (rechterkant).
 // De lijnen liggen op de rand van het kozijn; de streepjes van de telling vallen dan op het metselwerk ernaast.
 function telMaak(f, a, b) {
   const x0 = Math.min(a[0], b[0]), x1 = Math.max(a[0], b[0]), y0 = Math.min(a[1], b[1]), y1 = Math.max(a[1], b[1]);
   if ((x1 - x0) * V.w < 12 || (y1 - y0) * V.h < 12) { toast('Tik linksboven en rechtsonder van het kozijn aan.'); return null; }
+  const ouder = deelOuder(f, x0, y0, x1, y1); if (ouder) return deelMaak(f, ouder, x0, y0, x1, y1);
   const L = volgendeLetter(f), tel = {};
   const hor = { id: nieuwId(), kozijn: L, richting: 'horizontaal', x1: x0, y1, x2: x1, y2: y1, maat: null, kant: true };
   const ver = { id: nieuwId(), kozijn: L, richting: 'verticaal', x1, y1: y0, x2: x1, y2: y1, maat: null, kant: true };
@@ -6769,6 +6813,7 @@ function plus10Lagen(f) {
 // Onder de foto tijdens het tellen: het laatst getelde raam, met + en − en het aantal gelijke ramen.
 function telPaneel(f, st) {
   const o = ondVan(f).find(x => x.letter === V.telNu); if (!o) { V.telNu = null; return false; }
+  if (o.in) return deelPaneel(f, st, o);
   const eigen = f.lijnen.filter(l => l.kozijn === o.letter && !l.ref), b = eigen.find(l => l.richting === 'horizontaal'), h = eigen.find(l => l.richting === 'verticaal');
   const lv = laagVoor(f), getal = v => String(v).replace('.', ',');
   const rij = (l, naam, eenheid, uitleg) => `<div class="teller"><span>${naam} <b style="color:var(--text)">${l?.maat != null ? maatLabel(l.maat) : '?'}</b><br><small>${uitleg}</small></span>${l?.stenen
@@ -6779,6 +6824,7 @@ function telPaneel(f, st) {
       : `${rij(h, 'Hoogte', 'lagen', `${h?.stenen ?? '?'} lagen × ${cmKort(lv.cm)} cm${lv.bron === 'standaard' ? ' <b style="color:#FFA726">(standaard: laser 10 lagen)</b>' : ''}`)}${rij(b, 'Breedte', 'stenen', `${b?.stenen != null ? getal(b.stenen) : '?'} stenen × ${STEEN_LANG} cm${o.tel?.schat ? ' <b style="color:#FFA726">(geschat, tel na)</b>' : ''}`)}`}
     <div class="teller"><span>Aantal gelijke ramen</span><button data-amin="${o.letter}" aria-label="Minder">−</button><input data-anum="${o.letter}" type="number" inputmode="numeric" min="1" max="999" value="${o.aantal || 1}"><button data-aplus="${o.letter}" aria-label="Meer">+</button><small style="width:3.2em"></small></div>
     <div class="ondrij" style="margin:0">${['Kozijn', 'Raam', 'Deur', 'Dakkapel', 'Paneel'].map(n => `<button class="ondchip${(o.naam || 'Kozijn') === n ? ' on' : ''}" data-tnaam="${n}" style="padding:4px 10px;font-size:13px">${n}</button>`).join('')}<button class="ondchip" data-tnaam="" style="padding:4px 10px;font-size:13px">Anders…</button></div>
+    <button class="outline" id="tdeel" style="width:100%">＋ Delen in ${esc(o.letter)}: vaste ramen, draairamen…</button>
     <div style="display:flex;gap:8px"><button class="primary" id="tvolg" style="flex:2">＋ Volgend raam</button><button class="outline" id="tklaar" style="flex:1">Klaar</button></div>`;
   const zet = (l, n) => { const stap = l.richting === 'horizontaal' ? .5 : 1; n = Math.round((+String(n).replace(',', '.') || 0) / stap) * stap;
     l.stenen = Math.max(stap, Math.min(400, n)); stenenHerreken(f); bewaar(); tekenUI(); };
@@ -6788,17 +6834,48 @@ function telPaneel(f, st) {
   st.querySelectorAll('[data-tnaam]').forEach(k => k.onclick = async () => { let n = k.dataset.tnaam;
     if (!n) { n = await vraagTekst(`Onderdeel ${o.letter}`, 'Omschrijving', 'Bijv. Kozijn 1e verdieping', o.naam || '', onderdeelNamen()); if (!n) return; }
     o.naam = n; bewaar(); tekenUI(); });
-  $('#tvolg', st).onclick = () => telStart();
-  $('#tklaar', st).onclick = () => { V.telNu = null; tekenUI(); };
+  $('#tvolg', st).onclick = () => telStart(o.in || null);
+  $('#tklaar', st).onclick = () => { V.telNu = null; V.telDeel = null; tekenUI(); };
+  if ($('#tdeel', st)) $('#tdeel', st).onclick = () => telStart(o.letter);
   $('#tmenu', st).onclick = () => menu([['ruler', 'Vlak zonder stenen (4 hoeken)', () => vlakStart()],
     ...(f.ref?.L === VLAK_L ? [['close', 'Referentievlak weghalen', () => { delete f.ref; f.lijnen = f.lijnen.filter(l => !l.vlakRef); bewaar(); tekenUI(); }]] : []),
-    ['ruler', 'Hoeken opnieuw aantikken', () => { verwijderOnderdeel(f, o.letter); V.telNu = null; bewaar(); telStart(); }],
+    ['ruler', 'Hoeken opnieuw aantikken', () => { verwijderOnderdeel(f, o.letter); V.telNu = null; bewaar(); telStart(o.in || null); }],
     ['trash', `${o.letter} weghalen`, () => { const oud = { lijnen: JSON.parse(JSON.stringify(f.lijnen)), ond: JSON.parse(JSON.stringify(f.onderdelen || [])) };
       verwijderOnderdeel(f, o.letter); V.telNu = null; bewaar(); tekenUI();
       ongedaanToast(`${o.letter} weg.`, () => { f.lijnen = oud.lijnen; f.onderdelen = oud.ond; V.telNu = o.letter; bewaar(); tekenUI(); }); }]]);
   return true;
 }
-const telStart = () => { V.hoeken = { soort: 'tel', p: [] }; V.telNu = null; V.sel = null; V.modus = 'bekijken'; V.alles = true; tekenUI(); };
+// Paneel voor een deel (vast raam, draairaam…) in een kozijn: soort aantikken, maat per cm bijstellen, aantal, volgend deel.
+function deelPaneel(f, st, o) {
+  const ouder = ondVan(f).find(x => x.letter === o.in), eigen = f.lijnen.filter(l => l.kozijn === o.letter && !l.ref);
+  const b = eigen.find(l => l.richting === 'horizontaal'), h = eigen.find(l => l.richting === 'verticaal'), soort = soortDeel(o);
+  const rij = (l, naam) => `<div class="teller"><span>${naam} <b style="color:var(--text)">${l?.maat != null ? maatLabel(l.maat) : '?'}</b><br><small>${l?.hand ? 'zelf bijgesteld' : `≈ uit de maat van ${esc(o.in)}`}</small></span>${l
+    ? `<button data-dmin="${l.id}" aria-label="1 cm minder">−</button><input data-dnum="${l.id}" inputmode="decimal" style="width:3.4em" value="${l.maat != null ? cmTekst(l.maat) : ''}"><button data-dplus="${l.id}" aria-label="1 cm meer">+</button><small style="width:3.2em">cm</small>` : ''}</div>`;
+  st.className = 'status sel';
+  st.innerHTML = `<div class="selbar"><b style="flex:1;color:var(--gold);font-size:15px">${esc(o.letter)} ${esc(soort)} <small style="color:var(--muted)">in ${esc(o.in)}${ouder?.naam ? ' ' + esc(ouder.naam) : ''}</small>${b?.maat != null && h?.maat != null ? ` · ${cmTekst(b.maat)} × ${cmTekst(h.maat)} cm` : ''}</b><button class="iconbtn" id="tmenu" aria-label="Meer">${ic('more')}</button></div>
+    <div class="ondrij" style="margin:0">${DEEL_SOORTEN.map(n => `<button class="ondchip${soort === n ? ' on' : ''}" data-dsoort="${n}" style="padding:4px 10px;font-size:13px">${n}</button>`).join('')}<button class="ondchip" data-dsoort="" style="padding:4px 10px;font-size:13px">Anders…</button></div>
+    ${rij(b, 'Breedte')}${rij(h, 'Hoogte')}
+    <div class="teller"><span>Aantal gelijke in ${esc(o.in)}</span><button data-amin="${o.letter}" aria-label="Minder">−</button><input data-anum="${o.letter}" type="number" inputmode="numeric" min="1" max="999" value="${o.aantal || 1}"><button data-aplus="${o.letter}" aria-label="Meer">+</button><small style="width:3.2em"></small></div>
+    <div style="display:flex;gap:8px"><button class="primary" id="tvolg" style="flex:2">＋ Volgend deel in ${esc(o.in)}</button><button class="outline" id="tklaar" style="flex:1">Klaar</button></div>`;
+  const zet = (l, cm) => { cm = Math.round(+String(cm).replace(',', '.')); if (!(cm > 0)) return tekenUI(); l.maat = Math.min(9999, cm) / 100; l.hand = true; bewaar(); tekenUI(); };
+  st.querySelectorAll('[data-dmin]').forEach(k => k.onclick = () => { const l = f.lijnen.find(x => x.id === k.dataset.dmin); if (l?.maat != null) zet(l, Math.round(l.maat * 100) - 1); });
+  st.querySelectorAll('[data-dplus]').forEach(k => k.onclick = () => { const l = f.lijnen.find(x => x.id === k.dataset.dplus); if (l?.maat != null) zet(l, Math.round(l.maat * 100) + 1); });
+  st.querySelectorAll('[data-dnum]').forEach(k => k.onchange = () => { const l = f.lijnen.find(x => x.id === k.dataset.dnum); if (l) zet(l, k.value); });
+  st.querySelectorAll('[data-dsoort]').forEach(k => k.onclick = async () => { let n = k.dataset.dsoort;
+    if (!n) { n = await vraagTekst(`Deel ${o.letter} in ${o.in}`, 'Omschrijving', 'Bijv. Bovenlicht', soort, onderdeelNamen()); if (!n) return; }
+    o.naam = `${n} in ${o.in}`; V.deelSoort = n; bewaar(); tekenUI(); });
+  $('#tvolg', st).onclick = () => telStart(o.in);
+  $('#tklaar', st).onclick = () => { V.telNu = null; V.telDeel = null; tekenUI(); };
+  $('#tmenu', st).onclick = () => menu([
+    ['ruler', 'Hoeken opnieuw aantikken', () => { verwijderOnderdeel(f, o.letter); V.telNu = null; bewaar(); telStart(o.in); }],
+    ...(b?.hand || h?.hand ? [['ruler', `Maat weer uit ${o.in} rekenen`, () => { for (const l of [b, h]) if (l) delete l.hand; stenenHerreken(f); bewaar(); tekenUI(); }]] : []),
+    ['trash', `${o.letter} weghalen`, () => { const oud = { lijnen: JSON.parse(JSON.stringify(f.lijnen)), ond: JSON.parse(JSON.stringify(f.onderdelen || [])) };
+      verwijderOnderdeel(f, o.letter); V.telNu = null; bewaar(); tekenUI();
+      ongedaanToast(`${o.letter} weg.`, () => { f.lijnen = oud.lijnen; f.onderdelen = oud.ond; V.telNu = o.letter; bewaar(); tekenUI(); }); }]]);
+  return true;
+}
+const soortDeel = o => String(o.naam || '').replace(/ in [A-Z]+\b.*$/, '') || 'Deel';
+const telStart = (deel = null) => { V.telDeel = deel; V.hoeken = { soort: 'tel', p: [] }; V.telNu = null; V.sel = null; V.modus = 'bekijken'; V.alles = true; tekenUI(); };
 const vlakStart = () => { V.hoeken = { soort: 'vlak', p: [] }; V.telNu = null; V.sel = null; V.modus = 'bekijken'; tekenUI(); };
 // Waar staat deze foto (project en map)?
 function fotoPlek(f) {
