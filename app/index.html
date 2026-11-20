@@ -2499,7 +2499,7 @@ function losUit() { if (!V) return; V.los = false; V.el.classList.remove('los');
 function sluitViewer() { try { Spraak.stop(); } catch (e) { console.warn(e); } Laser.opMeting = null; window.removeEventListener('resize', schik); V?.el.remove(); V = null; render(); }
 async function naarFoto(i) {
   if (!V || i < 0 || i >= V.s.fotos.length) return;
-  V.i = i; V.sel = null; V.maat = null; V.w = 0; V.telNu = null; if (V.hoeken?.soort !== 'tel') V.hoeken = null; else V.hoeken.p = [];
+  V.i = i; V.sel = null; V.maat = null; V.w = 0; V.telNu = null; V.telDeel = null; if (V.hoeken?.soort !== 'tel') V.hoeken = null; else V.hoeken.p = [];
   if (V.los && FS.win && !FS.win.closed && FS.i !== i && FS.fotos?.[i]?.s === V.s) { FS.i = i; toonFotoScherm(); }
   const img = $('#vimg', V.el), wegEl = $('#vweg2', V.el); img.removeAttribute('src'); wegEl.hidden = true; $('#vsvg', V.el).innerHTML = '';
   tekenUI();
@@ -3978,7 +3978,12 @@ function lijnPaarVraag(f, a, b) {
   const h = a.richting === 'horizontaal' ? a : b, v = h === a ? b : a;
   const kader = [[Math.min(h.x1, h.x2), Math.min(v.y1, v.y2)], [Math.max(h.x1, h.x2), Math.min(v.y1, v.y2)], [Math.max(h.x1, h.x2), Math.max(v.y1, v.y2)], [Math.min(h.x1, h.x2), Math.max(v.y1, v.y2)]];
   const mx = (kader[0][0] + kader[1][0]) / 2, my = (kader[0][1] + kader[2][1]) / 2;
-  const ouder = (V.telDeel && ondVan(f).find(o => o.letter === V.telDeel)) || kozijnRond(f, kader[0][0], kader[0][1], kader[2][0], kader[2][1]);
+  // Ramen trekken in kozijn A: alleen lijnen binnen A worden een raam in A. Liggen ze erbuiten, dan stopt het ramen trekken
+  // en is het een nieuw kozijn (of een raam in het kozijn waar ze wel in liggen).
+  let ouder = V.telDeel && ondVan(f).find(o => o.letter === V.telDeel) || null;
+  if (ouder && !binnenKozijn(f, ouder, kader)) { const was = ouder.letter; V.telDeel = null; ouder = null;
+    setTimeout(() => toast(`Deze lijnen liggen buiten ${fotoLetter(was)}: ze horen niet bij ${fotoLetter(was)}.`, 4000), 50); }
+  if (!ouder) ouder = kozijnRond(f, kader[0][0], kader[0][1], kader[2][0], kader[2][1]);
   V.tikVoorstel = kader; tekenLijnen();
   const maak = (soort, bt) => {
     V.tikVoorstel = null;
@@ -4467,7 +4472,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.20-13';
+const APP_VERSIE = '2026.11.20-14';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
@@ -6755,6 +6760,12 @@ function deelOuder(f, x0, y0, x1, y1) {
   if (V.telDeel) return ondVan(f).find(o => o.letter === V.telDeel) || null;
   return kozijnRond(f, x0, y0, x1, y1);
 }
+// Ligt dit kader (een raam) binnen het kozijn? Het midden moet erin liggen, met een kleine marge voor scheef trekken.
+function binnenKozijn(f, o, kader) {
+  const b = ondBox(f, o); if (!b) return true;
+  const cx = (kader[0][0] + kader[2][0]) / 2, cy = (kader[0][1] + kader[2][1]) / 2, mx = (b[2] - b[0]) * .05, my = (b[3] - b[1]) * .05;
+  return cx > b[0] - mx && cx < b[2] + mx && cy > b[1] - my && cy < b[3] + my;
+}
 function kozijnRond(f, x0, y0, x1, y1) {
   const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
   return ondVan(f).find(o => { if (o.in || isWand(o)) return false; const b = ondBox(f, o);
@@ -6889,7 +6900,7 @@ function deelPaneel(f, st, o) {
   st.innerHTML = `<div class="selbar"><b style="flex:1;color:var(--gold);font-size:15px">${esc(soort)} <small style="color:var(--muted)">in ${esc(o.in)}${ouder?.naam ? ' ' + esc(ouder.naam) : ''}</small>${b?.maat != null && h?.maat != null ? ` · ${cmTekst(b.maat)} × ${cmTekst(h.maat)} cm` : ''}</b><button class="iconbtn" id="tmenu" aria-label="Meer">${ic('more')}</button></div>
     <div class="ondrij" style="margin:0">${DEEL_SOORTEN.map(n => `<button class="ondchip${soort === n ? ' on' : ''}" data-dsoort="${n}" style="padding:4px 10px;font-size:13px">${n}</button>`).join('')}<button class="ondchip" data-dsoort="" style="padding:4px 10px;font-size:13px">Anders…</button></div>
     ${rij(b, 'Breedte')}${rij(h, 'Hoogte')}
-    <div class="teller"><span>Aantal gelijke in ${esc(o.in)}</span><button data-amin="${o.letter}" aria-label="Minder">−</button><input data-anum="${o.letter}" type="number" inputmode="numeric" min="1" max="999" value="${o.aantal || 1}"><button data-aplus="${o.letter}" aria-label="Meer">+</button><small style="width:3.2em"></small></div>
+    <div class="teller"><span>Aantal gelijke in ${esc(o.in)}${ouder?.aantal > 1 ? `<br><small style="color:var(--muted)">${esc(o.in)} staat er ${ouder.aantal}×: ${(o.aantal || 1) * ouder.aantal} in Topcalc</small>` : ''}</span><button data-amin="${o.letter}" aria-label="Minder">−</button><input data-anum="${o.letter}" type="number" inputmode="numeric" min="1" max="999" value="${o.aantal || 1}"><button data-aplus="${o.letter}" aria-label="Meer">+</button><small style="width:3.2em"></small></div>
     <div class="teller"><span>Topcalc-code <small style="color:var(--muted)">(eigen regel, mag leeg)</small></span><button class="ondchip" id="dcode" style="width:auto;padding:4px 12px;font-size:13px">${o.codes?.[0]?.code ? esc(`${bestekVan(o, o.codes[0])} ${o.codes[0].code}`) : 'Kiezen'}</button></div>
     <div style="display:flex;gap:8px"><button class="primary" id="tvolg" style="flex:2">＋ Volgend deel in ${esc(o.in)}</button><button class="outline" id="tklaar" style="flex:1">Klaar</button></div>`;
   const zet = (l, cm) => { cm = Math.round(+String(cm).replace(',', '.')); if (!(cm > 0)) return tekenUI(); l.maat = Math.min(9999, cm) / 100; l.hand = true; delete l.uitRef; l.bron = 'deel'; bewaar(); tekenUI(); };
@@ -6930,7 +6941,15 @@ function ondZelfde(f, o, doel) {
   for (const l of f.lijnen) if (l.kozijn === o.letter) { l.kozijn = doel.letter; l.zelfde = true; }
   doel.aantal = (doel.aantal || 1) + (o.aantal || 1);
   (doel.zelfdeKaders ??= []).push(o.kader || null);
-  (doel.zelfdeOnd ??= []).push({ ...o });
+  // De ramen van het tweede kozijn: heeft het eerste kozijn al ramen, dan tellen die mee met het aantal en gaan deze opzij
+  // (terug bij "weer los"). Heeft het eerste er nog geen, dan gaan ze over naar het eerste kozijn.
+  const kin = ondKinderen(f, o.letter), bewaard = { ...o };
+  if (kin.length && ondKinderen(f, doel.letter).length) {
+    bewaard.kinderen = kin.map(k => ({ ...k }));
+    for (const l of f.lijnen) if (kin.some(k => k.letter === l.kozijn)) l.zelfde = true;
+    f.onderdelen = ondVan(f).filter(x => !kin.includes(x));
+  } else if (kin.length) { bewaard.verhuisd = kin.map(k => { const L = deelLetter(f, doel.letter); letterWissel(f, k.letter, L); k.in = doel.letter; k.naam = String(k.naam || '').replace(/ in [A-Z]+\b/, ' in ' + doel.letter); return L; }); }
+  (doel.zelfdeOnd ??= []).push(bewaard);
   f.onderdelen = ondVan(f).filter(x => x !== o);
 }
 // Rapport: waar de maten van een onderdeel vandaan komen (geteld met de stenen, of uit de rechtgezette foto).
@@ -6962,13 +6981,19 @@ function rapportVolgorde(rijen) {
 }
 function ondNietZelfde(f, doel) {
   const oud = (doel.zelfdeOnd || []).pop(); if (!oud) return;
-  const L = volgendeLetter(f), o = { ...oud, letter: L };
+  const L = volgendeLetter(f), o = { ...oud, letter: L }; delete o.kinderen; delete o.verhuisd;
   const lijnen = f.lijnen.filter(l => l.kozijn === doel.letter && l.zelfde), per = new Set();
   // Alleen de lijnen van het laatst toegevoegde kozijn terug (per richting de laatste).
   for (const l of [...lijnen].reverse()) if (!per.has(l.rol || l.richting)) { per.add(l.rol || l.richting); l.kozijn = L; delete l.zelfde; }
   doel.aantal = Math.max(1, (doel.aantal || 1) - (oud.aantal || 1)); if (doel.aantal === 1) delete doel.aantal;
   doel.zelfdeKaders?.pop(); if (!doel.zelfdeKaders?.length) delete doel.zelfdeKaders; if (!doel.zelfdeOnd.length) delete doel.zelfdeOnd;
   f.onderdelen.push(o);
+  // De ramen van dit kozijn komen terug (opzij gezet, of overgegaan naar het andere kozijn).
+  for (const k of oud.kinderen || []) { const nL = fotoLetter(k.letter) === L && !ondVan(f).some(x => x.letter === k.letter) ? k.letter : deelLetter(f, L);
+    for (const l of f.lijnen) if (l.kozijn === k.letter) { l.kozijn = nL; delete l.zelfde; }
+    f.onderdelen.push({ ...k, letter: nL, in: L, naam: String(k.naam || '').replace(/ in [A-Z]+\b/, ' in ' + L) }); }
+  for (const oudL of oud.verhuisd || []) { const k = ondVan(f).find(x => x.letter === oudL && x.in === doel.letter); if (!k) continue;
+    const nL = deelLetter(f, L); letterWissel(f, oudL, nL); k.in = L; k.naam = String(k.naam || '').replace(/ in [A-Z]+\b/, ' in ' + L); }
 }
 // Een lijst-onderdeel (daklijst, goot, boeideel, plint…) met alleen m1-codes: alleen de lengte telt (strekkende meters).
 // Eén liggende lijn is dan genoeg; een hoogte hoeft niet.
@@ -7383,7 +7408,9 @@ function tcVanOnderdeel(f, o, c) {
   // Hoogte zo dat Topcalc (hele cm) breedte × hoogte = de m² van de wand geeft.
   // Wand: breedte naar boven, en de hoogte zo dat breedte × hoogte nooit minder m² geeft dan gemeten.
   if (w) { const bc = cmOp(w.B); return { code, type, oms: ondKortNaam(o) || `Onderdeel ${o.letter}`, b: String(bc), h: bc ? String(Math.ceil(+(w.netto * 1e4 / bc).toFixed(6))) : '', st: '', stAuto: false, bestek, dikte: 0, n: String(wandAantal(o)) }; }
-  return { code, type, oms: ondKortNaam(o) || `Onderdeel ${o.letter}`, b: hor?.maat != null ? String(cmOp(hor.maat) + (k?.lengte ? 0 : dk)) : '', h: k?.lengte ? '' : cm(ver?.maat), st, stAuto: false, bestek, dikte: k?.lengte ? 0 : dk, ...(o.aantal != null ? { n: String(o.aantal) } : {}) };
+  // Een raam in een kozijn telt zo vaak als het kozijn voorkomt: 2 draairamen in A, A staat er 3× = 6 draairamen.
+  const ouder = o.in ? ondVan(f).find(x => x.letter === o.in) : null, n = ouder?.aantal != null ? (o.aantal || 1) * ouder.aantal : o.aantal;
+  return { code, type, oms: ondKortNaam(o) || `Onderdeel ${o.letter}`, b: hor?.maat != null ? String(cmOp(hor.maat) + (k?.lengte ? 0 : dk)) : '', h: k?.lengte ? '' : cm(ver?.maat), st, stAuto: false, bestek, dikte: k?.lengte ? 0 : dk, ...(n != null ? { n: String(n) } : {}) };
 }
 function tcVanFotos(s) {
   const lijst = s.tc, gezien = new Set();
