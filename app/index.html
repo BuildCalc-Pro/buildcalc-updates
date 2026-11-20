@@ -2056,8 +2056,7 @@ function eindPunten(p) {
     });
     for (const n of s.notities) {
       const r = formRegels(n, s);
-      if (r.some(x => x[0] === '?')) uit.push({ soort: 'code', t: `${s.naam}: "${n.tekst.length > 40 ? n.tekst.slice(0, 40) + '…' : n.tekst}" heeft nog geen Topcalc-code`, sub: s.id, notitie: n.id, rapport: true });
-      else if (r.some(x => x.slice(3, 6).includes('?'))) uit.push({ soort: 'code', t: `${s.naam}: "${n.tekst.length > 40 ? n.tekst.slice(0, 40) + '…' : n.tekst}" mist een maat`, sub: s.id, notitie: n.id });
+      if (r.some(x => x.slice(3, 6).includes('?'))) uit.push({ soort: 'code', t: `${s.naam}: "${n.tekst.length > 40 ? n.tekst.slice(0, 40) + '…' : n.tekst}" mist een maat`, sub: s.id, notitie: n.id });
     }
   }
   // Eerst wat echt mist (maten en codes), stappen die nog openstaan als laatste.
@@ -3525,8 +3524,8 @@ const mapLijstOpen = () => { try { return localStorage.getItem('bc_mapLijst') !=
 function mistInMap(s) {
   const uit = [];
   (s?.fotos || []).forEach((g, gi) => ondVan(g).filter(o => !o.in).forEach(o => {
-    if (!o.codes?.length && !o.tel) uit.push({ gi, o, wat: 'code' });
-    else if (isWand(o) ? !wandMaten(g, o.letter) : !kozijnMaten(g, o.letter)) uit.push({ gi, o, wat: 'maat' });
+    // Code en bestek vul je in Topcalc in: daar herinnert de app niet meer aan, alleen aan ontbrekende maten.
+    if (isWand(o) ? !wandMaten(g, o.letter) : !kozijnMaten(g, o.letter)) uit.push({ gi, o, wat: 'maat' });
   }));
   return uit;
 }
@@ -3541,7 +3540,7 @@ function mapLijstHtml(f, metMaten = false, vTop = null) {
   const kort = (g, o) => { if (isWand(o)) return wandMaten(g, o.letter) ? 'wand' : 'nog geen maten';
     const k = kozijnMaten(g, o.letter); return k ? (k.lengte ? maatLabel(k.B) : `${maatLabel(k.B).replace(' cm', '')} × ${maatLabel(k.H)}`) : 'nog geen maten'; };
   const dot = o => `<span class="lgdot" style="background:${bestekKleur(bestekVan(o))}"></span>`;
-  const code = o => o.codes?.length ? o.codes.map(c => `${bestekVan(o, c)} ${esc(c.code)}`).join(' · ') : o.tel ? '<span style="color:var(--muted)">geteld · code in TopCalc</span>' : `<span style="color:var(--open)">${bestekVan(o)} · code kiezen</span>`;
+  const code = o => o.codes?.length ? o.codes.map(c => `${bestekVan(o, c)} ${esc(c.code)}`).join(' · ') : '';
   // Op deze foto: tik = kiezen en openklappen (lijnen lichten op), nog eens tikken = code en meer.
   const hier = tops.map(o => { const aan = o.letter === vTop, delen = [o.letter, ...ondKinderen(f, o.letter).map(x => x.letter)];
     return `<button class="ghost lgit" data-ond="${o.letter}">${dot(o)}<span class="lgnaam"><b>${esc(ondKortNaam(o) || (isWand(o) ? 'Wand' : o.letter))}</b> <small>${code(o)}</small></span>
@@ -4471,7 +4470,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.20-7';
+const APP_VERSIE = '2026.11.20-8';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
@@ -7336,8 +7335,6 @@ function nietMee(p) {
     const waar = `${volNaam(p, s)} · foto ${fi + 1}`, bij = tekst => uit.push({ s, f, fi, waar, tekst });
     for (const o of ondVan(f)) {
       const naam = `${o.letter}${o.naam ? ' ' + o.naam : ''}`, maten = f.lijnen.filter(l => !l.ref && l.kozijn === o.letter && l.maat != null);
-      const code = (o.codes || []).some(c => String(c.code || '').trim());
-      if (maten.length && !code && !o.tel) bij(`${naam}: geen Topcalc-code, telt nergens mee`);
       if (!isWand(o) || o.lambVan) continue;
       const w = wandMaten(f, o.letter);
       if (maten.length && !w) bij(`${naam}: wand mist een breedte of een hoogte`);
@@ -7362,7 +7359,7 @@ function tcVanOnderdeel(f, o, c) {
   // Met diktekant telt de strekkend met de bredere maat (2 × 85 + 2 × 118), net als wanneer je 85 in Topcalc typt.
   // De diktekant komt ook bij elke extra dorpel (die loopt over dezelfde, bredere maat).
   // Geteld raam zonder code: strekkend = de omtrek (2 × breedte + 2 × hoogte). Code, type en bestek vul je zelf in TopCalc in.
-  const st = z && z[1].eenheid === 'M1' && k ? String(k.lengte ? cmOp(k.totaal) : cmOp(k.totaal) + (2 + (k.dp || 0)) * dk) : !code && o.tel && k ? String(cmOp(k.totaal)) : '';
+  const st = z && z[1].eenheid === 'M1' && k ? String(k.lengte ? cmOp(k.totaal) : cmOp(k.totaal) + (2 + (k.dp || 0)) * dk) : !code && k && !k.lengte ? String(cmOp(k.totaal)) : '';
   const w = wandMaten(f, o.letter);
   // Hoogte zo dat Topcalc (hele cm) breedte × hoogte = de m² van de wand geeft.
   // Wand: breedte naar boven, en de hoogte zo dat breedte × hoogte nooit minder m² geeft dan gemeten.
@@ -7371,8 +7368,9 @@ function tcVanOnderdeel(f, o, c) {
 }
 function tcVanFotos(s) {
   const lijst = s.tc, gezien = new Set();
-  for (const f of s.fotos) { stenenHerreken(f); for (const o of ondVan(f)) (o.tel && !(o.codes || []).some(c => c?.code) ? [{ code: '' }] : o.codes || []).forEach((c, ci) => {
-    if (!c?.code && !o.tel) return;
+  for (const f of s.fotos) { stenenHerreken(f); for (const o of ondVan(f)) ((o.codes || []).some(c => c?.code) ? o.codes : [{ code: '' }]).forEach((c, ci) => {
+    if (!c?.code && (o.codes || []).some(x => x?.code)) return;
+    if (!c?.code && !f.lijnen.some(l => !l.ref && l.kozijn === o.letter && l.maat != null)) return;
     const bron = `${f.id}|${o.letter}|${ci}`; gezien.add(bron);
     let r = lijst.find(x => x.bron === bron);
     if (!r) { r = { id: nieuwId(), n: '1', bron, foto: f.id }; lijst.push(r); }
