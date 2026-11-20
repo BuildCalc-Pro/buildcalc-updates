@@ -4472,7 +4472,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.20-15';
+const APP_VERSIE = '2026.11.20-16';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
@@ -7758,6 +7758,11 @@ function renderTopcalc(m) {
       // Het laatste vakje is de bestekcode van die regel (ONB = OHD03).
       g.regels.map(x => [x.r.code || '', x.r.type || '', x.vakken[2], x.r.b || '', x.r.h || '', String(x.r.st || '').replace(/^0$/, ''), x.r.n || '1', rijVariant(x.r, g.bestek)].map(v => String(v).trim()))]);
     if (!kaarten.length) return toast('Er staan nog geen regels in de lijst.');
+    // Veiligheid: regels zonder code (bijv. een raam waar je de code oversloeg) eerst noemen. Het script typt blind.
+    const zonder = kaarten.flatMap(([kn, rijen]) => rijen.filter(r => !r[0]).map(r => `${r[2] || 'Regel zonder naam'} (${kn.replace(/ \(factor.*$/, '')})`));
+    if (zonder.length && !await bevestig(`${zonder.length} ${zonder.length === 1 ? 'regel' : 'regels'} zonder code`,
+      `Nog zonder Topcalc-code: ${zonder.slice(0, 8).join(', ')}${zonder.length > 8 ? ` en nog ${zonder.length - 8}` : ''}. Kies eerst een code (bijv. 001 N), of maak het script toch: dan blijft het Code-vakje leeg en vraagt het script na F9 nog een keer.`,
+      { ja: 'Toch script maken', nee: 'Eerst codes kiezen', klasse: 'primary' })) return;
     const naam = `Topcalc_${(p.werknummer || p.adres).replace(/[^\w-]+/g, '_')}.ahk`;
     const blob = new Blob([topcalcScript(p, kaarten, mappenTekst(p))], { type: 'text/plain' });
     // Op de pc gewoon downloaden (geen deelvenster); in de app via het deelmenu naar de pc sturen.
@@ -7881,7 +7886,9 @@ CODE_LENGTE := 3   ; na zoveel tekens springt Topcalc zelf van Code naar Type
 TYPE_LENGTE := 2   ; na zoveel tekens springt Topcalc zelf van Type naar Omschrijving
 ; Per map: naam (bestek > map) en regels (Code, Type, Omschrijving, Breedte, Hoogte, Strekkend, Aantal, Bestek).
 kaarten := [
-${kaarten.map(([naam, rijen]) => `  [${q(naam)}, [\n${rijen.map(r => '    [' + r.map(q).join(', ') + ']').join(',\n')}\n  ]]`).join(',\n')}
+${kaarten.map(([naam, rijen]) => { const zc = rijen.filter(r => !r[0]).map(r => r[2] || 'Regel zonder naam');
+  const let_op = zc.length ? `\n\nLET OP: ${zc.length} ${zc.length === 1 ? 'regel' : 'regels'} zonder code: ${zc.slice(0, 8).join(', ')}${zc.length > 8 ? ` en nog ${zc.length - 8}` : ''}.\nHet Code-vakje blijft dan leeg. Geeft Topcalc daar een melding, druk dan meteen op Esc.` : '';
+  return `  [${q(naam)}, [\n${rijen.map(r => '    [' + r.map(q).join(', ') + ']').join(',\n')}\n  ], ${q(let_op)}]`; }).join(',\n')}
 ]
 MAPPEN := ${q(mappen)}
 nr := 1
@@ -7895,7 +7902,7 @@ F9:: {
   k := kaarten[nr]
   ; Controle: eerst zeggen welke map nu gevuld wordt. Pas na OK typt het script, in het venster waar je was.
   venster := WinExist("A")
-  if (MsgBox("Map " nr " van " kaarten.Length ":\`n\`n" k[1] " (" k[2].Length " regels)\`n\`nStaat de meetstaat van deze map open en staat de cursor in het eerste Code-vakje?", "BuildCalc", "OKCancel Icon?") != "OK")
+  if (MsgBox("Map " nr " van " kaarten.Length ":\`n\`n" k[1] " (" k[2].Length " regels)" k[3] "\`n\`nStaat de meetstaat van deze map open en staat de cursor in het eerste Code-vakje?", "BuildCalc", "OKCancel Icon?") != "OK")
     return
   if (venster) {
     WinActivate(venster)
