@@ -2771,7 +2771,7 @@ function tekenUI2() {
   vx.querySelectorAll('[data-plusb]').forEach(k => k.onclick = () => plusOnderdeel(k.dataset.plusb));
   vx.querySelectorAll('[data-deelin]').forEach(k => k.onclick = e => { e.stopPropagation(); deelLijnStart(k.dataset.deelin); });
   vx.querySelectorAll('[data-deelcode]').forEach(k => k.onclick = async e => { e.stopPropagation(); const f = V.s.fotos[V.i], d = ondVan(f).find(x => x.letter === k.dataset.deelcode); if (!d) return;
-    const b = bestekVan(d), c = await kiesBestekCode(b, `${b}-code voor ${soortDeel(d)} in ${d.in}`, d.codes?.[0]?.code || '');
+    const b = bestekVan(d), c = await kiesBestekCode(b, `${b}-code voor ${soortDeel(d)} in ${d.in}`, d.codes?.[0]?.code || vorigeDeelCode(soortDeel(d), b, d));
     if (c) { d.codes = [{ code: c, bestek: b }]; bewaar(); tekenUI(); } });
   if ($('#vplusond', vx)) $('#vplusond', vx).onclick = () => menu([...ondVan(f).filter(o => !o.in && !isWand(o) && ondBox(f, o)).map(o => ['plus', `Deel in ${o.letter}${o.naam ? ' ' + ondKortNaam(o) : ''}: vast raam, draairaam… (2 lijnen trekken)`, () => deelLijnStart(o.letter)]), ...BESTEK_KNOPPEN.map(b => ['plus', `${b} · ${BESTEKKEN[b][0]}`, () => plusOnderdeel(b)]),
     ['plus', 'Wand binnen (m², ONI)', () => wandMenu('ONI')], ['plus', 'Wand buiten (m², ONB)', () => wandMenu('ONB')],
@@ -4007,8 +4007,10 @@ function lijnPaarVraag(f, a, b) {
         o.tel = { deel: [rw, rh] }; } else o.tel = { lijn: true };
       o.naam = `${soort} in ${ouder.letter}`; V.deelSoort = soort;
       V.ond = ouder.letter; V.telDeel = ouder.letter; V.alles = true; V.sel = null; V.modus = 'lijn'; V.telNu = L; bewaar(); tekenUI();
-      // Meteen de eigen Topcalc-code kiezen (Annuleren = leeg laten).
-      (async () => { const b = bestekVan(o), c = await kiesBestekCode(b, `${b}-code voor ${soort} in ${ouder.letter}`, '');
+      // Op locatie alleen meten: geen codevraag. Op kantoor meteen de eigen Topcalc-code kiezen (Annuleren = leeg laten),
+      // met de code van het vorige gelijke raam al ingevuld.
+      if (!opKantoorNu()) { toast(`${soort} in ${ouder.letter} staat in de lijst. Trek nu de breedte en hoogte van het volgende raam, of tik Klaar. De code kies je op kantoor.`, 5000); return; }
+      (async () => { const b = bestekVan(o), c = await kiesBestekCode(b, `${b}-code voor ${soort} in ${ouder.letter}`, vorigeDeelCode(soort, b, o));
         if (c) { o.codes = [{ code: c, bestek: b }]; bewaar(); tekenUI(); }
         toast(`${soort} in ${ouder.letter}${c ? ` (${b} ${c})` : ''} staat als eigen onderdeel in de lijst en in Topcalc. Trek nu de breedte en hoogte van het volgende raam, of tik Klaar.`, 5000); })();
       return; }
@@ -4087,8 +4089,8 @@ async function plusDeel(f, ouder, soort) {
   const o = ondVan(f).find(x => x.letter === L); if (!o) return;
   o.in = ouder.letter; o.bestek = ouder.bestek || 'ONB'; delete o.codes;
   V.ond = L; V.modus = 'lijn'; V.sel = null; V.paar = null; bewaar(); tekenUI();
-  const b = bestekVan(o), c = await kiesBestekCode(b, `${b}-code voor ${soort} bij ${ouder.letter}`, '');
-  if (c) { o.codes = [{ code: c, bestek: b }]; bewaar(); tekenUI(); }
+  if (opKantoorNu()) { const b = bestekVan(o), c = await kiesBestekCode(b, `${b}-code voor ${soort} bij ${ouder.letter}`, vorigeDeelCode(soort, b, o));
+    if (c) { o.codes = [{ code: c, bestek: b }]; bewaar(); tekenUI(); } }
   toast(`Trek de breedte en de hoogte van ${soort.toLowerCase()} bij ${ouder.letter}. Het hoort bij ${ouder.letter}.`);
 }
 function zetSoort(f, o, soort) {
@@ -4472,7 +4474,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.20-16';
+const APP_VERSIE = '2026.11.21-1';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
@@ -6912,7 +6914,7 @@ function deelPaneel(f, st, o) {
     o.naam = `${n} in ${o.in}`; V.deelSoort = n; bewaar(); tekenUI(); });
   $('#tvolg', st).onclick = () => deelLijnStart(o.in);
   $('#tklaar', st).onclick = () => { V.telNu = null; V.telDeel = null; V.modus = 'bekijken'; tekenUI(); };
-  $('#dcode', st).onclick = async () => { const b = bestekVan(o), c = await kiesBestekCode(b, `${b}-code voor ${soort} in ${o.in}`, o.codes?.[0]?.code || '');
+  $('#dcode', st).onclick = async () => { const b = bestekVan(o), c = await kiesBestekCode(b, `${b}-code voor ${soort} in ${o.in}`, o.codes?.[0]?.code || vorigeDeelCode(soort, b, o));
     if (c) { o.codes = [{ code: c, bestek: b }]; bewaar(); tekenUI(); } };
   $('#tmenu', st).onclick = () => menu([
     ...(o.codes?.length ? [['close', 'Code weghalen (leeg in Topcalc)', () => { delete o.codes; bewaar(); tekenUI(); }]] : []),
@@ -6927,6 +6929,12 @@ function deelPaneel(f, st, o) {
 function deelLijnStart(L) {
   V.telDeel = L; V.ond = L; V.alles = true; V.sel = null; V.hoeken = null; V.telNu = null; V.modus = 'lijn'; tekenUI();
   toast(`Trek de breedte en de hoogte van het raam in ${L}: twee lijnen. Daarna kies je wat het is.`, 5000);
+}
+// De code van het laatst gecodeerde gelijke raam (zelfde soort en bestek) in deze map, als voorstel in de codekiezer.
+function vorigeDeelCode(soort, b, zelf = null) {
+  let c = '';
+  for (const f of V?.s?.fotos || []) for (const o of ondVan(f)) if (o !== zelf && o.in && o.codes?.[0]?.code && soortDeel(o) === soort && bestekVan(o, o.codes[0]) === b) c = o.codes[0].code;
+  return c;
 }
 const soortDeel = o => String(o.naam || '').replace(/ in [A-Z]+\b.*$/, '') || 'Deel';
 const telStart = (deel = null) => { V.telDeel = deel; V.hoeken = { soort: 'tel', p: [] }; V.telNu = null; V.sel = null; V.modus = 'bekijken'; V.alles = true; tekenUI(); };
@@ -7410,7 +7418,10 @@ function tcVanOnderdeel(f, o, c) {
   if (w) { const bc = cmOp(w.B); return { code, type, oms: ondKortNaam(o) || `Onderdeel ${o.letter}`, b: String(bc), h: bc ? String(Math.ceil(+(w.netto * 1e4 / bc).toFixed(6))) : '', st: '', stAuto: false, bestek, dikte: 0, n: String(wandAantal(o)) }; }
   // Een raam in een kozijn telt zo vaak als het kozijn voorkomt: 2 draairamen in A, A staat er 3× = 6 draairamen.
   const ouder = o.in ? ondVan(f).find(x => x.letter === o.in) : null, n = ouder?.aantal != null ? (o.aantal || 1) * ouder.aantal : o.aantal;
-  return { code, type, oms: ondKortNaam(o) || `Onderdeel ${o.letter}`, b: hor?.maat != null ? String(cmOp(hor.maat) + (k?.lengte ? 0 : dk)) : '', h: k?.lengte ? '' : cm(ver?.maat), st, stAuto: false, bestek, dikte: k?.lengte ? 0 : dk, ...(n != null ? { n: String(n) } : {}) };
+  // In Topcalc moet je zien bij welk kozijn een raam hoort: "Draairaam kozijn 1", "Paneel in Voordeur".
+  const on = ouder ? (ondKortNaam(ouder) || `Kozijn ${fotoLetter(ouder.letter)}`) : '';
+  const oms = !ouder ? ondKortNaam(o) || `Onderdeel ${o.letter}` : `${soortDeel(o)} ${/^kozijn\b/i.test(on) ? on.replace(/^K/, 'k') : 'in ' + on}`;
+  return { code, type, oms, b: hor?.maat != null ? String(cmOp(hor.maat) + (k?.lengte ? 0 : dk)) : '', h: k?.lengte ? '' : cm(ver?.maat), st, stAuto: false, bestek, dikte: k?.lengte ? 0 : dk, ...(n != null ? { n: String(n) } : {}) };
 }
 function tcVanFotos(s) {
   const lijst = s.tc, gezien = new Set();
