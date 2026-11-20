@@ -3991,7 +3991,7 @@ function lijnPaarVraag(f, a, b) {
     // Lijnen die nog los op de foto stonden (je lasermaten) worden referentielijnen: ze tellen niet mee, maar geven wel de schaal.
     const los = f.lijnen.filter(l => l !== a && l !== b && !l.kozijn && !l.ref);
     if (!ondVan(f).length && los.length) { los.forEach(l => { l.ref = true; }); setTimeout(() => toast(`Je ${los.length === 1 ? 'lasermaat is' : los.length + ' lasermaten zijn'} nu referentielijnen: ze tellen niet mee. Tonen met de knop "Lasermaten".`), 2500); }
-    const nr = ondVan(f).filter(o => (o.naam || '').startsWith(soort)).length + 1;
+    const nr = ouder && soort !== 'Kozijn' ? ondVan(f).filter(o => (o.naam || '').startsWith(soort)).length + 1 : volgNr(f, soort);
     const naam = ouder && soort !== 'Kozijn' ? `${soort} in ${ouder.letter}${nr > 1 ? ' ' + nr : ''}` : `${soort} ${nr}`;
     a.kozijn = b.kozijn = null;
     const L = ouder && soort !== 'Kozijn' ? deelLetter(f, ouder.letter) : volgendeLetter(f); nieuwOnderdeel(f, L, naam, [a, b]);
@@ -4054,7 +4054,7 @@ function zelfdeHtml(f, l) {
 function maakZelfde(f, l, L) {
   const o = ondVan(f).find(x => x.letter === L), ander = zelfdeBronnen(f, l).find(x => x.o === o)?.ander; if (!o || !ander) return;
   const soort = (o.naam || '').match(/^(Kozijn|Draairaam|Paneel|Luik|Deur|Vast raam)/)?.[1] || (o.naam || '').replace(/\s*\d+$/, '') || 'Onderdeel';
-  const nr = ondVan(f).filter(x => (x.naam || '').startsWith(soort)).length + 1, N = volgendeLetter(f);
+  const nr = volgNr(f, soort), N = volgendeLetter(f);
   nieuwOnderdeel(f, N, `${soort} ${nr}`);
   const n = ondVan(f).find(x => x.letter === N);
   if (o.codes?.length) n.codes = o.codes.map(c => ({ ...c })); if (o.bestek) n.bestek = o.bestek; if (o.in) n.in = o.in;
@@ -4096,7 +4096,7 @@ async function plusDeel(f, ouder, soort) {
 function zetSoort(f, o, soort) {
   const oud = /^(Kozijn|Draairaam|Paneel|Luik|Deur|Vast raam)\b/;
   o.naam = oud.test(o.naam || '') ? o.naam.replace(oud, soort) : `${soort}${o.naam ? ' ' + o.naam : ''}`;
-  if (soort === 'Kozijn') { delete o.in; o.naam = o.naam.replace(/ in [A-Z]+\b/, ''); if (/\d$/.test(o.letter)) letterWissel(f, o.letter, volgendeLetter(f)); }
+  if (soort === 'Kozijn') { delete o.in; o.naam = o.naam.replace(/ in [A-Z]+\b/, ''); if (o.naam === 'Kozijn') o.naam = `Kozijn ${volgNr(f, 'Kozijn')}`; if (/\d$/.test(o.letter)) letterWissel(f, o.letter, volgendeLetter(f)); }
   delete o.codes; bewaar(); tekenUI();
   const k = kozijnMaten(f, o.letter);
   tikCodeVraag(f, o, soort, k ? `${cmTekst(k.B)} × ${cmTekst(k.H)} cm` : '');
@@ -4474,7 +4474,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.21-1';
+const APP_VERSIE = '2026.11.21-2';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
@@ -6827,7 +6827,7 @@ function telMaak(f, a, b) {
     else { tel.schat = true; tel.stenen = Math.round((t.right - t.left) / lg.lag * laagVoor(f).cm / STEEN_LANG * 10) / 10; }
     Object.assign(hor, { stenen: Math.max(.5, Math.round(tel.stenen * 2) / 2), bron: 'stenen' });
   }
-  nieuwOnderdeel(f, L, 'Kozijn', [hor, ver]);
+  nieuwOnderdeel(f, L, `Kozijn ${volgNr(f, 'Kozijn')}`, [hor, ver]);
   const o = ondVan(f).find(x => x.letter === L);
   Object.assign(o, { bestek: telBestek(fotoPlek(f)?.s), kader: [[x0, y0], [x1, y0], [x1, y1], [x0, y1]], tel });
   f.lijnen.push(hor, ver); stenenHerreken(f);
@@ -6940,6 +6940,14 @@ const soortDeel = o => String(o.naam || '').replace(/ in [A-Z]+\b.*$/, '') || 'D
 const telStart = (deel = null) => { V.telDeel = deel; V.hoeken = { soort: 'tel', p: [] }; V.telNu = null; V.sel = null; V.modus = 'bekijken'; V.alles = true; tekenUI(); };
 const vlakStart = () => { V.hoeken = { soort: 'vlak', p: [] }; V.telNu = null; V.sel = null; V.modus = 'bekijken'; tekenUI(); };
 // Waar staat deze foto (project en map)?
+// Volgnummer per gevel (map): Kozijn 1, 2, 3 op de eerste foto, de volgende foto gaat verder met 4, 5…
+// Zo staat elk kozijn maar één keer in Topcalc. Drie gelijke kozijnen zijn één kozijn met ×3, dus één nummer.
+function volgNr(f, soort) {
+  const s = (V?.s?.fotos?.includes(f) ? V.s : fotoPlek(f)?.s), re = new RegExp('^' + soort.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ' (\\d+)$');
+  let max = 0;
+  for (const g of s?.fotos || [f]) for (const o of ondVan(g)) { const m = !o.in && String(o.naam || '').match(re); if (m) max = Math.max(max, +m[1]); }
+  return max + 1;
+}
 function fotoPlek(f) {
   for (const p of projecten) for (const s of p.submappen) if (s.fotos.includes(f)) return { p, s };
   return null;
