@@ -671,10 +671,8 @@ function render() {
 function renderProjecten(m) {
   const p = stapel[0] && vind(stapel[0]);
   const s = p && stapel[1] && p.submappen.find(x => x.id === stapel[1]);
-  const st = p && !s && String(stapel[1] || '').startsWith('stap:') && p.plan?.stappen?.find(x => 'stap:' + x.id === stapel[1]);
-  if (st && !p.plan.fase) renderStap(m, p, st);
-  else if (p && stapel[1] === 'eind' && !p.plan?.fase) renderEind(m, p);
-  else if (s) renderSubmap(m, p, s); else if (p) renderProject(m, p); else { stapel = []; renderLijst(m); }
+  if (p && stapel[1] === 'eind') renderEind(m, p);
+  else if (s) renderSubmap(m, p, s); else if (p) renderSimpelProject(m, p); else { stapel = []; renderLijst(m); }
 }
 function openPagina(soort, p, s) {
   sluitPagina(false);
@@ -736,12 +734,8 @@ function renderLijst(m) {
 // Waar een project staat, in de lijst: "Opnemen 3/11", "Kantoor", "Rapport verstuurd ✓".
 function projectStand(p, a) {
   if (p.verstuurd) return `<span style="color:var(--ok)">Rapport verstuurd ✓ ${datumNL(new Date(p.verstuurd))}</span>`;
-  if (p.simpel) { const o = p.submappen.reduce((n, s) => n + s.fotos.filter(fotoOpen).length, 0);
-    return `${a} ${a === 1 ? 'map' : 'mappen'}${o ? ` • <span style="color:#C26A12">${o} open</span>` : ''}`; }
-  if (!p.plan) return `${a} ${a === 1 ? 'map' : 'mappen'}`;
-  if (p.plan.fase) return 'Stappenplan maken';
-  const { nu } = werkStand(p), st = p.plan.stappen;
-  return `<span style="color:var(--gold)">${WERK[Math.min(nu, 4)]}${nu === 1 ? ` ${st.filter(s => s.klaar || s.overgeslagen).length}/${st.length}` : ''}</span>`;
+  const o = p.submappen.reduce((n, s) => n + s.fotos.filter(fotoOpen).length, 0);
+  return `${a} ${a === 1 ? 'map' : 'mappen'}${o ? ` • <span style="color:#C26A12">${o} open</span>` : ''}`;
 }
 // Subtiele statusregel onder de projecten: app-versie/updates en de lasermeter.
 const UPD = { status: null, versie: null, luisteraars: new Set(), melden() { [...this.luisteraars].forEach(f => f()); } };
@@ -759,23 +753,6 @@ function koppelAppStatus(el) {
   Laser.luisteraars.add(teken); UPD.luisteraars.add(teken); teken();
 }
 
-// ---------- Rapporten: overzicht van alle projecten met hun TopCalc-rapport ----------
-function renderRapporten(m) {
-  const n = projecten.length;
-  m.innerHTML = `<div class="pad"><div class="label" style="margin-top:4px">RAPPORTEN (${n})</div>
-    ${n ? projecten.map(p => { const fotos = p.submappen.reduce((a, s) => a + s.fotos.length, 0);
-      return `<div class="card rcard" data-rap="${p.id}" role="button"><span class="fi" style="color:var(--gold)">${ic('pdf')}</span><span class="txt">
-        <div class="a">${esc(p.werknummer)} • ${esc(p.adres)}</div>
-        <div class="m">${fotos} ${fotos === 1 ? 'foto' : "foto's"} • ${p.verstuurd ? `<span style="color:var(--ok)">Verstuurd ${datumNL(new Date(p.verstuurd))}</span>` : 'Nog niet verstuurd'}</div></span>
-        <button class="iconbtn" data-pdf="${p.id}" aria-label="PDF opslaan" style="color:var(--gold)">${ic('opslaan')}</button></div>`; }).join('')
-      : `<div class="empty"><div class="big">${ic('pdf')}</div><h3>Nog geen rapporten</h3>Maak eerst een project aan bij Projecten.</div>`}</div>`;
-  m.querySelectorAll('[data-rap]').forEach(k => k.onclick = e => { if (!e.target.closest('[data-pdf]')) openPagina('rapport', vind(k.dataset.rap)); });
-  m.querySelectorAll('[data-pdf]').forEach(b => b.onclick = async () => {
-    const p = vind(b.dataset.pdf); if (!await eerstControle(p)) return; b.disabled = true; toast('PDF maken…');
-    try { await download(await maakPdf(p, maakPosten(p)), bestandsnaam(p, 'pdf')); } catch (e) { toast('PDF maken mislukt: ' + e.message); }
-    b.disabled = false;
-  });
-}
 
 async function toonFotoOpslag(m) {
   if (!alleFotoIds().length) return;
@@ -857,38 +834,6 @@ function ordenMappen(p) {
   if (goed.some((s, i) => s !== p.submappen[i])) p.submappen = goed;
 }
 const SUGGESTIES = ['Voorgevel', 'Achtergevel', 'Linkergevel', 'Rechtergevel', 'Dak', 'Interieur'];
-function renderProject(m, p) {
-  if (p.simpel) return renderSimpelProject(m, p);
-  if (p.plan?.fase) return renderWizard(m, p);
-  if (planVerouderd(p)) { maakStappen(p); bewaar(); }
-  if (deurenHerstel(p)) bewaar();
-  const n = p.submappen.length;
-  m.innerHTML = `<div class="sub"><button class="iconbtn" id="terug" aria-label="Terug">${ic('back')}</button>
-      <div class="t"><b>${esc(p.adres)}</b>${p.werknummer || p.klant ? `<small>${esc([p.werknummer, p.klant].filter(Boolean).join(' · '))}</small>` : ''}</div><button class="iconbtn" id="pmenu" aria-label="Menu">${ic('more')}</button></div>
-    <div class="pad">
-      ${p.simpel ? '' : werkwijzeHtml(p) + planKaartHtml(p)}
-      ${p.simpel ? '' : p.plan ? vakKop('bag', ic('huis'), 'Adressen en typen', p.bag ? bagSamenvatting(p) : 'nog niet opgehaald') : ''}
-      ${p.simpel ? '' : !p.plan || VAK_OPEN.has('bag') ? bagKaartHtml(p) : ''}
-      ${p.plan ? vakKop('mappen', ic('folder'), `Alle mappen (${n})`, '') : `<div class="label">MAPPEN (${n})</div>`}
-      ${p.plan && !VAK_OPEN.has('mappen') ? '' : n === 0 ? '<p style="text-align:center;color:var(--muted);padding:16px 0">Nog geen mappen. Maak er een aan, bijvoorbeeld Voorgevel of Achtergevel.</p>'
-        : '<div class="grid2">' + p.submappen.map(s => `<div class="card tile" data-sub="${s.id}" role="button">
-            <span style="color:var(--gold)">${ic('folder')}</span><div><div class="n">${esc(s.naam)}</div>
-            <div class="c">${s.fotos.length} ${s.fotos.length === 1 ? 'foto' : 'foto\'s'}</div></div>${keerVan(p, s) > 1 ? `<span class="keer">× ${keerVan(p, s)}</span>` : ''}
-            <button class="iconbtn more" data-opt="${s.id}" aria-label="Opties">${ic('more')}</button></div>`).join('') + '</div>'}
-    </div>${p.plan && !VAK_OPEN.has('mappen') ? '' : `<button class="fab" id="nieuwS">${ic('folderPlus')} Nieuwe map</button>`}`;
-  $('#terug').onclick = () => { stapel = []; render(); };
-  koppelBagKaart(m, p); koppelPlanKaart(m, p); koppelWerkwijze(m, p);
-  m.querySelectorAll('[data-vak]').forEach(b => b.onclick = () => { const k = b.dataset.vak; VAK_OPEN.has(k) ? VAK_OPEN.delete(k) : VAK_OPEN.add(k); render(); });
-  $('#pmenu').onclick = () => projectMenu(p);
-  m.querySelectorAll('[data-sub]').forEach(t => t.onclick = e => {
-    if (e.target.closest('[data-opt]')) return; stapel = [p.id, t.dataset.sub]; render();
-  });
-  m.querySelectorAll('[data-opt]').forEach(b => b.onclick = () => mapMenu(p, p.submappen.find(x => x.id === b.dataset.opt)));
-  if ($('#nieuwS')) $('#nieuwS').onclick = async () => {
-    const naam = await vraagNaam('Nieuwe map', p);
-    if (naam) { p.submappen.push({ id: nieuwId(), naam, aangemaakt: new Date().toISOString(), fotos: [], notities: [] }); bewaar(); render(); }
-  };
-}
 
 // Alle foto's van een project als één zip, met een mapje per gevel. Om op kantoor in de projectmap te zetten.
 const schoonNaam = t => String(t || '').replace(/[\\/:*?"<>|]+/g, '-').trim() || 'map';
@@ -968,10 +913,10 @@ async function fotoBestanden(p, voor = '') {
 function projectMenu(p) {
   menu([['pdf', 'Rapport openen', () => openPagina('rapport', p)], ['opslaan', 'PDF opslaan', async () => {
       if (!await eerstControle(p)) return; toast('PDF maken…');
-      try { await download(await maakPdf(p, maakPosten(p)), bestandsnaam(p, 'pdf')); } catch (e) { toast('PDF maken mislukt: ' + e.message); } }],
+      try { await download(await maakRapportPdf(p), bestandsnaam(p, 'pdf')); } catch (e) { toast('PDF maken mislukt: ' + e.message); } }],
     ['gallery', "Foto's opslaan (zip)", () => fotosZip(p)],
     ['check', 'Project afronden (alles in één zip)', () => projectAfronden(p)],
-    ['edit', 'Project wijzigen', () => projectForm(p)], ...(p.simpel ? [['huis', 'Adressenlijst van een complex', () => adressenSheet(p)]] : []), ...(p.simpel ? [] : [['check', 'Eindcontrole: wat staat nog open', () => { stapel = [p.id, 'eind']; render(); }]]), ['terugzet', 'Naar kantoor of telefoon sturen', () => projectVersturen(p)], ['opslaan', 'Back-up van dit project', () => backupMaken(p)],
+    ['edit', 'Project wijzigen', () => projectForm(p)], ['huis', 'Adressenlijst van een complex', () => adressenSheet(p)], ['terugzet', 'Naar kantoor of telefoon sturen', () => projectVersturen(p)], ['opslaan', 'Back-up van dit project', () => backupMaken(p)],
     ['trash', 'Project verwijderen', async () => {
       if (!await bevestig('Project verwijderen?', `"${p.adres}" en alle mappen en foto's worden verwijderd.`)) return;
       projecten = projecten.filter(x => x !== p); bewaar();
@@ -1211,10 +1156,6 @@ function adressenSheet(p, over = []) {
 }
 const adresRijHtml = (p, altijd = false) => !altijd && !(p.adressen || []).length && !(p.groepen || []).length ? '' : `<div class="card" style="margin-top:12px"><button class="srij" id="adOpen"><span class="sico">${ic('huis')}</span><span class="t"><b>Adressen van het complex</b><small>${esc(adresKort(p)) || 'Plak de lijst uit Excel: aantal woningen per type'}</small></span><span class="pijl">▸</span></button></div>`;
 
-// Dichtgeklapte regels onderaan het project (BAG en alle mappen); tik = open of dicht. Blijft zo tot de app sluit.
-const VAK_OPEN = new Set();
-const vakKop = (k, icoon, titel, sub) => `<button class="card vak${VAK_OPEN.has(k) ? ' open' : ''}" data-vak="${k}"><span style="color:var(--gold)">${icoon}</span>
-  <span class="t"><b>${esc(titel)}</b>${sub ? `<small>${esc(sub)}</small>` : ''}</span><span class="pijl">▸</span></button>`;
 
 function vraagNaam(titel, p, huidig, gid) {
   return new Promise(res => {
@@ -1238,234 +1179,9 @@ function vraagNaam(titel, p, huidig, gid) {
   });
 }
 
-// ---------- BAG: woningen per gebouw (Kadaster via PDOK, gratis en zonder sleutel) ----------
-// Per adres zoekt de app het gebouw (pand) op, met bouwjaar en alle woningen erin. De woningen worden
-// op oppervlakte in typen verdeeld (A, B, C …): meet één woning per type in en zet de map op "× type".
-// Alleen het adres gaat naar PDOK en de 3D BAG; geen klantnaam of werknummer.
-const BAG_URL = 'https://api.pdok.nl/kadaster/bag/ogc/v2/collections', BAG3D_URL = 'https://api.3dbag.nl/collections/pand/items/NL.IMBAG.Pand.';
-async function bagJson(url) {
-  const ctrl = new AbortController(), t = setTimeout(() => ctrl.abort(), 20000);
-  try {
-    const r = await fetch(url, { signal: ctrl.signal, headers: { Accept: 'application/geo+json, application/json' } });
-    if (!r.ok) throw new Error(`BAG gaf fout ${r.status}`);
-    return await r.json();
-  } catch (e) {
-    if (e.name === 'AbortError') throw new Error('BAG reageert niet, probeer het straks opnieuw');
-    if (navigator.onLine === false) throw new Error('Geen internet');
-    throw e;
-  } finally { clearTimeout(t); }
-}
-// "Statenjachtstraat 2, Amsterdam", "Dorpsstraat 12a, 1234 AB Utrecht", "Kerkweg 4-2 Ede" → zoekvelden.
-// "Statenjachtstraat 2 t/m 56": het eerste nummer is om te zoeken, de reeks wordt het huisnummerfilter.
-const REEKS_TM = /(\d+)\s*(?:t\/m|t\.m\.|tm|tot en met)\s*\d+(?:\s*(?:even|oneven))?/i;
-function adresDelen(adres) {
-  const t = String(adres || '').trim().replace(REEKS_TM, '$1'), pc = /\b(\d{4})\s?([a-z]{2})\b/i.exec(t);
-  const m = /^(.*?[a-zà-ÿ.'])\s+(\d{1,5})\s*([a-z])?(?:\s*[-/]\s*([\w]{1,4}))?\b(.*)$/i.exec(t.replace(/\b\d{4}\s?[a-z]{2}\b/i, ' ').replace(/\s+/g, ' ').trim());
-  if (!m) return null;
-  const plaats = m[5].replace(/^[\s,]+/, '').replace(/,.*$/, '').trim();
-  return { straat: m[1].replace(/,$/, '').trim(), nr: +m[2], letter: (m[3] || '').toUpperCase(), toev: m[4] || '', plaats,
-    postcode: pc ? (pc[1] + pc[2]).toUpperCase() : '' };
-}
-const bagFeatures = j => Array.isArray(j?.features) ? j.features : [];
-// Verwijzing naar een pand: een link of een identificatie, in welke vorm PDOK hem ook geeft.
-const bagRef = x => String(typeof x === 'object' && x ? x.href || x.id || x.identificatie || '' : x || '');
-const bagRefs = v => (Array.isArray(v) ? v : v ? [v] : []).map(bagRef).filter(Boolean);
-// Het pand van een verblijfsobject, onder welke veldnaam PDOK het ook zet (pand, pand.href, pand_href, ...).
-const vboPand = f => { const pr = f.properties || {}, k = ['pand', 'pand.href', 'pand_href', 'pand_identificatie', 'pandidentificatie', 'pandref'].find(k => pr[k]);
-  return bagRefs(k ? pr[k] : Object.entries(pr).find(([n, v]) => /^pand/i.test(n) && v)?.[1]); };
-// Een punt binnen een vlak (ring met [lon, lat]).
-function inVlak([x, y], ring) {
-  let in_ = false;
-  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-    const [xi, yi] = ring[i], [xj, yj] = ring[j];
-    if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) in_ = !in_;
-  }
-  return in_;
-}
-const pandRing = g => g?.type === 'MultiPolygon' ? g.coordinates?.[0]?.[0] : g?.coordinates?.[0];
-// Gebouwen zoeken op de plek van de woningen zelf: de panden waar de adrespunten in liggen. Werkt ook als de verwijzing naar het pand ontbreekt.
-async function pandenBijPunten(woningen) {
-  const cellen = new Map();
-  for (const w of woningen) { if (!w.xy) continue; const k = `${Math.floor(w.xy[0] / 0.0015)}:${Math.floor(w.xy[1] / 0.001)}`; if (!cellen.has(k)) cellen.set(k, []); cellen.get(k).push(w); }
-  const panden = new Map();
-  for (const ws of [...cellen.values()].slice(0, 25)) {
-    const xs = ws.map(w => w.xy[0]), ys = ws.map(w => w.xy[1]), m = 0.0003;
-    let url = `${BAG_URL}/pand/items?f=json&limit=1000&bbox=${[Math.min(...xs) - m, Math.min(...ys) - m, Math.max(...xs) + m, Math.max(...ys) + m].map(v => v.toFixed(7)).join(',')}`;
-    for (let blad = 0; url && blad < 5; blad++) {
-      const j = await bagJson(url);
-      for (const pand of bagFeatures(j)) {
-        const ring = pandRing(pand.geometry); if (!Array.isArray(ring)) continue;
-        const pid = String(pand.properties?.identificatie || pand.id), hier = ws.filter(w => inVlak(w.xy, ring));
-        if (hier.length) { hier.forEach(w => { w.pand = pid; }); panden.set(pid, pand); }
-      }
-      url = (j.links || []).find(l => l.rel === 'next')?.href || null;
-    }
-  }
-  return panden;
-}
-async function bagAdresZoek(adres) {
-  const d = adresDelen(adres);
-  if (!d) throw new Error('Geen straat en huisnummer gevonden in het adres');
-  const zoek = async q => bagFeatures(await bagJson(`${BAG_URL}/verblijfsobject/items?f=json&limit=50&${new URLSearchParams(q)}`));
-  let lijst = d.postcode ? await zoek({ postcode: d.postcode, huisnummer: d.nr }) : [];
-  if (!lijst.length) {
-    // Straatnaam zoals in de BAG: hoofdletter vooraan, de rest zoals getypt.
-    const straat = d.straat[0].toUpperCase() + d.straat.slice(1);
-    lijst = await zoek({ openbare_ruimte_naam: straat, huisnummer: d.nr, ...(d.plaats ? { woonplaats_naam: d.plaats[0].toUpperCase() + d.plaats.slice(1) } : {}) });
-    if (!lijst.length && d.plaats) lijst = await zoek({ openbare_ruimte_naam: straat, huisnummer: d.nr });
-  }
-  if (!lijst.length) throw new Error(`Adres niet gevonden in de BAG: ${d.straat} ${d.nr}`);
-  const pas = f => (f.properties.huisletter || '').toUpperCase() === d.letter && String(f.properties.toevoeging || '') === d.toev;
-  const plaatsen = new Set(lijst.map(f => f.properties.woonplaats_naam));
-  if (plaatsen.size > 1 && !d.plaats) throw new Error(`Dit adres bestaat in meer plaatsen (${[...plaatsen].slice(0, 3).join(', ')}). Zet de plaats erachter.`);
-  return lijst.find(pas) || lijst.find(f => (f.properties.huisletter || '').toUpperCase() === d.letter) || lijst[0];
-}
-async function bagPand(ref) {
-  const id = ref.split(/[/?#]/).filter(Boolean).pop();
-  if (/^https?:/.test(ref)) { const j = await bagJson(ref + (ref.includes('?') ? '&' : '?') + 'f=json'); return j.type === 'Feature' ? j : bagFeatures(j)[0]; }
-  return bagFeatures(await bagJson(`${BAG_URL}/pand/items?f=json&identificatie=${encodeURIComponent(id)}`))[0];
-}
-function bagKader(geom) {
-  const pt = []; const loop = c => typeof c[0] === 'number' ? pt.push(c) : c.forEach(loop); loop(geom?.coordinates || []);
-  if (!pt.length) return null;
-  const xs = pt.map(p => p[0]), ys = pt.map(p => p[1]);
-  return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
-}
-// Alle verblijfsobjecten die in dit pand liggen: alles binnen het kader van het gebouw, en dan alleen die naar dit pand verwijzen.
-async function bagObjecten(pand) {
-  const k = bagKader(pand.geometry); if (!k) return [];
-  const sleutels = [pand.id, pand.properties?.identificatie].filter(Boolean).map(String);
-  const hoort = f => vboPand(f).some(r => sleutels.some(s => r === s || r.endsWith('/' + s) || r.endsWith(s)));
-  let url = `${BAG_URL}/verblijfsobject/items?f=json&limit=1000&bbox=${k.map(v => v.toFixed(7)).join(',')}`, uit = [];
-  for (let blad = 0; url && blad < 10; blad++) {
-    const j = await bagJson(url);
-    uit.push(...bagFeatures(j).filter(hoort));
-    url = (j.links || []).find(l => l.rel === 'next')?.href || null;
-  }
-  return uit;
-}
-// Zoekt in een antwoord (CityJSON of GeoJSON) naar een veld, waar het ook staat.
-function zoekVeld(o, naam, diep = 0) {
-  if (!o || typeof o !== 'object' || diep > 8) return undefined;
-  if (naam in o && typeof o[naam] !== 'object') return o[naam];
-  for (const v of Object.values(o)) { const r = zoekVeld(v, naam, diep + 1); if (r !== undefined) return r; }
-  return undefined;
-}
-async function bag3d(identificatie) {
-  try {
-    const j = await bagJson(BAG3D_URL + encodeURIComponent(identificatie));
-    const lagen = zoekVeld(j, 'b3_bouwlagen'), nok = zoekVeld(j, 'b3_h_nok') ?? zoekVeld(j, 'b3_h_dak_max'), grond = zoekVeld(j, 'b3_h_maaiveld');
-    return { lagen: Number.isFinite(+lagen) && +lagen > 0 ? Math.round(+lagen) : null,
-      hoogte: Number.isFinite(+nok) && Number.isFinite(+grond) ? Math.round((+nok - +grond) * 10) / 10 : null };
-  } catch { return { lagen: null, hoogte: null }; }
-}
-const isWoning = f => /woon/i.test(String(f.properties.gebruiksdoel || '')) && !/ingetrokken|niet gerealiseerd|ten onrechte|gesloopt/i.test(String(f.properties.status || ''));
-// Huisnummerfilter, bijv. "2 t/m 56", "2-56 even", "2 t/m 20, 24, 30-40": alleen die woningen tellen nu mee.
-function parseReeks(tekst) {
-  const t = String(tekst || '').toLowerCase(), uit = [];
-  const rx = /(\d+)\s*(?:(?:t\/m|t\.m\.|tm|tot en met|-|–|—)\s*(\d+))?(?:\s*(oneven|even))?/g;
-  for (const m of t.matchAll(rx)) { const van = +m[1], tot = m[2] ? +m[2] : van; uit.push({ van: Math.min(van, tot), tot: Math.max(van, tot), par: m[3] || '' }); }
-  if (!uit.length) return null;
-  // "even"/"oneven" aan het eind van de zin geldt voor alle reeksen zonder eigen keuze.
-  const alle = /\b(oneven|even)\s*$/.exec(t)?.[1];
-  if (alle) uit.forEach(r => { if (!r.par) r.par = alle; });
-  return uit;
-}
-const inReeks = (reeks, nr) => !reeks || reeks.some(r => nr >= r.van && nr <= r.tot && (!r.par || (r.par === 'even') === (nr % 2 === 0)));
+// ---------- Woningtypen uit de BAG (oude projecten) ----------
+// Het ophalen bij het Kadaster is weg. Oude projecten met een map op "× type" houden hun factor: die komt uit de opgeslagen woningen.
 const bagMee = p => (p.bag?.woningen || []).filter(w => !w.uit);
-// Woningen die je niet meeneemt (bijv. een zorgruimte of bedrijfsruimte): ze tellen nergens mee, maar zijn terug te zetten.
-const bagUit = p => (p.bag?.woningen || []).filter(w => w.uit);
-const bagNummer = w => `${w.nr}${w.letter || ''}${w.toev ? '-' + w.toev : ''}`;
-// Haalt het gebouw van een adres op en voegt het toe aan p.bag (een gebouw dat er al is, wordt ververst).
-const bagWoning = (f, pand) => ({ id: String(f.properties.identificatie || f.id), pand, straat: f.properties.openbare_ruimte_naam, plaats: f.properties.woonplaats_naam,
-  nr: +f.properties.huisnummer, letter: f.properties.huisletter || '', toev: f.properties.toevoeging || '', m2: +f.properties.oppervlakte || 0, type: null,
-  xy: f.geometry?.type === 'Point' ? f.geometry.coordinates.slice(0, 2).map(v => +(+v).toFixed(7)) : null });
-const pandId = ref => ref.split(/[/?#]/).filter(Boolean).pop();
-// Eén heel gebouw bij één adres ("Statenjachtstraat 2"): alle woningen in dat pand.
-async function bagGebouw(adres) {
-  const vbo = await bagAdresZoek(adres), ref = vboPand(vbo)[0];
-  if (!ref) throw new Error(`Bij ${adres} staat geen gebouw in de BAG`);
-  const pand = await bagPand(ref); if (!pand) throw new Error(`Gebouw van ${adres} niet gevonden in de BAG`);
-  const objecten = await bagObjecten(pand), pid = String(pand.properties.identificatie || pand.id);
-  return { woningen: objecten.filter(isWoning).map(f => bagWoning(f, pid)), panden: new Map([[pid, pand]]) };
-}
-// Een straat met huisnummerreeksen ("Statenjachtstraat 1 t/m 56, 113 t/m 167"): alle woningen van die straat met een nummer in de reeks.
-async function bagStraat(r) {
-  const straat = r.straat[0].toUpperCase() + r.straat.slice(1), plaats = r.plaats ? r.plaats[0].toUpperCase() + r.plaats.slice(1) : '';
-  const q = new URLSearchParams({ f: 'json', limit: 1000, openbare_ruimte_naam: straat, ...(plaats ? { woonplaats_naam: plaats } : {}) });
-  let url = `${BAG_URL}/verblijfsobject/items?${q}`, alle = [];
-  for (let blad = 0; url && blad < 10; blad++) { const j = await bagJson(url); alle.push(...bagFeatures(j)); url = (j.links || []).find(l => l.rel === 'next')?.href || null; }
-  if (!alle.length) throw new Error(`${straat}${plaats ? ' in ' + plaats : ''} niet gevonden in de BAG`);
-  const plaatsen = new Set(alle.map(f => f.properties.woonplaats_naam));
-  if (plaatsen.size > 1) throw new Error(`${straat} bestaat in meer plaatsen (${[...plaatsen].slice(0, 3).join(', ')}). Zet de plaats erachter.`);
-  const mee = alle.filter(f => isWoning(f) && inReeks(r.reeks, +f.properties.huisnummer));
-  return { woningen: mee.map(f => bagWoning(f, pandId(vboPand(f)[0] || ''))),
-    panden: new Map([...new Set(mee.flatMap(f => vboPand(f)))].map(ref => [pandId(ref), ref])) };
-}
-// De adressenlijst van een klus: één straat per regel, met of zonder huisnummerreeks. De plaats van het projectadres geldt
-// voor regels zonder plaats.
-function bagRegels(tekst, standaardPlaats = '') {
-  return String(tekst || '').split(/\n|;/).map(r => r.trim()).filter(Boolean).map(regel => {
-    const m = /^(.*?[a-zà-ÿ.'])\s+(\d[\s\S]*)$/i.exec(regel.replace(/\be\.?o\.?$/i, '').trim()); if (!m) return { regel, fout: true };
-    let rest = m[2], plaats = standaardPlaats;
-    const pl = /,?\s*(?:\d{4}\s?[a-z]{2}\s+)?([a-zà-ÿ][a-zà-ÿ' -]*[a-zà-ÿ])\s*$/i.exec(rest);
-    if (pl) {
-      // "1 t/m 9 oneven Amsterdam": even/oneven hoort bij de nummers, de rest is de plaats.
-      const w = pl[1].trim(), par = /^(oneven|even)\b\s*/i.exec(w), naam = par ? w.slice(par[0].length).trim() : w;
-      if (naam && !/^(t\/?m|tm|tot en met|even|oneven)$/i.test(naam)) { plaats = naam; rest = rest.slice(0, pl.index) + (par ? ' ' + par[1] : ''); }
-    }
-    // "4-2" of "4-H" is een toevoeging (één adres); "2-56" (tweede getal groter) is een reeks.
-    const tv = /^\s*(\d+)\s*-\s*(\d+)\s*$/.exec(rest), heel = /^\s*\d+\s*[a-z]?\s*(?:[-/]\s*\w{1,4})?\s*,?\s*$/i.test(rest) && !(tv && +tv[2] > +tv[1]);
-    return { regel, straat: m[1].replace(/,$/, '').trim(), plaats, heel, adres: `${m[1].trim()} ${rest.trim().replace(/,$/, '')}${plaats ? ', ' + plaats : ''}`, reeks: heel ? null : parseReeks(rest) };
-  });
-}
-const plaatsVan = adres => /,\s*(?:\d{4}\s?[a-z]{2}\s+)?([a-zà-ÿ][a-zà-ÿ' -]+)\s*$/i.exec(String(adres || ''))?.[1]?.trim() || '';
-// Haalt alles van de adressenlijst op. Typen en namen van woningen die er al waren blijven bewaard.
-async function bagOphalen(p, tekst) {
-  const regels = bagRegels(tekst, plaatsVan(p.adres)), fout = regels.find(r => r.fout || (!r.heel && !r.reeks));
-  if (!regels.length) throw new Error('Vul minstens één straat met huisnummer in');
-  if (fout) throw new Error(`Niet begrepen: "${fout.regel}". Schrijf bijv. Statenjachtstraat 1 t/m 56`);
-  const woningen = new Map(), panden = new Map();
-  for (const r of regels) {
-    const u = r.heel ? await bagGebouw(r.adres) : await bagStraat(r);
-    u.woningen.forEach(w => woningen.set(w.id, w)); u.panden.forEach((v, k) => { if (!panden.has(k) || typeof panden.get(k) === 'string') panden.set(k, v); });
-  }
-  // Per gebouw bouwjaar en bouwlagen (hooguit 15 gebouwen, zodat het snel blijft).
-  const gebouwen = [];
-  for (const [id, v] of [...panden].slice(0, 15)) {
-    try {
-      const pand = typeof v === 'string' ? await bagPand(v) : v; if (!pand) continue;
-      const pid = String(pand.properties.identificatie || id), ws = [...woningen.values()].filter(w => w.pand === id || w.pand === pid);
-      ws.forEach(w => { w.pand = pid; });
-      const eerste = ws.sort((a, b) => a.nr - b.nr)[0];
-      gebouwen.push({ id: pid, adres: eerste ? `${eerste.straat} ${eerste.nr}` : pid, bouwjaar: pand.properties.bouwjaar ?? null, woningen: ws.length, omtrek: pandOmtrek(pand.geometry), ...await bag3d(pid) });
-    } catch {}
-  }
-  // Geen enkel gebouw via de verwijzing gevonden: zoek de panden op de plek van de adressen.
-  if (!gebouwen.some(g => g.omtrek)) {
-    try {
-      const ws = [...woningen.values()], gevonden = await pandenBijPunten(ws);
-      gebouwen.length = 0;
-      for (const [pid, pand] of [...gevonden].slice(0, 15)) {
-        const eigen = ws.filter(w => w.pand === pid).sort((a, b) => a.nr - b.nr);
-        gebouwen.push({ id: pid, adres: eigen[0] ? `${eigen[0].straat} ${eigen[0].nr}` : pid, bouwjaar: pand.properties?.bouwjaar ?? null, woningen: eigen.length, omtrek: pandOmtrek(pand.geometry), ...await bag3d(pid) });
-      }
-    } catch {}
-  }
-  const oud = new Map((p.bag?.woningen || []).map(w => [w.id, w.type])), oudUit = new Set(bagUit(p).map(w => w.id));
-  p.bag = { regels: tekst.trim(), gebouwen, woningen: [...woningen.values()].map(w => ({ ...w, type: oud.get(w.id) || null, ...(oudUit.has(w.id) ? { uit: true } : {}) })), namen: p.bag?.namen, opgehaald: new Date().toISOString() };
-  // Nieuwe woningen zonder type: op oppervlakte in groepjes; binnen ±6% (min. 3 m²) is hetzelfde type.
-  let groep = null, start = 0;
-  for (const w of p.bag.woningen.filter(w => !w.type).sort((a, b) => a.m2 - b.m2)) {
-    if (!groep || w.m2 > start + Math.max(3, start * 0.06)) { groep = volgendeType(p); start = w.m2; }
-    w.type = groep;
-  }
-  return p.bag;
-}
-function volgendeType(p) {
-  const bezet = new Set(p.bag.woningen.map(w => w.type).concat(Object.keys(p.bag.namen || {})));
-  for (let i = 0; ; i++) { const t = i < 26 ? String.fromCharCode(65 + i) : 'T' + (i + 1); if (!bezet.has(t)) { bezet.add(t); return t; } }
-}
 // Typen met aantal, oppervlakte en huisnummers, in volgorde van oppervlakte.
 function bagTypen(p) {
   const m = new Map();
@@ -1476,109 +1192,16 @@ function bagTypen(p) {
       m2: m2.length ? (m2[0] === m2.at(-1) ? `${m2[0]} m²` : `${m2[0]}–${m2.at(-1)} m²`) : '', min: m2[0] || 0 };
   }).sort((a, b) => a.min - b.min || a.id.localeCompare(b.id));
 }
-// "2, 4, 6, 8, 12" → "2–8, 12"; per straat, in stappen van 1 of 2.
-function nummerReeks(ws) {
-  const perStraat = new Map();
-  for (const w of ws) { if (!perStraat.has(w.straat)) perStraat.set(w.straat, []); perStraat.get(w.straat).push(w); }
-  const straten = [...perStraat.entries()].map(([straat, lijst]) => {
-    const nrs = lijst.sort((a, b) => a.nr - b.nr || bagNummer(a).localeCompare(bagNummer(b)));
-    const stukken = []; let i = 0;
-    while (i < nrs.length) {
-      if (nrs[i].letter || nrs[i].toev) { stukken.push(bagNummer(nrs[i])); i++; continue; }
-      let j = i, stap = nrs[i + 1] && !nrs[i + 1].letter && !nrs[i + 1].toev ? nrs[i + 1].nr - nrs[i].nr : 0;
-      if (stap === 1 || stap === 2) while (nrs[j + 1] && !nrs[j + 1].letter && !nrs[j + 1].toev && nrs[j + 1].nr - nrs[j].nr === stap) j++;
-      stukken.push(j - i >= 2 ? `${nrs[i].nr}–${nrs[j].nr}` : nrs.slice(i, j + 1).map(w => w.nr).join(', ')); i = j + 1;
-    }
-    return { straat, tekst: stukken.join(', ') };
-  });
-  return straten.length === 1 ? straten[0].tekst : straten.map(s => `${s.straat} ${s.tekst}`).join('; ');
-}
 // Hoe vaak een map telt in de meetstaat: het aantal woningen van het gekozen type, of een eigen getal.
 function keerVan(p, s) {
   if (s.keer?.type) { const t = bagTypen(p).find(t => t.id === s.keer.type); return t ? t.aantal : 1; }
   return Math.max(1, Math.round(+s.keer?.n || 1));
 }
-// Regels voor het rapport: woningen en typen uit de BAG.
-const bagRijen = p => p.bag ? [['BAG', bagSamenvatting(p)], ...(p.bag.regels ? [['Adressen', p.bag.regels.split('\n').join('; ')]] : []), ...bagTypen(p).map(t => [t.naam, `${t.aantal}× • ${t.m2} • nrs ${nummerReeks(t.woningen)}`])] : [];
-const keerNaam = (p, s) => s.keer?.type ? bagTypen(p).find(t => t.id === s.keer.type)?.naam || '' : '';
-function bagSamenvatting(p) {
-  const g = p.bag?.gebouwen || [], n = bagMee(p).length;
-  if (!p.bag) return '';
-  const jaren = [...new Set(g.map(x => x.bouwjaar).filter(Boolean))], lagen = [...new Set(g.map(x => x.lagen).filter(Boolean))];
-  return [`${n} ${n === 1 ? 'woning' : 'woningen'}`, g.length > 1 ? `${g.length} gebouwen` : '', jaren.length ? `bouwjaar ${jaren.join(', ')}` : '',
-    lagen.length ? `${lagen.join('/')} bouwlagen` : ''].filter(Boolean).join(' • ');
-}
-// Eén regel per woningtype; de huisnummers staan achter de i-knop, zodat de lijst rustig blijft.
-const uitRij = p => { const n = bagUit(p).length;
-  return n ? `<button class="wzlink stil" data-bagterug style="text-align:left">${n} ${n === 1 ? 'woning' : 'woningen'} niet meegenomen • <u>terugzetten</u></button>` : ''; };
-document.addEventListener('click', e => {
-  if (!e.target.closest?.('[data-bagterug]')) return;
-  const p = vind(stapel[0]); if (!p?.bag) return;
-  p.bag.woningen.forEach(w => delete w.uit); bewaar(); render(); toast('Alle woningen tellen weer mee');
-});
-// Gebouwvorm erbij halen voor gebouwen die zijn opgehaald voordat de kaart bestond. Verder blijft alles van de BAG zoals het is.
-document.addEventListener('click', async e => {
-  const b = e.target.closest?.('[data-vorm]'); if (!b) return;
-  const p = vind(stapel[0]); if (!p?.bag) return;
-  b.disabled = true; b.textContent = 'Bezig met ophalen…';
-  // Dezelfde adressenlijst opnieuw ophalen: typen, namen en "niet meenemen" blijven bewaard.
-  const straten = new Map(); for (const w of p.bag.woningen || []) { const k = `${w.straat}|${w.plaats}`; if (!straten.has(k)) straten.set(k, []); straten.get(k).push(w.nr); }
-  const regels = p.bag.regels || [...straten].map(([k, nrs]) => { const [st, pl] = k.split('|'); return `${st} ${[...new Set(nrs)].sort((x, y) => x - y).join(', ')} ${pl}`; }).join('\n');
-  try {
-    await bagOphalen(p, regels); bewaar(); render();
-    const n = kaartGebouwen(p).length;
-    toast(n ? `Gebouwvorm opgehaald (${n} ${n === 1 ? 'gebouw' : 'gebouwen'})` : 'De BAG gaf geen gebouwvorm terug. Meet met een foto en inspreken.');
-  } catch (x) { toast(`BAG: ${x.message === 'Failed to fetch' ? 'geen verbinding met de BAG' : x.message}`); render(); }
-});
-const typeRij = (id, naam, m2, aantal, nrs, extra = '') => `<div class="btype" data-type="${id}" role="button"><span class="bt">${esc(naam)}</span><span class="bm">${esc(m2)}</span>
-  <span class="ba">${aantal}×</span><button class="binfo" data-info aria-label="Huisnummers van ${esc(naam)}" aria-expanded="false">i</button>
-  ${extra ? `<small>${esc(extra)}</small>` : ''}<small class="bnrs" hidden>Huisnummers: ${esc(nrs)}</small></div>`;
 document.addEventListener('click', e => {
   const b = e.target.closest?.('[data-info]'); if (!b) return;
   e.stopPropagation(); const n = b.closest('.btype, .stapuitleg')?.querySelector('.bnrs'); if (!n) return;
   n.hidden = !n.hidden; b.classList.toggle('on', !n.hidden); b.setAttribute('aria-expanded', String(!n.hidden));
 }, true);
-function bagKaartHtml(p) {
-  if (!p.bag) return `<div class="card bag"><div class="bkop">${ic('huis')}<div><b>Woningen uit de BAG</b><small>Aantal woningen, bouwjaar en woningtypen van de adressen in deze klus</small></div></div>
-    <button class="ghost gold" id="bagHaal">${ic('huis')} Ophalen</button></div>`;
-  const typen = bagTypen(p);
-  return `<div class="card bag"><div class="bkop">${ic('huis')}<div><b>${esc(bagSamenvatting(p))}</b><small>BAG • ${esc((p.bag.regels || p.bag.gebouwen.map(g => g.adres).join('\n')).split('\n').join(' | '))}</small></div>
-      <button class="iconbtn" id="bagMenu" aria-label="BAG-opties">${ic('more')}</button></div>
-    ${typen.length ? typen.map(t => { const sub = p.submappen.find(s => s.keer?.type === t.id);
-      return typeRij(t.id, t.naam, t.m2, t.aantal, nummerReeks(t.woningen), sub ? `map ${sub.naam}` : ''); }).join('')
-      : '<div style="color:var(--muted);padding:6px 0">Geen woningen gevonden bij deze adressen.</div>'}${uitRij(p)}</div>`;
-}
-// Adressen van de klus: één straat per regel, met huisnummers ("1 t/m 56, 113 t/m 167") of één adres voor het hele gebouw.
-function bagAdressenSheet(p) {
-  const voorstel = p.bag?.regels || (/\d/.test(p.adres) ? p.adres : '');
-  const s = sheet(`<h2>Adressen van deze klus</h2>
-    <div style="color:var(--muted);font-size:13px;margin-bottom:8px">Eén straat per regel, met de huisnummers die je nu doet. Eén adres zonder reeks = het hele gebouw.</div>
-    <label class="field" style="margin:0"><textarea id="baT" rows="5" placeholder="Statenjachtstraat 1 t/m 56, 113 t/m 167&#10;Schepenlaan 40 t/m 88">${esc(voorstel)}</textarea></label>
-    <div style="color:var(--muted);font-size:12px;margin-top:6px">${plaatsVan(p.adres) ? `Plaats: ${esc(plaatsVan(p.adres))} (uit het projectadres). Andere plaats? Zet hem achter de regel: "…, Diemen".` : 'Zet de plaats achter de regel, bijv. "Schepenlaan 40 t/m 88, Amsterdam".'}</div>
-    <div class="actions"><button id="baNee">Annuleren</button><button class="primary" id="baOk" style="width:auto;padding:12px 24px;margin:0">Ophalen</button></div>`);
-  $('#baNee', s).onclick = () => sluit(s);
-  $('#baOk', s).onclick = async () => {
-    const tekst = $('#baT', s).value.trim(), knop = $('#baOk', s); if (!tekst) return;
-    knop.disabled = true; knop.textContent = 'Ophalen…';
-    try { await bagOphalen(p, tekst); bewaar(); sluit(s); render(); toast(bagSamenvatting(p) || 'Opgehaald'); }
-    catch (e) { toast(`BAG: ${e.message === 'Failed to fetch' ? 'geen verbinding met de BAG' : e.message}`); knop.disabled = false; knop.textContent = 'Ophalen'; }
-  };
-  setTimeout(() => $('#baT', s).focus(), 50);
-}
-function koppelBagKaart(m, p) {
-  const h = $('#bagHaal', m); if (h) h.onclick = () => bagAdressenSheet(p);
-  const mn = $('#bagMenu', m);
-  if (mn) mn.onclick = () => menu([
-    ['edit', 'Adressen en huisnummers wijzigen', () => bagAdressenSheet(p)],
-    ['terugzet', 'Opnieuw ophalen', async () => {
-      toast('BAG ophalen…');
-      try { await bagOphalen(p, p.bag.regels || p.bag.gebouwen.map(g => g.adres).join('\n')); bewaar(); render(); toast(bagSamenvatting(p)); }
-      catch (e) { toast(`BAG: ${e.message === 'Failed to fetch' ? 'geen verbinding met de BAG' : e.message}`); } }],
-    ['trash', 'BAG-gegevens weghalen', async () => {
-      if (!await bevestig('BAG-gegevens weghalen?', 'Het aantal woningen en de typen verdwijnen uit dit project. Mappen met "× type" tellen dan weer 1 keer.', { ja: 'Weghalen' })) return;
-      delete p.bag; bewaar(); render(); }]]);
-  m.querySelectorAll('[data-type]').forEach(b => b.onclick = () => bagTypeSheet(p, b.dataset.type));
-}
 const MAP_KLIK = ['Voorgevel', 'Achtergevel', 'Zijgevel links', 'Zijgevel rechts', 'Kopgevel', 'Galerijgevel', 'Balkongevel', 'Dak', 'Trappenhuis', 'Bergingen'];
 function vraagTekst(titel, label, hint, waarde = '', voorstellen = null) {
   if (!voorstellen && /^(Nieuwe map|Gevel toevoegen|Map kopiëren)$/.test(titel)) voorstellen = MAP_KLIK;
@@ -1623,51 +1246,6 @@ function koppelVoorstellen(inp, vak, lijst, klaar) {
   });
   toon();
 }
-// Eén type: huisnummers, naam wijzigen, woningen afsplitsen naar een nieuw type, en een map om één woning in te meten.
-function bagTypeSheet(p, id) {
-  const t = bagTypen(p).find(x => x.id === id); if (!t) return;
-  const gekozen = new Set();
-  const sub = p.submappen.find(s => s.keer?.type === id);
-  const s = sheet(`<h2>${esc(t.naam)} <small style="color:var(--muted);font-weight:400">${t.aantal} woningen • ${esc(t.m2)}</small></h2>
-    <div style="color:var(--muted);font-size:13px;margin-bottom:8px">Tik woningen aan die anders zijn (bijv. hoekwoningen) en zet ze in een eigen type.</div>
-    <div class="chips" id="btW">${t.woningen.sort((a, b) => a.straat.localeCompare(b.straat) || a.nr - b.nr).map(w =>
-      `<button class="chip" data-w="${esc(w.id)}">${esc(bagNummer(w))} <small style="color:var(--muted)">${w.m2 || '?'} m²</small></button>`).join('')}</div>
-    <div class="actions" style="flex-wrap:wrap;gap:8px;justify-content:flex-start">
-      <button id="btSplits" disabled>Naar nieuw type</button><button id="btNaam">Naam wijzigen</button><button id="btUit" class="danger">Niet meenemen</button>
-      ${p.plan ? '' : `<button class="primary" id="btSub" style="width:auto;padding:12px 18px;margin:0">${sub ? `Naar map ${esc(sub.naam)}` : 'Map maken (× ' + t.aantal + ')'}</button>`}</div>`);
-  const knop = $('#btSplits', s);
-  s.querySelectorAll('[data-w]').forEach(c => c.onclick = () => {
-    gekozen.has(c.dataset.w) ? gekozen.delete(c.dataset.w) : gekozen.add(c.dataset.w);
-    c.classList.toggle('on', gekozen.has(c.dataset.w));
-    knop.disabled = !gekozen.size || gekozen.size === t.aantal;
-    knop.textContent = gekozen.size ? `${gekozen.size} naar nieuw type` : 'Naar nieuw type';
-  });
-  knop.onclick = () => {
-    const nt = volgendeType(p);
-    p.bag.woningen.forEach(w => { if (gekozen.has(w.id)) w.type = nt; });
-    bewaar(); sluit(s); render(); toast(`Type ${nt}: ${gekozen.size} ${gekozen.size === 1 ? 'woning' : 'woningen'}`);
-  };
-  $('#btUit', s).onclick = () => {
-    t.woningen.forEach(w => { w.uit = true; }); bewaar(); sluit(s); render();
-    toast(`${t.naam} telt niet mee (${t.aantal} ${t.aantal === 1 ? 'woning' : 'woningen'}). Terugzetten kan onder de typen.`);
-  };
-  $('#btNaam', s).onclick = async () => {
-    const n = await vraagTekst('Naam van het type', 'Naam', 'Bijv. 3-kamer of Hoekwoning', t.naam);
-    if (!n) return; p.bag.namen = { ...p.bag.namen, [id]: n }; bewaar(); sluit(s); render();
-  };
-  if ($('#btSub', s)) $('#btSub', s).onclick = () => {
-    sluit(s);
-    let doel = sub;
-    if (!doel) {
-      const bestaand = new Set(p.submappen.map(x => x.naam.toLowerCase()));
-      let naam = `Woning ${t.naam}`; for (let i = 2; bestaand.has(naam.toLowerCase()); i++) naam = `Woning ${t.naam} (${i})`;
-      doel = { id: nieuwId(), naam, aangemaakt: new Date().toISOString(), fotos: [], notities: [], keer: { type: id } };
-      p.submappen.push(doel); bewaar();
-      toast(`Map "${naam}" telt ${t.aantal} keer in de meetstaat`);
-    }
-    stapel = [p.id, doel.id]; render();
-  };
-}
 // Map-optie: hoe vaak deze map meetelt (× type uit de BAG, of een eigen aantal).
 function keerSheet(p, s) {
   const typen = bagTypen(p), nu = keerVan(p, s);
@@ -1686,225 +1264,7 @@ function keerSheet(p, s) {
   $('#kOk', sh).onclick = () => { const n = Math.max(1, Math.round(+inp.value || 1)); zet(n > 1 ? { n } : null); };
 }
 
-// ---------- stappenplan: een klus stap voor stap, zodat je niets vergeet ----------
-// Nieuw project: adressen (BAG) → woningtypen en trappenhuizen → algemeen werk → stappenplan.
-// Elke stap heeft eigen mappen (per gevel), dus foto's, lijnen, inspreken en de meetstaat werken zoals altijd.
-const CONTROLE = [
-  { k: 'scheur', n: 'Scheuren in metselwerk', opties: ['Nee', 'Ja'], slecht: ['Ja'], foto: ['Ja'] },
-  { k: 'glas', n: 'Beglazing', opties: ['Enkel', 'Oud dubbel', 'Nieuw dubbel / HR++'], slecht: [], foto: [] },
-  { k: 'rot', n: 'Houtrot', opties: ['Geen', 'Licht', 'Veel'], slecht: ['Licht', 'Veel'], foto: ['Veel'] },
-  { k: 'hwa', n: 'Hemelwaterafvoer', opties: ['In orde', 'Lekt / los', 'Ontbreekt'], slecht: ['Lekt / los', 'Ontbreekt'], foto: [] },
-  { k: 'voeg', n: 'Voegwerk', opties: ['Goed', 'Matig', 'Slecht'], slecht: ['Matig', 'Slecht'], foto: [] },
-];
-// Algemeen werk in jouw volgorde. "teller": meet er één in, × het aantal. "kaart": meten op de kaart met de gebouwvorm uit de BAG.
-const ALGEMEEN = [
-  { n: 'Balkonplafonds', teller: 'balkons' }, { n: 'Hekwerk galerij', kaart: true, teller: 'galerijen' }, { n: 'Balkonhekken', teller: 'balkons' },
-  { n: 'Daklijsten', kaart: true }, { n: 'Algemene deuren box en schuur', teller: 'deuren' }, { n: 'Algemene ingang' }, { n: 'Dakgoten', kaart: true },
-  { n: 'Boeidelen', uit: true }, { n: 'Liftdeuren', teller: 'deuren', uit: true }, { n: 'Brievenbussen', teller: 'stuks', uit: true },
-];
-const FLATWERK = ['Balkonplafonds', 'Hekwerk galerij', 'Balkonhekken', 'Algemene deuren box en schuur', 'Algemene ingang'];
-const nieuwPlan = p => ({ fase: p.bag ? 'typen' : 'bag', stappen: [] });
-// Woningtypen: uit de BAG, of zelf ingevuld ("Zonder BAG").
-function planTypen(p) {
-  if (p.bag?.woningen?.length) return bagTypen(p).map(t => {
-    const w = [...t.woningen].sort((a, b) => a.straat.localeCompare(b.straat) || a.nr - b.nr)[0];
-    return { id: t.id, naam: t.naam, aantal: t.aantal, keer: { type: t.id }, m2: t.m2, nrs: nummerReeks(t.woningen), info: `${t.m2} • nrs ${nummerReeks(t.woningen)}`, voorbeeld: w ? `${w.straat} ${bagNummer(w)}` : '' };
-  });
-  return (p.plan?.hand || []).map(t => ({ id: t.id, naam: t.naam || `Type ${t.id}`, aantal: t.aantal, keer: t.aantal > 1 ? { n: t.aantal } : null, info: '', voorbeeld: '' }));
-}
-const planWoningen = p => planTypen(p).reduce((a, t) => a + t.aantal, 0);
-const stapSubs = (p, st) => st.subs.map(id => p.submappen.find(s => s.id === id)).filter(Boolean);
-const stapKeer = (p, st) => { const s = stapSubs(p, st)[0]; return s ? keerVan(p, s) : 1; };
-const zetKeer = (s, keer) => { if (keer && (keer.type || keer.n > 1)) s.keer = keer; else delete s.keer; };
-function standaardAantal(p, teller) {
-  if (teller === 'galerijen') return Math.max(1, ...(p.bag?.gebouwen || []).map(g => (g.lagen || 2) - 1));
-  if (teller === 'deuren') return 1; // gezamenlijke deuren (bergingen, lift): niet per woning, zelf invullen
-  return Math.max(1, planWoningen(p));
-}
-// Oudere plannen gaven deuren standaard het aantal woningen mee. Staat het daar nog op, dan terug naar 1 (één keer).
-function deurenHerstel(p) {
-  let anders = false;
-  for (const st of p.plan?.stappen || []) {
-    if (st.teller !== 'deuren' || st.deurHerstel) continue;
-    st.deurHerstel = true; anders = true;
-    if (st.naam === 'Box- en schuurdeuren') {
-      const nw = 'Algemene deuren box en schuur', al = p.plan.algemeen?.find(x => x.n === st.naam);
-      if (al) al.n = nw; stapSubs(p, st).forEach(x => { if (x.naam === st.naam) x.naam = nw; }); st.naam = nw; st.sleutel = 'a:' + nw.toLowerCase();
-    }
-    const n = planWoningen(p); for (const s of stapSubs(p, st)) if (n > 1 && s.keer?.n === n) zetKeer(s, { n: 1 });
-  }
-  return anders;
-}
-// Maakt of werkt het stappenplan bij. Bestaande stappen en hun mappen blijven bewaard; niets wordt verwijderd.
-function maakStappen(p) {
-  const pl = p.plan, oud = new Map((pl.stappen || []).map(s => [s.sleutel, s])), uit = [];
-  const sub = (naam, keer, st) => {
-    let s = p.submappen.find(x => x.naam.toLowerCase() === naam.toLowerCase());
-    if (!s) { s = { id: nieuwId(), naam, aangemaakt: new Date().toISOString(), fotos: [], notities: [] }; p.submappen.push(s); }
-    zetKeer(s, keer); s.stapId = st.id; return s.id;
-  };
-  const stap = (sleutel, soort, naam, extra = {}) => {
-    const st = oud.get(sleutel) || { id: nieuwId(), sleutel, soort, naam, klaar: false, overgeslagen: false, controle: {}, nrs: {}, subs: [] };
-    Object.assign(st, extra); st.subs = st.subs.filter(id => p.submappen.some(s => s.id === id)); uit.push(st); return st;
-  };
-  for (const t of planTypen(p)) {
-    const st = stap('w:' + t.id, 'woning', `Woning ${t.naam}`, { type: t.id });
-    if (!st.subs.length) st.subs = ['Voorgevel', 'Achtergevel'].map(g => sub(`${t.naam} – ${g}`, t.keer, st));
-    else stapSubs(p, st).forEach(s => zetKeer(s, t.keer));
-  }
-  const tn = pl.trap?.n || 0, gelijk = pl.trap?.gelijk !== false || tn < 2;
-  for (const i of tn ? (gelijk ? [0] : Array.from({ length: tn }, (_, i) => i + 1)) : []) {
-    const naam = i ? `Trappenhuis ${i}` : 'Trappenhuis', keer = i ? null : { n: tn }, st = stap('t:' + i, 'trap', naam);
-    if (!st.subs.length) st.subs = ['Buitenkant', 'Binnenkant'].map(g => sub(`${naam} – ${g}`, keer, st));
-    else stapSubs(p, st).forEach(s => zetKeer(s, keer));
-  }
-  for (const a of (pl.algemeen || []).filter(a => a.on)) {
-    const st = stap('a:' + a.n.toLowerCase(), 'algemeen', a.n, { teller: a.teller || null, kaart: !!a.kaart });
-    if (!st.subs.length) st.subs = [sub(a.n, a.teller ? { n: standaardAantal(p, a.teller) } : null, st)];
-  }
-  pl.stappen = uit; pl.fase = null;
-}
-// Nieuw type afgesplitst of BAG opnieuw opgehaald: dan klopt het plan niet meer met de typen.
-const planVerouderd = p => p.plan?.stappen?.length && !p.plan.fase &&
-  p.plan.stappen.filter(s => s.soort === 'woning').map(s => s.type).sort().join() !== planTypen(p).map(t => t.id).sort().join();
-
-// ----- stappenplan maken (3 schermen) -----
-function renderWizard(m, p) {
-  const pl = p.plan, f = pl.fase, nr = { bag: 1, typen: 2, algemeen: 3 }[f];
-  m.innerHTML = `<div class="sub"><button class="iconbtn" id="terug" aria-label="Terug">${ic('back')}</button>
-      <div class="t"><b>${esc(p.adres)}</b><small>Stappenplan maken • stap ${nr} van 3</small></div></div><div class="pad wz"></div>`;
-  const pad = $('.wz', m), terug = { bag: () => { if (pl.stappen.length) pl.fase = null; else stapel = []; }, typen: () => { pl.fase = 'bag'; }, algemeen: () => { pl.fase = 'typen'; } }[f];
-  $('#terug').onclick = () => { terug(); bewaar(); render(); };
-  const ga = fase => { pl.fase = fase; bewaar(); render(); };
-  if (f === 'bag') {
-    const voorstel = p.bag?.regels || (/\d/.test(p.adres) ? p.adres : '');
-    pad.innerHTML = `<div class="card bag"><b>Welke adressen doe je bij deze klus?</b>
-        <div class="wzuitleg">Eén straat per regel, met de huisnummers die je gaat doen. Eén adres zonder reeks is het hele gebouw.</div>
-        <label class="field" style="margin:10px 0 0"><textarea id="wzT" rows="4" placeholder="Statenjachtstraat 1 t/m 56, 113 t/m 167&#10;Schepenlaan 40 t/m 88">${esc(voorstel)}</textarea></label>
-        <div class="wzuitleg">${plaatsVan(p.adres) ? `Plaats: ${esc(plaatsVan(p.adres))} (uit het projectadres). Andere plaats? Zet hem achter de regel.` : 'Zet de plaats achter de regel, bijv. "Schepenlaan 40 t/m 88, Amsterdam".'}</div></div>
-      <button class="primary" id="wzHaal">Woningen opzoeken (Kadaster)</button>
-      <button class="wzlink" id="wzZonder">Zelf woningtypen invullen</button>
-      ${pl.stappen.length ? '' : '<button class="wzlink stil" id="wzGeen">Zonder stappenplan, alleen mappen en foto\'s</button>'}`;
-    $('#wzHaal').onclick = async () => {
-      const tekst = $('#wzT').value.trim(), k = $('#wzHaal'); if (!tekst) return toast('Vul minstens één straat met huisnummer in');
-      k.disabled = true; k.textContent = 'Woningen ophalen…';
-      try { await bagOphalen(p, tekst); pl.hand = null; toast(bagSamenvatting(p) || 'Opgehaald'); ga('typen'); }
-      catch (e) { toast(`Kadaster: ${e.message === 'Failed to fetch' ? 'geen verbinding' : e.message}`); k.disabled = false; k.textContent = 'Woningen opzoeken (Kadaster)'; }
-    };
-    $('#wzZonder').onclick = () => { pl.hand = pl.hand?.length ? pl.hand : [{ id: 'A', aantal: 1 }]; ga('typen'); };
-    const g = $('#wzGeen'); if (g) g.onclick = () => { delete p.plan; bewaar(); render(); };
-    return;
-  }
-  if (f === 'typen') {
-    pl.trap ??= { n: planWoningen(p) >= 6 ? 1 : 0, gelijk: true };
-    const bag = !!p.bag?.woningen?.length, typen = planTypen(p), n = planWoningen(p);
-    pad.innerHTML = `<div class="card bag"><b>${bag ? esc(bagSamenvatting(p)) : `${n} ${n === 1 ? 'woning' : 'woningen'} (zelf ingevuld)`}</b>
-        <div class="wzuitleg">${bag ? 'Ingedeeld op oppervlakte. Je meet straks van elk type één woning in; de rest telt mee. Klopt een type niet, bijv. hoekwoningen? Tik het type aan.' : 'Hoeveel woningen van elk type? Je meet van elk type één woning in.'}</div>
-        ${bag ? typen.map(t => typeRij(t.id, t.naam, t.m2, t.aantal, t.nrs)).join('') + uitRij(p)
-          : pl.hand.map((t, i) => `<div class="teller wzhand"><b>${esc(t.naam || 'Type ' + t.id)}</b><button data-hmin="${i}" aria-label="Minder">−</button>
-              <input data-hn="${i}" type="number" inputmode="numeric" min="1" value="${t.aantal}"><button data-hplus="${i}" aria-label="Meer">+</button>
-              ${pl.hand.length > 1 ? `<button class="ghost" data-hweg="${i}" aria-label="Type weghalen">${ic('trash')}</button>` : ''}</div>`).join('') + '<button class="wzlink" id="wzType">+ Nog een woningtype</button>'}
-        ${bag ? '<button class="wzlink" id="wzAdr">Andere adressen</button>' : ''}</div>
-      <div class="card bag"><b>Trappenhuizen</b><div class="wzuitleg">Een eigen onderdeel met buitenkant en binnenkant, net als de gevels van een woning.</div>
-        <div class="teller" style="margin-top:8px"><span style="flex:1">Aantal trappenhuizen</span><button id="trMin" aria-label="Minder">−</button>
-          <input id="trN" type="number" inputmode="numeric" min="0" value="${pl.trap.n}"><button id="trPlus" aria-label="Meer">+</button></div>
-        ${pl.trap.n > 1 ? `<div class="chips" style="margin-top:10px"><button class="chip ${pl.trap.gelijk ? 'on' : ''}" id="trGel">Allemaal gelijk: 1 inmeten, × ${pl.trap.n}</button>
-          <button class="chip ${pl.trap.gelijk ? '' : 'on'}" id="trVer">Verschillend: elk apart</button></div>` : ''}</div>
-      <button class="primary" id="wzVerder">Verder: algemeen werk</button>`;
-    pad.querySelectorAll('[data-type]').forEach(b => b.onclick = () => bagTypeSheet(p, b.dataset.type));
-    const zetHand = (i, v) => { pl.hand[i].aantal = Math.max(1, Math.round(+v || 1)); bewaar(); render(); };
-    pad.querySelectorAll('[data-hmin]').forEach(b => b.onclick = () => zetHand(+b.dataset.hmin, pl.hand[+b.dataset.hmin].aantal - 1));
-    pad.querySelectorAll('[data-hplus]').forEach(b => b.onclick = () => zetHand(+b.dataset.hplus, pl.hand[+b.dataset.hplus].aantal + 1));
-    pad.querySelectorAll('[data-hn]').forEach(i => i.onchange = () => zetHand(+i.dataset.hn, i.value));
-    pad.querySelectorAll('[data-hweg]').forEach(b => b.onclick = () => { pl.hand.splice(+b.dataset.hweg, 1); bewaar(); render(); });
-    const t = $('#wzType'); if (t) t.onclick = () => {
-      const bezet = new Set(pl.hand.map(x => x.id)); let id = 'A'; for (let i = 0; bezet.has(id); i++) id = String.fromCharCode(66 + i);
-      pl.hand.push({ id, aantal: 1 }); bewaar(); render();
-    };
-    const a = $('#wzAdr'); if (a) a.onclick = () => ga('bag');
-    const zetTrap = v => { pl.trap.n = Math.max(0, Math.round(+v || 0)); bewaar(); render(); };
-    $('#trMin').onclick = () => zetTrap(pl.trap.n - 1); $('#trPlus').onclick = () => zetTrap(pl.trap.n + 1); $('#trN').onchange = e => zetTrap(e.target.value);
-    if ($('#trGel')) { $('#trGel').onclick = () => { pl.trap.gelijk = true; bewaar(); render(); }; $('#trVer').onclick = () => { pl.trap.gelijk = false; bewaar(); render(); }; }
-    $('#wzVerder').onclick = () => ga('algemeen');
-    return;
-  }
-  // algemeen werk
-  const klein = planWoningen(p) < 6;
-  pl.algemeen ??= ALGEMEEN.map(a => ({ ...a, on: !a.uit && !(klein && FLATWERK.includes(a.n)) }));
-  pad.innerHTML = `<div class="card bag"><b>Wat is er nog meer te schilderen?</b> <small style="color:var(--gold)">${pl.algemeen.filter(a => a.on).length} gekozen</small>
-      <div class="wzuitleg">Werk dat niet bij één woning hoort. Elk vinkje wordt een eigen stap. Later aanpassen kan altijd.</div>
-      ${(() => { const dl = pl.algemeen.find(a => a.n === 'Daklijsten'), dg = pl.algemeen.find(a => a.n === 'Dakgoten'); if (!dl || !dg) return '';
-        const nu = dl.on && dg.on ? 'beide' : dl.on ? 'lijst' : dg.on ? 'goot' : 'geen';
-        return `<div style="margin-top:12px"><b style="font-size:14px">Wat zit er aan het dak?</b><div class="wzuitleg">Daklijsten en dakgoten meet je op dezelfde manier. Kies alleen wat er echt aan zit, dan komt het maar één keer in het rapport.</div>
-          <div class="seg" style="margin-top:6px">${[['lijst', 'Daklijsten'], ['goot', 'Dakgoten'], ['beide', 'Beide'], ['geen', 'Geen']].map(([k, t]) => `<button data-dak="${k}" class="${nu === k ? 'on' : ''}">${t}</button>`).join('')}</div></div>`; })()}
-      <div class="chips" style="margin-top:10px">${pl.algemeen.map((a, i) => /^Dak(lijsten|goten)$/.test(a.n) ? '' : `<button class="chip ${a.on ? 'on' : ''}" data-a="${i}" aria-pressed="${a.on}">${a.on ? '✓ ' : ''}${esc(a.n)}</button>`).join('')}
-        <button class="chip" id="wzEigen">+ Eigen</button></div></div>
-    <button class="primary" id="wzMaak">${pl.stappen.length ? 'Stappenplan bijwerken' : 'Stappenplan maken'}</button>`;
-  pad.querySelectorAll('[data-a]').forEach(b => b.onclick = () => { const a = pl.algemeen[+b.dataset.a]; a.on = !a.on; bewaar(); render(); });
-  pad.querySelectorAll('[data-dak]').forEach(b => b.onclick = () => { const k = b.dataset.dak;
-    for (const a of pl.algemeen) { if (a.n === 'Daklijsten') a.on = k === 'lijst' || k === 'beide'; if (a.n === 'Dakgoten') a.on = k === 'goot' || k === 'beide'; } bewaar(); render(); });
-  $('#wzEigen').onclick = async () => {
-    const n = await vraagTekst('Eigen onderdeel', 'Naam', 'Bijv. Schutting of Bergingen'); if (!n) return;
-    if (pl.algemeen.some(a => a.n.toLowerCase() === n.toLowerCase())) return toast(`${n} staat er al tussen`);
-    pl.algemeen.push({ n, on: true, eigen: true }); bewaar(); render();
-  };
-  $('#wzMaak').onclick = () => { maakStappen(p); bewaar(); render(); toast(`Stappenplan: ${p.plan.stappen.length} stappen`); };
-}
-
-// ----- het stappenplan in het project -----
-function planKaartHtml(p) {
-  if (!p.plan) return `<button class="card planleeg" id="planNieuw"><span style="color:var(--gold)">${ic('folderPlus')}</span>
-    <span><b>Stappenplan maken</b><small>Adressen, woningtypen, trappenhuizen en algemeen werk stap voor stap, met controlelijst.</small></span>${ic('right')}</button>`;
-  const st = p.plan.stappen, k = st.filter(s => s.klaar).length, v = st.findIndex(s => !s.klaar && !s.overgeslagen);
-  // Kort: de eerste 5 stappen (plus de stap die nu aan de beurt is); de rest achter "nog n stappen".
-  const volg = ['woning', 'trap', 'algemeen'].flatMap(so => st.map((s, i) => [s, i]).filter(([s]) => s.soort === so));
-  const kort = !VAK_OPEN.has('plan') && volg.length > 6, zien = new Set(volg.filter(([s, i], j) => !kort || j < 5 || i === v).map(([s]) => s));
-  const groep = (soort, titel) => { const r = volg.filter(([s]) => s.soort === soort && zien.has(s));
-    return r.length ? `<div class="label">${titel}</div>` + r.map(([s, i]) => stapRij(p, s, i, v)).join('') : ''; };
-  return `<div class="card plan"><div class="pkop"><div><b>Stappenplan</b><small>${k} van ${st.length} stappen klaar${st.some(s => s.overgeslagen) ? ` • ${st.filter(s => s.overgeslagen).length} overgeslagen` : ''}</small></div>
-      <button class="iconbtn" id="planMenu" aria-label="Opties stappenplan">${ic('more')}</button></div>
-    <div class="bar"><i style="width:${st.length ? Math.round(100 * k / st.length) : 0}%"></i></div>
-    ${groep('woning', 'WONINGEN (ÉÉN PER TYPE)')}${groep('trap', 'TRAPPENHUIZEN')}${groep('algemeen', 'ALGEMEEN')}
-    ${volg.length > 6 ? `<button class="wzlink stil" data-vak="plan" style="width:100%">${kort ? `nog ${volg.length - zien.size} ${volg.length - zien.size === 1 ? 'stap' : 'stappen'} ▾` : 'minder tonen ▴'}</button>` : ''}
-    ${v < 0 ? `<div class="pklaar">${st.length ? 'Alle stappen zijn klaar of overgeslagen.' : 'Nog geen stappen.'}</div>` : ''}
-    ${(() => { const n = eindPunten(p).length; return `<button class="wzlink" id="naarEind" style="width:100%">Eindcontrole${n ? ` (${n} open)` : ' ✓'}</button>`; })()}</div>`;
-}
-// ----- werkwijze: de 5 stappen van een klus en één knop met wat er nu moet gebeuren -----
-// 1 Adressen (BAG of eigen typen) • 2 Opnemen (stappenplan) • 3 Kantoor (heen en terug) • 4 Controle (eindcontrole) • 5 Rapport.
-const WERK = ['Adressen', 'Opnemen', 'Kantoor', 'Controle', 'Rapport'];
-function werkStand(p) {
-  const st = p.plan?.stappen || [], v = st.findIndex(s => !s.klaar && !s.overgeslagen), open = eindPunten(p).length;
-  const klaar = [!!p.plan && !p.plan.fase, !!p.plan && st.length > 0 && v < 0, !!p.verstuurdNaar || !Native || !!p.kantoorOver, open === 0, !!p.verstuurd];
-  klaar[2] &&= klaar[1]; klaar[3] &&= klaar[2]; // op volgorde: kantoor en controle tellen pas na het opnemen
-  const nu = klaar.findIndex(x => !x);
-  let knop;
-  if (!p.plan) knop = { t: 'Begin: adressen en stappenplan', a: 'plan' };
-  else if (v >= 0) knop = { t: `Verder met stap ${v + 1}: ${st[v].naam}`, k: `${st.filter(s => s.klaar).length} van ${st.length} stappen klaar`, a: 'stap', id: st[v].id };
-  else if (!klaar[2]) knop = { t: 'Naar kantoor sturen', k: 'Alle stappen zijn klaar. Stuur het project naar de pc om het af te maken.', a: 'kantoor', over: true };
-  else if (open) knop = { t: `Eindcontrole: ${open} ${open === 1 ? 'punt' : 'punten'} open`, k: 'Los ze op of maak het rapport toch.', a: 'eind' };
-  else if (!p.verstuurd) knop = { t: 'Maak het rapport', k: 'Alles is compleet.', a: 'rapport' };
-  else knop = { t: 'Rapport opnieuw bekijken', k: `Verstuurd op ${datumNL(new Date(p.verstuurd))}`, a: 'rapport' };
-  return { klaar, nu: nu < 0 ? 5 : nu, knop };
-}
-function werkwijzeHtml(p) {
-  const { klaar, nu, knop } = werkStand(p);
-  return `<div class="card werk"><div class="wbar">${WERK.map((n, i) => `<i class="${klaar[i] ? 'ok' : i === nu ? 'nu' : ''}"></i>`).join('')}</div>
-    <div class="wlbl">${WERK.map((n, i) => `<span class="${klaar[i] ? 'ok' : i === nu ? 'nu' : ''}">${n}${klaar[i] ? ' ✓' : ''}</span>`).join('')}</div>
-    <button class="primary" id="werkKnop">${esc(knop.t)}</button>${knop.k ? `<div class="wk">${esc(knop.k)}</div>` : ''}
-    ${knop.over ? `<button class="wzlink" id="werkOver" style="width:100%">Niet nodig, ik maak het op dit toestel af</button>` : ''}</div>`;
-}
-function koppelWerkwijze(m, p) {
-  const b = $('#werkKnop', m); if (!b) return;
-  const { knop } = werkStand(p);
-  b.onclick = () => {
-    if (knop.a === 'plan') { p.plan = nieuwPlan(p); bewaar(); render(); }
-    else if (knop.a === 'stap') { stapel = [p.id, 'stap:' + knop.id]; render(); }
-    else if (knop.a === 'kantoor') projectVersturen(p).then(() => render());
-    else if (knop.a === 'eind') { stapel = [p.id, 'eind']; render(); }
-    else openPagina('rapport', p);
-  };
-  const o = $('#werkOver', m); if (o) o.onclick = () => { p.kantoorOver = true; bewaar(); render(); };
-}
+// ---------- eindcontrole: alles wat nog open staat, met een tik er direct naartoe ----------
 // Eindcontrole vóór het rapport: staat er nog iets open, dan eerst laten zien wat. Geeft true als het rapport gemaakt mag worden.
 function eerstControle(p) {
   const punten = eindPunten(p); if (!punten.length) return Promise.resolve(true);
@@ -1917,138 +1277,10 @@ function eerstControle(p) {
     $('#ecLos', d).onclick = () => { sluit(d); res(false); sluitPagina(false); tab = 'projecten'; stapel = [p.id, 'eind']; render(); };
   });
 }
-function stapRij(p, s, i, v) {
-  const subs = stapSubs(p, s), fotos = subs.reduce((a, x) => a + x.fotos.length, 0), noti = subs.reduce((a, x) => a + x.notities.length, 0), keer = stapKeer(p, s);
-  const info = [s.soort !== 'algemeen' ? `controle ${CONTROLE.filter(c => s.controle[c.k]).length}/${CONTROLE.length}` : '',
-    `${fotos} ${fotos === 1 ? 'foto' : "foto's"}`, noti ? `${noti} ${noti === 1 ? 'notitie' : 'notities'}` : '', s.overgeslagen ? 'overgeslagen' : ''].filter(Boolean).join(' • ');
-  return `<button class="stap" data-stap="${s.id}"><span class="nr ${s.klaar ? 'ok' : s.overgeslagen ? 'skip' : i === v ? 'nu' : ''}">${s.klaar ? '✓' : i + 1}</span>
-    <span class="t"><b>${esc(s.naam)}</b><small>${esc(info)}</small></span>${keer > 1 ? `<span class="x">${keer}×</span>` : ''}</button>`;
-}
-function koppelPlanKaart(m, p) {
-  const n = $('#planNieuw', m); if (n) n.onclick = () => { p.plan = nieuwPlan(p); bewaar(); render(); };
-  const e = $('#naarEind', m); if (e) e.onclick = () => { stapel = [p.id, 'eind']; render(); };
-  m.querySelectorAll('[data-stap]').forEach(b => b.onclick = () => { stapel = [p.id, 'stap:' + b.dataset.stap]; render(); });
-  const mn = $('#planMenu', m);
-  if (mn) mn.onclick = () => menu([
-    ['edit', 'Stappenplan aanpassen (typen, trappenhuizen, algemeen werk)', () => { p.plan.fase = 'typen'; bewaar(); render(); }],
-    ['trash', 'Stappenplan weghalen', async () => {
-      if (!await bevestig('Stappenplan weghalen?', 'Alleen het plan en de controlelijst verdwijnen. Mappen, foto\'s en notities blijven bewaard.', { ja: 'Weghalen' })) return;
-      p.submappen.forEach(s => delete s.stapId); delete p.plan; bewaar(); render(); }]]);
-}
+let FOTO_DOEL = null; // { p, s, open }: in welke map de volgende foto komt
 
-// ----- één stap: controle, inmeten per gevel, teller en kaart -----
-let FOTO_DOEL = null; // foto voor de controlelijst: komt in de eerste map van de stap, zonder de foto te openen
-function renderStap(m, p, st) {
-  const lijst = p.plan.stappen, i = lijst.indexOf(st), subs = stapSubs(p, st), keer = stapKeer(p, st);
-  const t = st.soort === 'woning' ? planTypen(p).find(x => x.id === st.type) : null;
-  const kort = s => s.naam.includes(' – ') ? s.naam.split(' – ').pop() : s.naam;
-  m.innerHTML = `<div class="sub"><button class="iconbtn" id="terug" aria-label="Terug">${ic('back')}</button>
-      <div class="t"><b>${esc(st.naam)}</b><small>Stap ${i + 1} van ${lijst.length}${keer > 1 ? ` • telt ${keer}×` : ''}${st.klaar ? ' • klaar' : st.overgeslagen ? ' • overgeslagen' : ''}</small></div></div>
-    <div class="pad" style="padding-bottom:24px">
-      ${t ? `<div class="stapuitleg">Meet één woning van dit type in${t.voorbeeld ? `, bijvoorbeeld <b>${esc(t.voorbeeld)}</b>` : ''}. De meetstaat telt hem ${t.aantal}×.${t.nrs ? `<small>${esc(t.m2)} <button class="binfo" data-info aria-label="Huisnummers" style="display:inline-grid;width:24px;height:24px;font-size:13px;vertical-align:middle;margin-left:6px">i</button></small><small class="bnrs" hidden>Huisnummers: ${esc(t.nrs)}</small>` : ''}</div>` : ''}
-      ${st.soort === 'trap' ? `<div class="stapuitleg">Eerst de controle, dan de buitenkant en de binnenkant.${keer > 1 ? ` Alle ${keer} trappenhuizen zijn gelijk: meet er één in.` : ''}</div>` : ''}
-      ${st.teller ? `<div class="card ctl"><b>Hoeveel ${esc(st.teller)} ${st.teller === 'galerijen' ? 'zijn er' : 'van deze maat'}?</b>
-        <div class="wzuitleg">${st.teller === 'galerijen' ? 'Meet één galerij; de meetstaat telt hem × het aantal galerijen.' : 'Meet er één in; de meetstaat telt deze stap × het aantal. Een andere maat? Maak er met "Stappenplan aanpassen" een eigen stap van.'}</div>
-        <div class="teller" style="margin-top:8px"><span style="flex:1">Aantal ${esc(st.teller)}</span><button id="tMin" aria-label="Minder">−</button>
-          <input id="tN" type="number" inputmode="numeric" min="1" value="${keer}"><button id="tPlus" aria-label="Meer">+</button></div></div>` : ''}
-      ${st.kaart ? kaartHtml(p, st, keer) : ''}
-      <div class="label">${st.soort === 'algemeen' ? "FOTO'S EN INSPREKEN" : st.soort === 'trap' ? '1. INMETEN: BUITENKANT EN BINNENKANT' : '1. INMETEN PER GEVEL'}</div>
-      <div class="card gevels">${subs.map(s => `<div class="gevel" data-sub="${s.id}" role="button"><span class="t"><b>${esc(kort(s))}</b>
-        <small>${s.fotos.length || s.notities.length ? [s.fotos.length ? `${s.fotos.length} ${s.fotos.length === 1 ? 'foto' : "foto's"}` : '', s.notities.length ? `${s.notities.length} ${s.notities.length === 1 ? 'notitie' : 'notities'}` : ''].filter(Boolean).join(' • ') : 'nog niets'}</small></span>
-        <button class="ghost gold gfoto" data-gfoto="${s.id}">${ic('camera')} Foto maken</button></div>`).join('')}
-        ${st.soort !== 'algemeen' ? `<button class="gevel plus" id="stGevel"><span style="color:var(--gold)">${ic('folderPlus')}</span><span class="t"><b>Gevel toevoegen</b></span></button>` : ''}</div>
-      ${st.soort !== 'algemeen' ? controleHtml(p, st, '2. ') : ''}
-    </div>
-    <div class="stapvoet">${st.klaar ? `<button class="sec" id="stNiet">Toch niet klaar</button><button class="primary" id="stPlan">Naar stappenplan</button>`
-      : `<button class="sec" id="stSkip">Overslaan</button><button class="primary" id="stKlaar">✓ Klaar met deze stap</button>`}</div>`;
-  const naarPlan = () => { stapel = [p.id]; render(); };
-  $('#terug').onclick = naarPlan;
-  m.querySelectorAll('img[data-foto]').forEach(async img => { const u = await fotoMini(img.dataset.foto); if (u) img.src = u; else img.remove(); });
-  m.querySelectorAll('[data-sub]').forEach(b => b.onclick = () => { stapel = [p.id, b.dataset.sub]; render(); });
-  koppelControle(m, p, st);
-  // Foto maken bij een gevel: meteen de camera, daarna de foto open om lijnen te zetten.
-  m.querySelectorAll('[data-gfoto]').forEach(b => b.onclick = e => { e.stopPropagation();
-    const s = p.submappen.find(x => x.id === b.dataset.gfoto); if (!s) return;
-    FOTO_DOEL = { p, s, open: true }; neemFoto(); });
-  if (st.teller) {
-    const zet = v => { const n = Math.max(1, Math.round(+v || 1)); subs.forEach(s => zetKeer(s, { n })); bewaar(); render(); };
-    $('#tMin').onclick = () => zet(keer - 1); $('#tPlus').onclick = () => zet(keer + 1); $('#tN').onchange = e => zet(e.target.value);
-  }
-  if (st.kaart) koppelKaart(m, p, st);
-  const g = $('#stGevel');
-  if (g) g.onclick = () => {
-    const voor = subs[0]?.naam.includes(' – ') ? subs[0].naam.split(' – ')[0] : st.naam, keerNu = subs[0]?.keer;
-    const maak = naam => {
-      if (!naam) return; const vol = `${voor} – ${naam}`;
-      if (p.submappen.some(s => s.naam.toLowerCase() === vol.toLowerCase())) return toast(`${naam} bestaat al`);
-      const s = { id: nieuwId(), naam: vol, aangemaakt: new Date().toISOString(), fotos: [], notities: [], stapId: st.id };
-      zetKeer(s, keerNu); p.submappen.push(s); st.subs.push(s.id); bewaar(); render();
-    };
-    const al = new Set(subs.map(s => kort(s).toLowerCase()));
-    menu([...(st.soort === 'trap' ? ['Begane grond', 'Kelder', 'Dak'] : ['Linkergevel', 'Rechtergevel', 'Kopgevel', 'Dak'])
-      .filter(x => !al.has(x.toLowerCase())).map(x => ['folderPlus', x, () => maak(x)]),
-      ['edit', 'Eigen naam…', async () => maak(await vraagTekst('Gevel toevoegen', 'Naam', 'Bijv. Zijgevel links'))]]);
-  };
-  const volgendeStap = () => { const v = lijst.find(s => !s.klaar && !s.overgeslagen); stapel = v ? [p.id, 'stap:' + v.id] : [p.id]; render(); };
-  const k = $('#stKlaar'); if (k) k.onclick = () => {
-    const open = st.soort !== 'algemeen' ? CONTROLE.filter(c => !st.controle[c.k]).length : 0;
-    st.klaar = true; st.overgeslagen = false; bewaar();
-    toast(`${st.naam} klaar${open ? ` (${open} controlepunt${open === 1 ? '' : 'en'} open)` : ''}`); volgendeStap();
-  };
-  const sk = $('#stSkip'); if (sk) sk.onclick = () => { st.overgeslagen = true; bewaar(); toast(`${st.naam} overgeslagen`); volgendeStap(); };
-  const ni = $('#stNiet'); if (ni) ni.onclick = () => { st.klaar = false; bewaar(); render(); };
-  const pn = $('#stPlan'); if (pn) pn.onclick = naarPlan;
-}
-function controleHtml(p, st, nr = '') {
-  const fotos = stapSubs(p, st).flatMap(s => s.fotos.map((f, i) => ({ f, s, i }))).filter(x => x.f.controle);
-  const n = CONTROLE.filter(c => st.controle[c.k]).length;
-  return `<div class="label">${nr}CONTROLE (${n} VAN ${CONTROLE.length})</div>` + CONTROLE.map(c => {
-    const v = st.controle[c.k], eigen = fotos.filter(x => x.f.controle === c.k);
-    return `<div class="card ctl"><b>${esc(c.n)}</b><div class="chips">${c.opties.map(o => `<button class="chip ${v === o ? 'on' : ''}" data-c="${c.k}" data-o="${esc(o)}">${esc(o)}</button>`).join('')}</div>
-      ${c.slecht.includes(v) || eigen.length || st.nrs?.[c.k] ? `<div class="cextra"><input data-nrs="${c.k}" placeholder="${st.soort === 'woning' ? 'Bij welke huisnummers? Bijv. 12, 40' : 'Waar? Bijv. 2e verdieping'}" value="${esc(st.nrs?.[c.k] || '')}">
-        <button class="ghost cfoto" data-cfoto="${c.k}">${ic('camera')} Foto</button></div>` : ''}
-      ${eigen.length ? `<div class="cfotos">${eigen.map(x => `<img data-foto="${x.f.id}" data-cs="${x.s.id}" data-ci="${x.i}" alt="Foto ${esc(c.n.toLowerCase())}">`).join('')}</div>` : ''}</div>`;
-  }).join('');
-}
-function controleFoto(p, st, k) {
-  const s = stapSubs(p, st)[0]; if (!s) return;
-  FOTO_DOEL = { p, s, controle: k }; neemFoto();
-}
-function koppelControle(m, p, st) {
-  m.querySelectorAll('[data-c]').forEach(b => b.onclick = async () => {
-    const c = CONTROLE.find(x => x.k === b.dataset.c), o = b.dataset.o;
-    if (st.controle[c.k] === o) delete st.controle[c.k]; else st.controle[c.k] = o;
-    bewaar(); render();
-    const heeft = stapSubs(p, st).some(s => s.fotos.some(f => f.controle === c.k));
-    if (st.controle[c.k] === o && c.foto.includes(o) && !heeft &&
-      await bevestig(`${c.n}: ${o.toLowerCase()}`, 'Maak er een foto van, dan heb je het later op kantoor en in het rapport.', { ja: 'Foto maken', nee: 'Later', klasse: '' })) controleFoto(p, st, c.k);
-  });
-  m.querySelectorAll('[data-nrs]').forEach(i => i.onchange = () => { st.nrs = { ...st.nrs, [i.dataset.nrs]: i.value.trim() }; if (!st.nrs[i.dataset.nrs]) delete st.nrs[i.dataset.nrs]; bewaar(); });
-  m.querySelectorAll('[data-cfoto]').forEach(b => b.onclick = () => controleFoto(p, st, b.dataset.cfoto));
-  m.querySelectorAll('[data-cs]').forEach(img => img.onclick = () => { const s = p.submappen.find(x => x.id === img.dataset.cs); if (s) openViewer(p, s, +img.dataset.ci); });
-}
-// Controle en overgeslagen stappen voor het rapport (PDF en Excel).
-const planRijen = p => {
-  const st = p.plan?.stappen || [];
-  const r = st.filter(s => s.soort !== 'algemeen' && Object.keys(s.controle || {}).length).map(s => [`Controle ${s.naam}`,
-    CONTROLE.filter(c => s.controle[c.k]).map(c => `${c.n.toLowerCase()}: ${s.controle[c.k].toLowerCase()}${s.nrs?.[c.k] ? ` (${s.nrs[c.k]})` : ''}`).join('; ')]);
-  const over = st.filter(s => s.overgeslagen && !s.klaar).map(s => s.naam);
-  return over.length ? [...r, ['Overgeslagen', over.join(', ')]] : r;
-};
-
-// ----- eindcontrole: alles wat nog open staat, met een tik er direct naartoe -----
 function eindPunten(p) {
-  const uit = [], st = p.plan?.stappen || [];
-  for (const s of st) {
-    if (s.overgeslagen && !s.klaar) uit.push({ soort: 'stap', t: `${s.naam} overgeslagen`, stap: s.id });
-    else if (!s.klaar) uit.push({ soort: 'stap', t: `${s.naam} nog niet klaar`, stap: s.id });
-    if (s.soort !== 'algemeen' && !s.overgeslagen) {
-      const open = CONTROLE.filter(c => !s.controle[c.k]);
-      if (open.length) uit.push({ soort: 'controle', t: open.length === CONTROLE.length ? `Controle ${s.naam} nog niet gedaan` : `Controle ${s.naam}: ${open.map(c => c.n.toLowerCase()).join(', ')} nog niet ingevuld`, stap: s.id });
-      const zonder = stapSubs(p, s).filter(x => !x.fotos.some(f => !f.controle) && !x.notities.length);
-      if (s.klaar && zonder.length) uit.push({ soort: 'foto', t: `${s.naam}: nog niets bij ${zonder.map(x => x.naam.split(' – ').pop().toLowerCase()).join(' en ')}`, stap: s.id });
-    }
-  }
+  const uit = [];
   for (const s of p.submappen) {
     s.fotos.forEach((f, i) => {
       const open = f.lijnen.filter(l => l.maat == null);
@@ -2059,27 +1291,24 @@ function eindPunten(p) {
       if (r.some(x => x.slice(3, 6).includes('?'))) uit.push({ soort: 'code', t: `${s.naam}: "${n.tekst.length > 40 ? n.tekst.slice(0, 40) + '…' : n.tekst}" mist een maat`, sub: s.id, notitie: n.id });
     }
   }
-  // Eerst wat echt mist (maten en codes), stappen die nog openstaan als laatste.
+  // Eerst de lijnen zonder maat, dan de ingesproken regels.
   const volg = Object.keys(EIND_KOP);
   return uit.sort((a, b) => volg.indexOf(a.soort) - volg.indexOf(b.soort));
 }
-const EIND_KOP = { lijn: 'LIJNEN ZONDER MAAT', code: 'INGESPROKEN REGELS', foto: "FOTO'S", controle: 'CONTROLELIJST', stap: 'STAPPEN' };
+const EIND_KOP = { lijn: 'LIJNEN ZONDER MAAT', code: 'INGESPROKEN REGELS' };
 function renderEind(m, p) {
   const punten = eindPunten(p), groepen = Object.keys(EIND_KOP).map(k => [k, punten.filter(x => x.soort === k)]).filter(([, l]) => l.length);
   m.innerHTML = `<div class="sub"><button class="iconbtn" id="terug" aria-label="Terug">${ic('back')}</button>
       <div class="t"><b>Eindcontrole</b><small>${esc(p.adres)}</small></div></div>
     <div class="pad">${punten.length ? `<div class="stapuitleg">${punten.length} ${punten.length === 1 ? 'punt staat' : 'punten staan'} nog open. Tik een punt aan om er direct naartoe te gaan. Versturen kan altijd, ook met open punten.</div>`
-      + groepen.map(([k, l]) => k === 'stap' && !VAK_OPEN.has('eindstap') ? vakKop('eindstap', ic('check'), `${l.length} ${l.length === 1 ? 'stap' : 'stappen'} nog niet klaar`, 'Tik om ze te zien')
-        : `<div class="label">${EIND_KOP[k]} (${l.length})</div><div class="card plan" style="margin-top:0;padding:4px 14px">${l.map(x =>
+      + groepen.map(([k, l]) => `<div class="label">${EIND_KOP[k]} (${l.length})</div><div class="card plan" style="margin-top:0;padding:4px 14px">${l.map(x =>
         `<button class="eind" data-e="${punten.indexOf(x)}"><span class="d"></span><span>${esc(x.t)}</span>${ic('right')}</button>`).join('')}</div>`).join('')
       : `<div class="ph">${ic('check', 'i big')}<h3>Alles compleet</h3><p>Geen open punten meer. Je kunt het rapport maken en versturen.</p></div>`}
       <button class="primary" id="eRapport">Rapport bekijken</button></div>`;
   $('#terug').onclick = () => { stapel = [p.id]; render(); };
   $('#eRapport').onclick = () => openPagina('rapport', p);
-  m.querySelectorAll('[data-vak]').forEach(b => b.onclick = () => { VAK_OPEN.add(b.dataset.vak); render(); });
   m.querySelectorAll('[data-e]').forEach(b => b.onclick = () => {
     const x = punten[+b.dataset.e];
-    if (x.stap) { stapel = [p.id, 'stap:' + x.stap]; render(); return; }
     if (x.rapport) { openPagina('rapport', p); toast('Tik de regel zonder code aan en kies de Topcalc-code'); return; }
     const s = p.submappen.find(y => y.id === x.sub); if (!s) return;
     if (x.soort === 'lijn') {
@@ -2091,100 +1320,6 @@ function renderEind(m, p) {
     stapel = [p.id, s.id]; render();
     const n = s.notities.find(y => y.id === x.notitie); if (n) wijzigNotitie(s, n);
   });
-}
-
-// ----- meten op de kaart: gebouwvorm uit de BAG met de luchtfoto van PDOK eronder -----
-// Buitenrand van het gebouw in lengte- en breedtegraden, zonder punten op een rechte lijn.
-function pandOmtrek(geom) {
-  const ring = geom?.type === 'MultiPolygon' ? geom.coordinates?.[0]?.[0] : geom?.coordinates?.[0];
-  if (!Array.isArray(ring) || ring.length < 4) return null;
-  let pt = ring.slice(0, -1).map(([x, y]) => [+(+x).toFixed(7), +(+y).toFixed(7)]);
-  const hoek = (a, b, c) => { const u = [b[0] - a[0], b[1] - a[1]], v = [c[0] - b[0], c[1] - b[1]];
-    return Math.abs(Math.atan2(u[0] * v[1] - u[1] * v[0], u[0] * v[0] + u[1] * v[1])); };
-  for (let i = 0; pt.length > 3 && i < pt.length;) {
-    if (hoek(pt[(i - 1 + pt.length) % pt.length], pt[i], pt[(i + 1) % pt.length]) < 0.1) pt.splice(i, 1); else i++;
-  }
-  return pt.length >= 3 ? pt : null;
-}
-function kaartVorm(omtrek) {
-  const ys = omtrek.map(q => q[1]), xs = omtrek.map(q => q[0]), lat0 = (Math.min(...ys) + Math.max(...ys)) / 2;
-  const kx = 111320 * Math.cos(lat0 * Math.PI / 180), ky = 110574, x0 = Math.min(...xs), y0 = Math.max(...ys);
-  const pts = omtrek.map(([x, y]) => [(x - x0) * kx, (y0 - y) * ky]);
-  const w = (Math.max(...xs) - x0) * kx, h = (y0 - Math.min(...ys)) * ky, pad = Math.max(8, Math.max(w, h) * 0.12);
-  const lon1 = x0 - pad / kx, lon2 = Math.max(...xs) + pad / kx, lat1 = Math.min(...ys) - pad / ky, lat2 = y0 + pad / ky;
-  const bw = 900, bh = Math.max(200, Math.min(1400, Math.round(bw * (h + 2 * pad) / (w + 2 * pad))));
-  const foto = `https://service.pdok.nl/hwh/luchtfotorgb/wms/v1_0?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS=Actueel_orthoHR&STYLES=&CRS=EPSG:4326&BBOX=${[lat1, lon1, lat2, lon2].map(v => v.toFixed(7)).join(',')}&WIDTH=${bw}&HEIGHT=${bh}&FORMAT=image/jpeg`;
-  return { pts, w, h, pad, foto };
-}
-const zijdeLengte = (pts, i) => { const a = pts[i], b = pts[(i + 1) % pts.length]; return Math.hypot(b[0] - a[0], b[1] - a[1]); };
-const kaartGebouwen = p => (p.bag?.gebouwen || []).filter(g => g.omtrek?.length >= 3);
-function kaartMeters(p, st) {
-  let m = 0;
-  for (const g of kaartGebouwen(p)) {
-    const k = st.kaartData?.[g.id]; if (!k) continue; const { pts } = kaartVorm(g.omtrek);
-    m += (k.zijden || []).filter(i => i < pts.length).reduce((a, i) => a + zijdeLengte(pts, i), 0);
-    if (k.punten?.length === 2) m += Math.hypot(k.punten[1][0] - k.punten[0][0], k.punten[1][1] - k.punten[0][1]);
-  }
-  return Math.round(m * 100) / 100;
-}
-const KAART_WOORD = { 'hekwerk galerij': 'hekwerk galerij', daklijsten: 'daklijst', dakgoten: 'dakgoot' };
-// De gemeten lengte komt als notitie in de map van de stap, zodat hij in de meetstaat en Topcalc-codes meetelt.
-function kaartNotitie(p, st) {
-  const s = stapSubs(p, st)[0]; if (!s) return;
-  const id = 'kaart-' + st.id, m = kaartMeters(p, st), oud = s.notities.find(n => n.id === id);
-  if (!m) { s.notities = s.notities.filter(n => n.id !== id); return; }
-  const tekst = `${KAART_WOORD[st.naam.toLowerCase()] || st.naam.toLowerCase()} ${String(m.toFixed(2)).replace('.', ',')} meter`;
-  // Eigen aanvulling (bijv. "staal" of "hoogte 1,10") blijft staan; alleen de lengte wordt bijgewerkt.
-  if (oud) oud.tekst = /\d+(?:,\d+)? meter/.test(oud.tekst) ? oud.tekst.replace(/\d+(?:,\d+)? meter/, tekst.split(' ').slice(-2).join(' ')) : tekst; else s.notities.unshift({ id, tekst, gemaakt: new Date().toISOString(), kaart: true });
-}
-function kaartHtml(p, st, keer) {
-  const gs = kaartGebouwen(p);
-  if (!gs.length) return `<div class="card ctl"><b>Meten op de kaart</b><div class="wzuitleg">${p.bag
-    ? `De vorm van het gebouw is nog niet opgehaald. Je typen en huisnummers blijven zoals ze zijn.<button class="primary" data-vorm style="width:100%;margin-top:10px">Gebouwvorm ophalen</button>`
-    : 'Werkt met de BAG: de vorm van het gebouw komt daaruit. Meet nu met een foto en inspreken.'}</div></div>`;
-  st.kaartData ??= {}; let gi = gs.findIndex(g => g.id === st.kaartGebouw); if (gi < 0) gi = 0;
-  const g = gs[gi], k = st.kaartData[g.id] ??= { zijden: [], punten: [] }, { pts, w, h, pad, foto } = kaartVorm(g.omtrek);
-  const fs = Math.max(2.4, Math.max(w, h) / 26), vb = `${-pad} ${-pad} ${w + 2 * pad} ${h + 2 * pad}`;
-  const zijden = pts.map((a, i) => {
-    const b = pts[(i + 1) % pts.length], on = k.zijden.includes(i), L = zijdeLengte(pts, i), mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
-    const nx = (b[1] - a[1]) / (L || 1), ny = -(b[0] - a[0]) / (L || 1), cx = w / 2, cy = h / 2, buiten = (mx - cx) * nx + (my - cy) * ny > 0 ? 1 : -1;
-    return `<g data-z="${i}"><line x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}" stroke="transparent" stroke-width="${fs * 2.2}"/>
-      <line x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}" stroke="${on ? '#D4AF37' : '#ffffff'}" stroke-width="${on ? 5 : 2.5}" vector-effect="non-scaling-stroke" stroke-linecap="round"/>
-      ${L >= 3 ? `<text x="${mx + nx * buiten * fs * 1.1}" y="${my + ny * buiten * fs * 1.1 + fs * 0.35}" text-anchor="middle" font-size="${fs}" font-weight="700" fill="${on ? '#D4AF37' : '#ffffff'}" paint-order="stroke" stroke="#000" stroke-width="${fs * 0.22}">${getalNL(L, 1)}</text>` : ''}</g>`;
-  }).join('');
-  const pt = k.punten || [], zelf = pt.length === 2 ? Math.hypot(pt[1][0] - pt[0][0], pt[1][1] - pt[0][1]) : 0, som = kaartMeters(p, st);
-  return `<div class="card ctl"><b>Meten op de kaart</b>
-    <div class="wzuitleg">${KAART_UITLEG[st.naam.toLowerCase()] || 'Tik de zijden aan die meetellen.'} Of meet zelf van hoek naar hoek. Maten in meters.</div>
-    ${gs.length > 1 ? `<div class="chips" style="margin-top:8px">${gs.map((x, i) => `<button class="chip ${i === gi ? 'on' : ''}" data-kg="${esc(x.id)}">${esc(x.adres)}${(st.kaartData[x.id]?.zijden?.length || st.kaartData[x.id]?.punten?.length === 2) ? ' ✓' : ''}</button>`).join('')}</div>` : ''}
-    <div class="kaartvak"><svg id="kaart" viewBox="${vb}" preserveAspectRatio="xMidYMid meet">
-      <image href="${foto}" x="${-pad}" y="${-pad}" width="${w + 2 * pad}" height="${h + 2 * pad}" preserveAspectRatio="none"/>
-      <polygon points="${pts.map(q => q.join(',')).join(' ')}" fill="rgba(212,175,55,.12)"/>${zijden}
-      ${pt.length === 2 ? `<line x1="${pt[0][0]}" y1="${pt[0][1]}" x2="${pt[1][0]}" y2="${pt[1][1]}" stroke="#FFA726" stroke-width="3" stroke-dasharray="6 4" vector-effect="non-scaling-stroke"/>` : ''}
-      ${pt.map(([x, y]) => `<circle cx="${x}" cy="${y}" r="${fs * 0.4}" fill="#FFA726"/>`).join('')}</svg></div>
-    <div class="ksom"><span>${k.zijden.length} ${k.zijden.length === 1 ? 'zijde' : 'zijden'}${zelf ? ` + zelf ${getalNL(zelf, 1)} m` : ''}</span>
-      <b>${getalNL(som, 1)} m1${keer > 1 ? ` × ${keer} = ${getalNL(som * keer, 0)} m1` : ''}</b></div>
-    <div class="chips"><button class="chip ${st.meetModus ? 'on' : ''}" id="kZelf">${st.meetModus ? 'Tik twee punten op de kaart…' : 'Zelf meten (hoek naar hoek)'}</button>
-      ${k.zijden.length || pt.length ? '<button class="chip" id="kWis">Wissen</button>' : ''}</div>
-    <div class="wzuitleg" style="font-size:11px">Gebouwvorm: BAG • luchtfoto: PDOK. De lengte komt als notitie in de meetstaat.</div></div>`;
-}
-const KAART_UITLEG = { 'hekwerk galerij': 'Tik de zijde(n) met de galerij aan.', daklijsten: 'Tik de zijden met een daklijst aan.', dakgoten: 'Tik de zijden met een dakgoot aan.' };
-function koppelKaart(m, p, st) {
-  m.querySelectorAll('[data-kg]').forEach(b => b.onclick = () => { st.kaartGebouw = b.dataset.kg; st.meetModus = false; bewaar(); render(); });
-  const svg = $('#kaart', m); if (!svg) return;
-  const gs = kaartGebouwen(p), g = gs.find(x => x.id === st.kaartGebouw) || gs[0], k = st.kaartData[g.id];
-  const klaar = () => { kaartNotitie(p, st); bewaar(); render(); };
-  svg.querySelectorAll('[data-z]').forEach(z => z.onclick = e => {
-    if (st.meetModus) return; e.stopPropagation(); const i = +z.dataset.z;
-    k.zijden = k.zijden.includes(i) ? k.zijden.filter(x => x !== i) : [...k.zijden, i]; klaar();
-  });
-  svg.onclick = e => {
-    if (!st.meetModus) return;
-    const q = svg.createSVGPoint(); q.x = e.clientX; q.y = e.clientY; const r = q.matrixTransform(svg.getScreenCTM().inverse());
-    k.punten = (k.punten?.length === 1 ? [...k.punten, [r.x, r.y]] : [[r.x, r.y]]);
-    if (k.punten.length === 2) st.meetModus = false; klaar();
-  };
-  $('#kZelf', m).onclick = () => { st.meetModus = !st.meetModus; if (st.meetModus) k.punten = []; klaar(); };
-  const wis = $('#kWis', m); if (wis) wis.onclick = () => { k.zijden = []; k.punten = []; st.meetModus = false; klaar(); };
 }
 
 // ---------- map met foto's ----------
@@ -2203,7 +1338,7 @@ function renderSubmap(m, p, s) {
           <div>${lab ? `<b>${esc(lab)}</b>` : ''}<i>"${esc(n.tekst)}"</i></div></div>${formTabelHtml(formRegels(n, s))}</div>`; }).join('')}</div>` : ''}
     <button class="camfab" id="cam" aria-label="Foto maken">${ic('camera')}</button>${p.simpel ? '' : `<button class="micfab" id="smic" aria-label="Inspreken zonder foto">${ic('mic')}</button>`}`;
   m.querySelectorAll('img[data-foto]').forEach(async img => { const u = await fotoMini(img.dataset.foto); if (u) img.src = u; else if (img.classList.contains('nfoto')) img.remove(); else img.replaceWith(Object.assign(document.createElement('span'), { className: 'weg', textContent: 'Foto ontbreekt' })); });
-  $('#terug').onclick = () => { stapel = s.stapId && p.plan?.stappen?.some(x => x.id === s.stapId) && !p.plan.fase ? [p.id, 'stap:' + s.stapId] : [p.id]; render(); };
+  $('#terug').onclick = () => { stapel = [p.id]; render(); };
   m.querySelectorAll('[data-not]').forEach(b => b.onclick = e => {
     const open = e.target.closest('[data-open]');
     if (open) return openViewer(p, s, +open.dataset.open); // fotootje: naar de foto van deze notitie
@@ -2838,14 +1973,6 @@ function splitsAantal(tekst) {
   return { aantal: /\d/.test(m[1]) ? +m[1] : woorden[m[1].toLowerCase()], rest: tekst.replace(m[0], ' ').trim() };
 }
 // ---------- TopCalc-type per kozijn (foto) ----------
-// Het type staat op de foto (f.type) en verschijnt als gouden label boven het kozijn.
-// Kleine letter op het kozijn met zijn eigen maten (f.labels = [{ id: notitie-id, tekst, maat, x, y }]).
-// Elk kozijn op een foto kan andere maten hebben: "A 1,20 × 1,30", "B 1,60 × 1,20".
-function labelMaat(tekst) {
-  const p = postenVoorNotitie(tekst, '')[0] || {}, m = herken(tekst);
-  const b = p.breedte ?? m.breedte, h = p.hoogte ?? m.hoogte, l = p.lengte ?? m.lengte;
-  return b != null && h != null ? `${getalNL(b)} × ${getalNL(h)}` : l != null ? `${getalNL(l)} m` : b != null ? getalNL(b) : '';
-}
 const labelTekst = l => l.maat ? `${l.tekst}  ${l.maat}` : l.tekst;
 function labelsSvg(f, W, H) {
   return (f.labels || []).map(l => {
@@ -3790,19 +2917,6 @@ function mailTekst(p) {
   }
   return regels.join('\n');
 }
-const mailLink = (p, namen) => `mailto:?subject=${encodeURIComponent(`Opname ${p.werknummer}, ${p.adres}`)}&body=${encodeURIComponent(`In de bijlage de opname van ${p.werknummer}, ${p.adres}.\n\n(Bijlagen: ${namen}, uit de map Downloads.)`)}`;
-function kiesVerzenden(p, bestanden) {
-  const namen = bestanden.map(f => f.name).join(' en ');
-  const mail = mailLink(p, namen);
-  const s = sheet(`<h2>Versturen</h2>
-    <div style="color:var(--muted);font-size:13px;margin-bottom:12px">${esc(namen)} staan in je map Downloads. Kies hoe je ze verstuurt; voeg ze daar toe vanuit Downloads.</div>
-    <a class="primary" id="vzMail" href="${mail}" style="display:flex;gap:8px;align-items:center;justify-content:center;text-decoration:none">${ic('stuur')} Mailen</a>
-    <a class="outline" id="vzDrive" href="https://drive.google.com/drive/my-drive" target="_blank" rel="noopener" style="color:var(--gold);margin-top:10px;text-decoration:none">${ic('opslaan')} Google Drive (voor grote bestanden)</a>
-    <div style="color:var(--muted);font-size:12px;margin-top:14px">In Gmail: paperclip, dan Bijvoegen uit Downloads. In Drive: + Uploaden, dan Downloads.</div>
-    <button class="ghost" id="vzSluit" style="width:100%;margin-top:8px">Sluiten</button>`);
-  $('#vzSluit', s).onclick = () => sluit(s);
-  s.querySelectorAll('a').forEach(a => a.addEventListener('click', () => setTimeout(() => sluit(s), 300)));
-}
 
 // Pijltjestoetsen op een computer of tablet met toetsenbord.
 document.addEventListener('keydown', e => { if (!V || document.querySelector('.scrim') || e.target.closest?.('input, textarea')) return;
@@ -4193,16 +3307,8 @@ function tikStijlen(R, box, ppm) {
   const dp = groepen(box.y0 + my, box.y1 - my, j => liggend(j, box.x0 + mx, box.x1 - mx), Math.max(4, ppm ? ppm.y * .12 : bh * .06));
   return { stijlen: st.length, dorpels: dp.length };
 }
-const tikKader = (R, b) => [R.naarBeeld(b.x0, b.y0), R.naarBeeld(b.x1, b.y0), R.naarBeeld(b.x1, b.y1), R.naarBeeld(b.x0, b.y1)];
 function tikKaderInR(R, k) { const p = k.map(([x, y]) => R.naarRecht(x, y)), xs = p.map(q => q[0]), ys = p.map(q => q[1]);
   return { x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys) }; }
-// Ligt (x, y) (0..1) binnen de vierhoek k?
-function inVierhoek(k, x, y) {
-  let binnen = false;
-  for (let i = 0, j = 3; i < 4; j = i++) { const [xi, yi] = k[i], [xj, yj] = k[j];
-    if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) binnen = !binnen; }
-  return binnen;
-}
 const cmTekst = m => m == null ? '?' : String(Math.round(m * 100));
 // Aangetikte kozijnen en vakken als stippellijn op de foto, met de letter.
 function tikSvg(f, W, H) {
@@ -4382,31 +3488,6 @@ function woordLeren(tekst) {
     toast(`Geleerd: "${w}" is voortaan ${lt.value}.`);
   };
 }
-const aantalGeleerd = () => geleerd.vervangingen.length + Object.keys(geleerd.woorden).length + Object.keys(eigenCodes).length;
-function toonGeleerd() {
-  const regel = (titel, onder, attr) => `<div class="card" style="display:flex;align-items:center;gap:8px;padding:10px 12px;margin-bottom:8px">
-    <div style="flex:1"><div>${esc(titel)}</div>${onder ? `<small style="color:var(--muted)">${esc(onder)}</small>` : ''}</div>
-    <button class="ghost" ${attr} aria-label="Vergeten" style="color:var(--danger)">${ic('trash')}</button></div>`;
-  const codes = Object.entries(eigenCodes), woorden = Object.entries(geleerd.woorden);
-  const s = sheet(`<h2>Geleerd</h2>
-    <div style="color:var(--muted);font-size:13px;margin-bottom:8px">De app leert van je correcties en past ze de volgende keer zelf toe. Alles blijft op dit toestel.</div>
-    ${!aantalGeleerd() ? '<div style="color:var(--muted);margin:16px 0">Nog niets geleerd. Verbeter een ingesproken tekst voor je opslaat, of tik op "Woord leren".</div>' : ''}
-    ${geleerd.vervangingen.length ? '<div class="label">WOORDVERBETERINGEN</div>' + geleerd.vervangingen.map((v, i) => regel(vervangingTekst(v), v.keer === 1 ? '1 keer verbeterd' : `${v.keer} keer verbeterd`, `data-v="${i}"`)).join('') : ''}
-    ${woorden.length ? '<div class="label">EIGEN WOORDEN</div>' + woorden.map(([w, t]) => regel(`${w} = ${t}`, '', `data-w="${esc(w)}"`)).join('') : ''}
-    ${codes.length ? '<div class="label">EIGEN TOPCALC-CODES</div>' + codes.map(([k, c]) => { const z = zoekCode(c); return regel(`${sleutelLabel(k)} → ${c}`, z ? `${z[0].naam}, ${z[1].naam}` : '', `data-k="${esc(k)}"`); }).join('') : ''}
-    ${aantalGeleerd() ? '<button class="outline" id="gwis" style="margin-top:12px;color:var(--danger);border-color:var(--danger)">Alles wissen</button>' : ''}`);
-  const opnieuw = () => { bewaarGeleerd(); sluit(s); render(); toonGeleerd(); };
-  s.querySelectorAll('[data-v]').forEach(b => b.onclick = () => { geleerd.vervangingen.splice(+b.dataset.v, 1); opnieuw(); });
-  s.querySelectorAll('[data-w]').forEach(b => b.onclick = () => { delete geleerd.woorden[b.dataset.w]; opnieuw(); });
-  s.querySelectorAll('[data-k]').forEach(b => b.onclick = () => { zetCode(b.dataset.k, ''); opnieuw(); });
-  const wis = $('#gwis', s);
-  if (wis) wis.onclick = async () => {
-    sluit(s);
-    if (await bevestig('Alles vergeten?', 'Alle geleerde woorden, verbeteringen en eigen codes worden gewist.')) {
-      geleerd = { vervangingen: [], woorden: {} }; for (const k of Object.keys(eigenCodes)) zetCode(k, ''); bewaarGeleerd(); render();
-    }
-  };
-}
 
 function herken(invoer) {
   let t = normaliseer(invoer);
@@ -4474,7 +3555,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.21-2';
+const APP_VERSIE = '2026.11.22-1';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
@@ -4990,7 +4071,6 @@ function wijzigNotitie(s, n) {
 }
 
 // ---------- maat op een lijn: typen, inspreken of lasermeter ----------
-const veldMaat = m => m.toFixed(3).replace(/0$/, '').replace('.', ',');
 // Maat invullen in cm, of tellen in stenen: lagen hoog (6,2 cm per laag) of stenen plat (22 cm per steen).
 // Intern blijft de maat in meters, zoals de lasermeter hem geeft.
 const STEEN = { cm: { t: 'In cm', w: 0.01, ph: 'Bijv. 120' }, lagen: { t: 'Lagen hoog', w: 0.062, ph: 'Aantal lagen', u: '6,2 cm per laag' }, stenen: { t: 'Stenen plat', w: 0.22, ph: 'Aantal stenen', u: '22 cm per steen' } };
@@ -5602,9 +4682,6 @@ const DEFS = {
   Kolom: { buiten: { steen: '241', beton: '241' }, binnen: { steen: '280', beton: '280' }, materiaal: 'steen', maat: 'klasse', ots: () => ['K', 'A'] },
 };
 const GLASDEUR = { hout: ['008', '058'], staal: ['108', '158'], alu: ['108', '158'], kunststof: ['308', '358'] };
-const WERKVOLGORDE = ['Schuren', 'Ontvetten', 'Plamuren', 'Kitten', 'Houtrotherstel', 'Vervangen', 'Gronden', 'Voorlakken', 'Aflakken', 'Beitsen', 'Impregneren'];
-const TOPCALC_KOLOMMEN = ['Object', 'Onderdeel', 'Omschrijving', 'Aantal', 'Eenheid', 'Bestek', 'Locatie', 'Breedte (m)', 'Hoogte (m)', 'Lengte (m)', 'Status', 'Opmerking'];
-const sleutelLabel = s => s.replaceAll('|', ', ');
 // Eigen codes ("001 A2") per koppelsleutel, bijv. "Kozijn|buiten|hout".
 const CODES_KEY = 'buildcalc.topcalc.v2';
 let eigenCodes = {};
@@ -5710,15 +4787,6 @@ function postenVoorNotitie(tekst, locatie, eigen = s => eigenCodes[s], ai = null
   }
   return posten;
 }
-function maakPosten(p, eigen) {
-  const uit = [];
-  for (const s of p.submappen) for (const n of [...(s.notities || [])].reverse()) uit.push(...postenVoorNotitie(n.tekst, s.naam, eigen, null, n.code));
-  return uit;
-}
-const postCode = p => p.object ? `${p.object} ${p.onderdeel}` : '';
-// Een notitie als regels zoals op het Topcalc-opnameformulier: Code | Type | Omschrijving | Breedte | Hoogte | Strekkend | Aantal | Bestek.
-// Code is het object (bijv. 001), Type het onderdeel (bijv. A2). Maten in hele cm; Aantal is het aantal stuks.
-const FORM_KOLOMMEN = ['Code', 'Type', 'Omschrijving', 'Breedte', 'Hoogte', 'Strekkend', 'Aantal', 'Bestek'];
 // Bestekcode zoals op het formulier: drie letters plus een nummer, bijv. OHD03 of ONB03. De code zegt welke behandeling het wordt.
 // Spraakherkenning maakt er vaak "o h d 3" of "ohd 03" van; dat wordt weer OHD03.
 const BESTEK_BEKEND = ['ohd', 'onb', 'oni', 'nwb', 'nwi', 'nub', 'nui'];
@@ -5823,54 +4891,6 @@ function formTabelHtml(regels) {
   return `<table class="form"><tr>${kop.map((k, i) => `<th class="${i > 2 && i < 7 ? 'r' : ''}">${k}</th>`).join('')}</tr>${regels.map(r =>
     `<tr>${r.map((v, i) => `<td class="${i < 2 ? 'code' : i === 2 ? 'oms' : i < 7 ? 'r' : ''}${v === '?' ? ' open' : ''}"${i < 2 && r.notitie ? ` data-ncode="${esc(r.notitie)}"` : ''}>${esc(v)}</td>`).join('')}</tr>`).join('')}</table>`;
 }
-// De meetstaat zoals in Topcalc: per gevel (map) genummerd "01. Voorgevel", alle regels op volgorde van opname.
-function meetstaat(p) {
-  return p.submappen.map((s, i) => ({ nr: String(i + 1).padStart(2, '0'), naam: volNaam(p, s), keer: keerVan(p, s), type: keerNaam(p, s),
-    regels: [...(s.notities || [])].reverse().flatMap(n => formRegels(n, s)) })).filter(g => g.regels.length);
-}
-function meetstaatHtml(p) {
-  const g = meetstaat(p);
-  if (!g.length) return '<div style="color:var(--muted)">Nog geen regels. Spreek opnames in bij de foto\'s of in de map.</div>';
-  return `<div class="card meetstaat">${g.map(x => `<div class="gevel">${x.nr}. ${esc(x.naam)} <span>${x.keer} x${x.type ? ` (${esc(x.type)})` : ''}</span></div>${formTabelHtml(x.regels)}`).join('')}</div>`;
-}
-const postRij = p => [p.object, p.onderdeel, p.omschrijving, p.aantal, p.eenheid, p.bewerking, p.locatie, p.breedte, p.hoogte, p.lengte, p.open ? 'Open ?' : 'Compleet', p.opmerking];
-// Invoerlijst om met de hand in Topcalc te typen: gelijke code en bestekcode samengevoegd, op volgorde van object en onderdeel.
-const INVOER_KOLOMMEN = ['Object', 'Onderdeel', 'Aantal', 'Eenheid', 'Omschrijving', 'Bestek', 'Locaties', 'Let op'];
-function invoerlijst(posten) {
-  const groepen = new Map();
-  posten.forEach((p, i) => { const k = p.object ? `${postCode(p)}|${p.bewerking}` : '~' + i; if (!groepen.has(k)) groepen.set(k, []); groepen.get(k).push(p); });
-  const regels = [...groepen.values()].map(g => {
-    const p = g[0]; if (!p.object) return p;
-    const z = zoekCode(postCode(p)), bekend = g.filter(x => x.aantal != null), zonder = g.length - bekend.length;
-    return { ...p, omschrijving: z ? `${z[0].naam}, ${z[1].naam}` : p.omschrijving,
-      aantal: bekend.length ? rond(bekend.reduce((a, x) => a + x.aantal, 0)) : null,
-      locatie: [...new Set(g.map(x => x.locatie))].join(', '), open: g.some(x => x.open), doorAi: g.some(x => x.doorAi),
-      opmerking: [g.length > 1 ? `${g.length} opnames` : '', zonder ? `${zonder} ${zonder === 1 ? 'opname' : 'opnames'} zonder maat` : ''].filter(Boolean).join(', ') };
-  });
-  const cmp = (a, b) => a < b ? -1 : a > b ? 1 : 0;
-  return regels.sort((a, b) => (!a.object - !b.object) || cmp(a.object, b.object) || cmp(a.onderdeel, b.onderdeel) || cmp(a.bewerking, b.bewerking));
-}
-const letOp = p => !p.object ? 'Geen code' : p.opmerking || (p.open ? 'Maat ontbreekt' : '');
-const invoerRij = p => [p.object, p.onderdeel, p.aantal, p.eenheid, p.omschrijving, p.bewerking, p.locatie, letOp(p)];
-// Totalen per bestekcode en per locatie.
-const nieuwTotaal = naam => ({ naam, m2: 0, m1: 0, st: 0, open: 0 });
-function telPost(t, p) { if (p.aantal == null) { t.open++; return; } const k = { M2: 'm2', M1: 'm1', ST: 'st' }[p.eenheid]; if (k) t[k] += p.aantal; }
-const totaalTekst = t => [t.m2 && `${getalNL(t.m2, 2)} m2`, t.m1 && `${getalNL(t.m1, 2)} m1`, t.st && `${getalNL(t.st, 0)} st`].filter(Boolean).join(' · ') || '–';
-const TOTAAL_KOLOMMEN = ['', 'm2', 'm1', 'st', 'Zonder maat'];
-const totaalRij = t => [t.naam, t.m2 ? rond(t.m2) : null, t.m1 ? rond(t.m1) : null, t.st || null, t.open || null];
-function projectTotalen(posten) {
-  const bew = new Map(), loc = new Map(), project = nieuwTotaal('Hele project');
-  for (const p of posten.filter(x => x.object)) {
-    for (const n of [p.bewerking || (p.onderdeel === 'VR' ? 'herstel' : 'geen bestekcode')]) {
-      if (!bew.has(n)) bew.set(n, nieuwTotaal(n)); telPost(bew.get(n), p);
-    }
-    if (!loc.has(p.locatie)) loc.set(p.locatie, nieuwTotaal(p.locatie)); telPost(loc.get(p.locatie), p);
-    telPost(project, p);
-  }
-  const plek = n => { const i = WERKVOLGORDE.findIndex(w => n.toLowerCase().endsWith(w.toLowerCase())); return i < 0 ? 99 : i; };
-  return { perBewerking: [...bew.values()].sort((a, b) => plek(a.naam) - plek(b.naam)), perLocatie: [...loc.values()], project };
-}
-const lijnMaten = p => p.submappen.flatMap(s => s.fotos.flatMap((f, fi) => f.lijnen.map((l, li) => ({ locatie: s.naam, foto: fi + 1, nr: li + 1, lijn: l, code: f.type?.code || '' }))));
 
 // ---------- back-up: alles of één project in één bestand, ook terug te zetten in de Android-app ----------
 // Bevat projecten, mappen, foto's, lijnen, notities, geleerde correcties en eigen Topcalc-codes.
@@ -6164,48 +5184,9 @@ function maakZip(bestanden) { // [[naam, Uint8Array]] zonder compressie
     .forEach(([o, v, s]) => s === 4 ? eind.setUint32(o, v, true) : eind.setUint16(o, v, true));
   return new Blob([...delen, ...centraal, new Uint8Array(eind.buffer)], { type: 'application/zip' });
 }
-const xmlEsc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-const kolomLetter = i => { let s = ''; for (let n = i + 1; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + (n - 1) % 26) + s; return s; };
 // Het BuildCalc-logo: icoon (PDF-kop) en volledig logo met naam (Excel), als base64.
 const LOGO_ICOON_JPG = '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';
-const LOGO_VOL_JPG = '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';
 const b64Bytes = b64 => { const s = atob(b64), a = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) a[i] = s.charCodeAt(i); return a; };
-function maakXlsx(bladen) { // [{naam, kop, rijen, breedtes}]
-  const enc = new TextEncoder(), XH = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
-  const NS = 'http://schemas.openxmlformats.org', REL = NS + '/officeDocument/2006/relationships';
-  const cel = (r, c, v, kop) => {
-    if (v == null || v === '') return '';
-    const ref = kolomLetter(c) + (r + 1);
-    const st = kop ? ' s="1"' : typeof v === 'number' && !Number.isInteger(v) ? ' s="2"' : '';
-    return typeof v === 'number' ? `<c r="${ref}"${st}><v>${v}</v></c>` : `<c r="${ref}" t="inlineStr"${st}><is><t xml:space="preserve">${xmlEsc(v)}</t></is></c>`;
-  };
-  const blad = b => {
-    const alle = [b.kop, ...b.rijen];
-    return XH + `<worksheet xmlns="${NS}/spreadsheetml/2006/main" xmlns:r="${REL}"><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>`
-      + (b.breedtes ? '<cols>' + b.breedtes.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join('') + '</cols>' : '')
-      + '<sheetData>' + alle.map((rij, r) => `<row r="${r + 1}">${rij.map((v, c) => cel(r, c, v, r === 0)).join('')}</row>`).join('') + '</sheetData>'
-      + (b.rijen.length ? `<autoFilter ref="A1:${kolomLetter(b.kop.length - 1)}${alle.length}"/>` : '') + (b === bladen[0] ? '<drawing r:id="rId1"/>' : '') + '</worksheet>';
-  };
-  // Logo op het eerste blad, rechts naast de tabel (200 x 197 px).
-  const px = 9525, kol = bladen[0].kop.length + 1;
-  const tekening = XH + `<xdr:wsDr xmlns:xdr="${NS}/drawingml/2006/spreadsheetDrawing" xmlns:a="${NS}/drawingml/2006/main" xmlns:r="${REL}"><xdr:oneCellAnchor><xdr:from><xdr:col>${kol}</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>1</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from><xdr:ext cx="${120 * px}" cy="${118 * px}"/><xdr:pic><xdr:nvPicPr><xdr:cNvPr id="2" name="BuildCalc logo"/><xdr:cNvPicPr><a:picLocks noChangeAspect="1"/></xdr:cNvPicPr></xdr:nvPicPr><xdr:blipFill><a:blip r:embed="rId1"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill><xdr:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${120 * px}" cy="${118 * px}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic><xdr:clientData/></xdr:oneCellAnchor></xdr:wsDr>`;
-  const bestanden = [
-    ['[Content_Types].xml', XH + `<Types xmlns="${NS}/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="jpeg" ContentType="image/jpeg"/><Override PartName="/xl/drawings/drawing1.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>`
-      + bladen.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('') + '</Types>'],
-    ['_rels/.rels', XH + `<Relationships xmlns="${NS}/package/2006/relationships"><Relationship Id="rId1" Type="${REL}/officeDocument" Target="xl/workbook.xml"/></Relationships>`],
-    ['xl/workbook.xml', XH + `<workbook xmlns="${NS}/spreadsheetml/2006/main" xmlns:r="${REL}"><sheets>` + bladen.map((b, i) => `<sheet name="${xmlEsc(b.naam)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('') + '</sheets></workbook>'],
-    ['xl/_rels/workbook.xml.rels', XH + `<Relationships xmlns="${NS}/package/2006/relationships">` + bladen.map((_, i) => `<Relationship Id="rId${i + 1}" Type="${REL}/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join('')
-      + `<Relationship Id="rId${bladen.length + 1}" Type="${REL}/styles" Target="styles.xml"/></Relationships>`],
-    // Stijl 1: vette kopregel met goudkleurige achtergrond. Stijl 2: 2 decimalen.
-    ['xl/styles.xml', XH + `<styleSheet xmlns="${NS}/spreadsheetml/2006/main"><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFD4AF37"/></patternFill></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="3"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/><xf numFmtId="2" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`],
-    ...bladen.map((b, i) => [`xl/worksheets/sheet${i + 1}.xml`, blad(b)]),
-    ['xl/worksheets/_rels/sheet1.xml.rels', XH + `<Relationships xmlns="${NS}/package/2006/relationships"><Relationship Id="rId1" Type="${REL}/drawing" Target="../drawings/drawing1.xml"/></Relationships>`],
-    ['xl/drawings/drawing1.xml', tekening],
-    ['xl/drawings/_rels/drawing1.xml.rels', XH + `<Relationships xmlns="${NS}/package/2006/relationships"><Relationship Id="rId1" Type="${REL}/image" Target="../media/logo.jpeg"/></Relationships>`],
-    ['xl/media/logo.jpeg', b64Bytes(LOGO_VOL_JPG)],
-  ];
-  return new Blob([maakZip(bestanden.map(([n, s]) => [n, typeof s === 'string' ? enc.encode(s) : s]))], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-}
 
 // ---------- PDF, zonder externe bibliotheken ----------
 // Tekst in Helvetica (WinAnsi), foto's als JPEG met de lijnen erin getekend.
@@ -7040,18 +6021,6 @@ function kozijnMaten(f, letter = null) {
   const ex = extra.reduce((a, d) => a + d.aantal * d.m, 0);
   return { B, H, st, dp, extra, ex, totaal: 2 * B + 2 * H + st * H + dp * B + ex };
 }
-function kozijnBerekening(f) {
-  const k = kozijnMaten(f); if (!k) return null;
-  const { B, H, st, dp, totaal } = k, cm = maatLabel;
-  return [
-    ['Kozijn buitenmaat', `${cm(B)} x ${cm(H)}`],
-    ['Omtrek', `2 × ${cm(B)} + 2 × ${cm(H)} = ${m1(2 * B + 2 * H)}`],
-    ['Stijlen', `${st}x ${cm(H)} = ${m1(st * H)}`],
-    ...(dp ? [[dp < 0 ? 'Geen onderdorpel' : 'Tussendorpels', `${dp}x ${cm(B)} = ${m1(dp * B)}`]] : []),
-    ...k.extra.filter(d => d.lijn).map(d => [d.naam, `${d.aantal > 1 ? d.aantal + 'x ' : ''}${cm(d.m)} = ${m1(d.aantal * d.m)}`]),
-    ['Totaal strekkende meters (m1) schilderwerk', `(2 × ${cm(B)}) + (2 × ${cm(H)}) + (${st} × ${cm(H)})${dp ? ` + (${dp} × ${cm(B)})` : ''} = ${m1(totaal)}`],
-  ];
-}
 // Foto's voor de PDF: verkleind tot max. 1000 px en als JPEG (kwaliteit 0,65) opgeslagen, met lijnen en
 // opmerkingen er al op getekend. Zo blijft de PDF klein en loopt de telefoon niet vast.
 const PDF_FOTO_MAX = 1000, PDF_FOTO_KWALITEIT = 0.65;
@@ -7292,96 +6261,9 @@ async function maakRapportPdf(p, voortgang) {
   pdf.paginas.forEach((ops, i) => { pdf.ops = ops; pdf.tekst(pdf.W - M, pdf.H - M + 10, `Pagina ${i + 1} van ${pdf.paginas.length}`, 8, { kleur: '#757575', rechts: true }); });
   return pdf.blob();
 }
-async function maakPdf(p, posten) {
-  if (p.simpel) return maakRapportPdf(p);
-  const pdf = new Pdf(), M = 40, B = pdf.W - 2 * M, logo = b64Bytes(LOGO_ICOON_JPG);
-  let y = 0;
-  const nieuwePagina = () => {
-    pdf.pagina();
-    pdf.beeld(logo, 160, 160, M, M - 6, 22, 22);
-    pdf.tekst(M + 28, M + 12, 'BuildCalc', 16, { vet: true, kleur: '#C5A059' });
-    pdf.tekst(pdf.W - M, M + 10, `${p.werknummer}  |  ${p.adres}`, 8, { kleur: '#757575', rechts: true });
-    pdf.lijn(M, M + 20, pdf.W - M, M + 20, '#D4AF37', 2);
-    y = M + 40;
-  };
-  const ruimte = n => { if (y + n > pdf.H - M - 20) nieuwePagina(); };
-  nieuwePagina();
-  pdf.tekst(M, y + 16, 'Opnamerapport', 22, { vet: true }); y += 34;
-  for (const [k, v] of [['Adres', p.adres], ['Werknummer', p.werknummer], ['Klant', p.klant], ['Datum', datumNL(new Date())], ...bagRijen(p), ...planRijen(p)]) {
-    pdf.tekst(M, y + 10, k, 10, { kleur: '#757575' }); for (const r of breek(String(v ?? ''), 10, B - 90)) { ruimte(15); pdf.tekst(M + 90, y + 10, r, 10); y += 15; }
-  }
-  // Meetstaat zoals in Topcalc, om regel voor regel over te typen.
-  const ms = meetstaat(p);
-  if (ms.length) {
-    y += 18; pdf.tekst(M, y + 12, 'Meetstaat Topcalc', 15); y += 18;
-    for (const r of breek('Maten in cm. Strekkend is inclusief extra stijlen en dorpels; +150 achter de omschrijving tel je in Topcalc met F8 erbij. F1 = foto 1, Rp = raampartij, Kz = kozijn, Rm = raam, Dr = deur, Bd = boeideel, LB = links boven.', 8.5, B)) { pdf.tekst(M, y + 9, r, 8.5, { kleur: '#757575' }); y += 11; }
-    y += 5;
-    const mk = [40, 34, 0, 52, 52, 60, 44, 60], mr = [false, false, false, true, true, true, true, false];
-    mk[2] = B - mk.reduce((a, b) => a + b, 0);
-    const mkop = () => { pdf.rect(M, y, B, 16, '#212121'); let x = M; FORM_KOLOMMEN.forEach((k, c) => { pdf.tekst(mr[c] ? x + mk[c] - 4 : x + 4, y + 11, k, 8.5, { vet: true, kleur: '#D4AF37', rechts: mr[c] }); x += mk[c]; }); y += 16; };
-    for (const g of ms) {
-      if (y + 50 > pdf.H - M - 20) nieuwePagina();
-      y += 6; pdf.tekst(M, y + 11, `${g.nr}. ${g.naam}`, 10.5, { vet: true }); pdf.tekst(M + B, y + 11, `${g.keer} x${g.type ? ` (${g.type})` : ''}`, 9, { kleur: '#757575', rechts: true }); y += 16;
-      mkop();
-      g.regels.forEach((r, i) => {
-        const cellen = r.map((v, c) => c === 2 ? breek(v, 9, mk[c] - 8) : [v]);
-        const hoog = 6 + 12 * Math.max(...cellen.map(x => x.length));
-        if (y + hoog > pdf.H - M - 20) { nieuwePagina(); pdf.tekst(M, y + 11, `${g.nr}. ${g.naam} (vervolg)`, 10.5, { vet: true }); y += 16; mkop(); }
-        if (i % 2) pdf.rect(M, y, B, hoog, '#F5F0E0');
-        let x = M;
-        cellen.forEach((regels, c) => { regels.forEach((t, j) => pdf.tekst(mr[c] ? x + mk[c] - 4 : x + 4, y + 12 + j * 12, t, 9, { vet: c < 2, rechts: mr[c], kleur: t === '?' ? '#E65100' : '#212121' })); x += mk[c]; });
-        y += hoog; pdf.lijn(M, y, M + B, y, '#E0E0E0', 0.5);
-      });
-      y += 6;
-    }
-  }
-  // Geen totalen en geen opgetelde lijst: in Topcalc wordt alles los ingevoerd, regel voor regel uit de meetstaat.
-  if (!ms.length) { y += 18; pdf.tekst(M, y + 10, 'Nog geen regels. Spreek opnames in bij de foto\'s of in de map.', 10); y += 16; }
-  // Daarna per gevel de foto's met maatlijnen, met hetzelfde nummer als in de meetstaat.
-  for (const [si, s] of p.submappen.entries()) {
-    if (!s.fotos.length) continue;
-    nieuwePagina();
-    pdf.tekst(M, y + 14, `${String(si + 1).padStart(2, '0')}. ${volNaam(p, s)}`, 18); pdf.lijn(M, y + 20, M + B, y + 20, '#212121', 0.7); y += 34;
-    for (const [fi, f] of s.fotos.entries()) {
-      // Na elke 5 foto's even ademruimte, zodat het scherm blijft reageren.
-      if (fi && fi % 5 === 0) await new Promise(r => setTimeout(r, 5));
-      let b = null;
-      try { b = await fotoMetLijnen(f); } catch (e) { console.error('Foto overgeslagen in PDF', f.id, e); }
-      if (!b) continue;
-      const k = Math.min(B / b.w, 380 / b.h), w = b.w * k, h = b.h * k;
-      ruimte(20 + h + 14);
-      pdf.tekst(M, y + 10, `Foto ${fi + 1}`, 10, { vet: true }); y += 16;
-      pdf.beeld(b.jpeg, b.w, b.h, M, y, w, h); y += h + 14;
-    }
-    const opm = s.fotos.flatMap((f, fi) => (f.opmerkingen || []).filter(b => b.tekst).map(b => `Foto ${fi + 1}: ${b.tekst.replace(/\s+/g, ' ')}`));
-    if (opm.length) {
-      ruimte(30); pdf.tekst(M, y + 10, `Opmerkingen ${volNaam(p, s)}`, 11, { vet: true }); y += 18;
-      for (const t of opm) { const r = breek(t, 9, B - 14); ruimte(r.length * 12 + 4); pdf.rect(M + 2, y + 4, 4, 4, '#D4AF37'); r.forEach(x => { pdf.tekst(M + 14, y + 10, x, 9); y += 12; }); y += 3; }
-      y += 10;
-    }
-  }
-  // Paginanummers
-  pdf.paginas.forEach((ops, i) => { pdf.ops = ops; pdf.tekst(pdf.W - M, pdf.H - M + 10, `Pagina ${i + 1} van ${pdf.paginas.length}`, 8, { kleur: '#757575', rechts: true }); });
-  return pdf.blob();
-}
 
 
 // ---------- Topcalc-lijst (simpele projecten) ----------
-// Per foto (of per onderdeel A, B op die foto) een of meer soorten, zoals op het Topcalc-opnameformulier:
-// Code | Type | Omschrijving | Breedte | Hoogte | Strekkend | Aantal (maten in hele cm).
-// Hoe de meters worden gerekend, hangt af van de eenheid van de code en is per soort aan te passen:
-// rondom = omtrek + extra stijlen (× hoogte) en dorpels (× breedte), vlak = breedte × hoogte, stuks = alleen het aantal.
-const tcStandaard = s => BINNEN.test(s.naam.toLowerCase()) ? '053 N' : '001 N';
-const REKEN = { rond: 'Rondom', breedte: 'Alleen breedte', hoogte: 'Alleen hoogte', vlak: 'Breedte × hoogte', stuks: 'Alleen stuks' };
-const standaardReken = e => e === 'M2' ? 'vlak' : e === 'ST' ? 'stuks' : 'rond';
-// De stukken van een foto: zonder onderdelen de hele foto, anders A, B, C. De houder bewaart naam en codes.
-const fotoStukken = f => ondVan(f).length ? ondVan(f).map(o => ({ L: o.letter, naam: o.naam || '', houder: o })) : [{ L: null, naam: f.naam || '', houder: f }];
-const codesVan = (h, s) => h.codes?.length ? h.codes : [{ code: h.tcCode || tcStandaard(s) }];
-// Voor het aanpassen: de standaardcode wordt een echte regel in de lijst.
-function tcCodesVast(h, s) { if (!h.codes?.length) { h.codes = codesVan(h, s).map(c => ({ ...c })); delete h.tcCode; } return h.codes; }
-const stukTitel = (fi, st) => `Foto ${fi + 1}${st.L ? ' ' + st.L : ''}`;
-// Regels zonder foto (s.regels): op kantoor ingevuld met Maps en je eigen foto's, met getypte breedte en hoogte (in m).
-const losMaten = h => h.B != null && h.H != null ? { B: h.B, H: h.H, st: 0, dp: 0, extra: [], ex: 0, totaal: 2 * h.B + 2 * h.H } : null;
 // De Topcalc-lijst is een lege lijst per map (s.tc), die je op kantoor zelf invult, net als de meetstaat in Topcalc:
 // Code | Type | Omschrijving | Breedte | Hoogte | Strekkend | Aantal. Maten in cm, zoals je ze typt.
 // Je kijkt daarbij naar je foto's (met of zonder maten) en Google Maps. Regels zonder foto van vroeger komen er vanzelf in.
@@ -7611,24 +6493,6 @@ async function toonFotoScherm() {
   if (FS.id !== r.f.id) return;
   if (u) { if (img.src === u && img.complete) teken(); else img.src = u; } else { img.removeAttribute('src'); d.getElementById('maten').textContent += '\n(foto ontbreekt)'; }
 }
-// Regel zonder foto invullen: naam, breedte en hoogte in cm, aantal stuks.
-function losRegelSheet(titel, h, metWeg = false) {
-  return new Promise(res => {
-    const cm = v => v == null ? '' : String(Math.round(v * 1000) / 10).replace('.', ',');
-    const d = dialoog(`<h2>${esc(titel)}</h2>
-      ${veld('naam', 'Naam', 'Bijv. Kozijn 2e verdieping links', h.naam || '')}
-      <div style="display:flex;gap:10px">${veld('b', 'Breedte (cm)', 'Bijv. 120', cm(h.B))}${veld('h', 'Hoogte (cm)', 'Bijv. 150', cm(h.H))}</div>
-      ${metWeg ? '' : veld('n', 'Aantal stuks', '1', '1')}
-      <div class="actions">${metWeg ? '<button id="lrWeg" class="danger">Verwijderen</button>' : ''}<button id="nee">Annuleren</button><button id="ja" class="primary">OK</button></div>`, () => res(null));
-    d.querySelectorAll('[data-f=b] input,[data-f=h] input,[data-f=n] input').forEach(i => i.inputMode = 'decimal');
-    const v = k => $(`[data-f=${k}] input`, d)?.value.trim() ?? '';
-    $('#ja', d).onclick = () => { const b = getal(v('b')), hh = getal(v('h'));
-      sluit(d); res({ naam: v('naam'), B: b == null ? null : b / 100, H: hh == null ? null : hh / 100, aantal: Math.max(1, Math.round(getal(v('n')) || 1)) }); };
-    $('#nee', d).onclick = () => { sluit(d); res(null); };
-    if ($('#lrWeg', d)) $('#lrWeg', d).onclick = async () => { sluit(d); res(await bevestig('Regel verwijderen?', `"${titel}" gaat uit de lijst.`) ? 'weg' : null); };
-    setTimeout(() => $('input', d).focus(), 50);
-  });
-}
 // Een onderdeel dat bij de hele gevel hoort (dakgoot, daklijst…): soort kiezen, lengte typen (zelf gemeten met Google Maps of Earth),
 // de code wordt per soort en per buiten/binnen onthouden. m1 = lengte, m2 = lengte en hoogte, stuks = aantal.
 async function gevelOnderdeel(s, klaar) {
@@ -7809,8 +6673,6 @@ const isRdo = s => /\bRDO\b|reinig/i.test(s?.naam || '');
 // Elk onderdeel op een foto hoort bij een bestek; per code kan dat anders (één kozijn met ONB én RDO, zelfde maten).
 const BESTEKKEN = { GOB: ['Glas buiten', '#3FC9C0'], GOI: ['Glas binnen', '#A99BFF'], ONB: ['Schilderwerk buiten', '#D4AF37'], ONI: ['Schilderwerk binnen', '#F2955A'], RCB: ['Voegwerk', '#C97B63'], RDO: ['Reiniging', '#5AB0F0'] };
 const BESTEK_LIJST = Object.keys(BESTEKKEN);
-// De code die in Topcalc in het vakje Bestek komt. ONB = OHD03; de andere volgen nog.
-const BESTEK_CODES = { ONB: 'OHD03', ONI: '', RCB: '', RDO: '', GOB: '', GOI: '' };
 const rijVariant = r => String(r.bv || '').trim(); // wat je zelf in het vakje Bestek typt (bijv. HA 05); niets vooraf ingevuld
 // Welke mappen je vooraf in Topcalc aanmaakt: project (straatnaam), daarin per bestek de mappen (Voorgevel, Achtergevel).
 const kaalMap = n => n.replace(/\b(RDO|ONB|ONI|GOB|GOI|RCB)\b|reiniging/gi, '').replace(/\s+/g, ' ').trim();
@@ -7827,14 +6689,12 @@ function topcalcMappen(p) {
 }
 const mappenTekst = p => topcalcMappen(p).bestekken.map(b => `${b.bestek} > ${b.straat} > ${b.mappen.join(', ')}`).join('\n');
 const BESTEK_KNOPPEN = ['ONB', 'ONI', 'RCB', 'RDO', 'GOB', 'GOI'];
-const REINIG_KLEUR = BESTEKKEN.RDO[1];
 const oudBestek = v => v === 'reinigen' ? 'RDO' : v === 'hout' ? 'ONB' : BESTEKKEN[v] ? v : null;
 // Zonder gekozen bestek: raden uit de code (G = glas, binnengroepen = ONI, anders ONB).
 const BINNEN_GROEP = c => /^B/.test(c) || ['050', '150', '250', '350', '450'].some(v => c >= v && c <= String(+v + 49).padStart(3, '0'));
 const BUITEN_GROEP = c => ['000', '100', '200', '300', '400'].some(v => c >= v && c <= String(+v + 49).padStart(3, '0'));
 const codeBestek = code => { const o = String(code || '').trim().toUpperCase().split(/\s+/)[0]; return /^G/.test(o) ? 'GOB' : o && BINNEN_GROEP(o) ? 'ONI' : 'ONB'; };
 const bestekVan = (o, c) => oudBestek(c?.bestek) || oudBestek(c?.soort) || oudBestek(o?.bestek) || oudBestek(o?.soort) || codeBestek(c?.code || o?.codes?.[0]?.code);
-const isReinig = (o, c) => bestekVan(o, c) === 'RDO';
 const bestekKleur = b => BESTEKKEN[b]?.[1] || '#D4AF37';
 // Een regel in de Topcalc-lijst: van een foto heeft hij zijn bestek; zelf getypt hoort hij bij het blok waarin je hem typte.
 const rijBestek = (r, s) => oudBestek(r.bestek) || (r.rdo || isRdo(s) ? 'RDO' : 'ONB');
@@ -7843,14 +6703,6 @@ const codePastBij = (ocode, b) => { if (!b || b === 'RDO' || b === 'RCB') return
   if (b === 'GOB' || b === 'GOI') return g; if (g) return false; return b === 'ONB' ? !BINNEN_GROEP(ocode) : !BUITEN_GROEP(ocode); };
 const codesHtml = o => (o.codes || []).map(c => { const b = bestekVan(o, c);
   return `<small style="color:${bestekKleur(b)}"><b style="font-size:10px">${b}</b> ${esc(c.code)}</small>`; }).join(' + ');
-// Reinigingscodes typ je zelf zoals in Topcalc (ze staan niet allemaal in de lijst); codes die je eerder gebruikte komen als voorstel.
-function reinigCodes() {
-  const tel = new Map(), plus = c => { c = String(c || '').trim().toUpperCase(); if (c) tel.set(c, (tel.get(c) || 0) + 1); };
-  try { for (const p of projecten) for (const s of p.submappen || []) {
-    for (const f of s.fotos || []) for (const o of f.onderdelen || []) for (const c of o.codes || []) if (isReinig(o, c)) plus(c.code);
-    for (const x of s.tc || []) if (rijBestek(x, s) === 'RDO' && !x.bron) plus(`${x.code || ''} ${x.type || ''}`); } } catch {}
-  return [...tel].sort((a, b) => b[1] - a[1]).map(x => x[0]);
-}
 // RDO: gewoon de Topcalc-codelijst, met 903 Reinigingswerkzaamheden al open (je mag ook een andere code kiezen).
 const kiesBestekCode = (b, titel, huidig = '') => b === 'RDO' ? codeKiezer(titel, huidig || '903', false, 'RDO') : b === 'RCB' ? kiesVoegCode(titel, huidig) : codeKiezer(titel, huidig, false, b);
 // Voegwerk (RCB): code zelf typen zoals in Topcalc; eerder gebruikte voegwerkcodes komen als voorstel.
@@ -7862,8 +6714,6 @@ function voegCodes() {
   return [...tel].sort((a, b) => b[1] - a[1]).map(x => x[0]);
 }
 const kiesVoegCode = async (titel, huidig = '') => { const c = await vraagTekst(titel, 'Voegwerkcode (RCB), zoals in Topcalc', 'Bijv. 500 A', huidig, voegCodes());
-  return c ? c.trim().toUpperCase().replace(/\s+/g, ' ') : null; };
-const kiesReinigCode = async (titel, huidig = '') => { const c = await vraagTekst(titel, 'Reinigingscode (RDO), zoals in Topcalc', 'Bijv. 910 A', huidig, reinigCodes());
   return c ? c.trim().toUpperCase().replace(/\s+/g, ' ') : null; };
 function tcHint(r) {
   const o = TC.get(String(r.code || '').trim().toUpperCase()), t = String(r.type || '').trim().toUpperCase(), zoek = '<button class="ghost tcknop" data-zoek>Code zoeken</button>';
@@ -7979,13 +6829,6 @@ async function download(blob, naam, opties = {}) {
   document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 60000);
 }
 const bestandsnaam = (p, ext) => `BuildCalc_${(p.werknummer || p.adres || "project").replace(/[^\w-]+/g, '_')}.${ext}`;
-function totalenHtml(t) {
-  const regel = (x, vet) => `<div style="display:flex;justify-content:space-between;gap:12px;padding:5px 0"><span style="${vet ? 'font-weight:600' : ''}">${esc(x.naam)}</span>
-    <span style="text-align:right;${vet ? 'font-weight:600;color:var(--gold)' : 'font-weight:500'}">${totaalTekst(x)}${x.open ? `<small style="display:block;color:var(--open);font-weight:400">+ ${x.open} zonder maat</small>` : ''}</span></div>`;
-  const kop = k => `<div style="color:var(--muted);font-size:12px;letter-spacing:1px;margin-top:12px">${k}</div>`;
-  return `<div class="card" style="padding:12px 16px;margin:4px 0 16px"><div class="label" style="margin:0 0 6px">TOTALEN</div>${regel(t.project, true)}
-    ${kop('PER BESTEKCODE')}${t.perBewerking.map(x => regel(x)).join('')}${t.perLocatie.length > 1 ? kop('PER LOCATIE') + t.perLocatie.map(x => regel(x)).join('') : ''}</div>`;
-}
 // Simpel project: één knop voor het rapport aan de projectleider, gemaakt uit de Topcalc-lijst.
 function renderSimpelRapport(m, p) {
   const alle = topcalcRegels(p).flatMap(x => x.regels), open = alle.filter(r => !r.klaar).length;
@@ -8024,71 +6867,7 @@ function renderSimpelRapport(m, p) {
 function renderRapport(m) {
   if (!projecten.length) { m.innerHTML = `<div class="ph">${ic('doc', 'i big')}<p>Maak eerst een project aan op het scherm Projecten.</p></div>`; return; }
   const p = vind(RP.projectId) || projecten.find(x => !x.verstuurd) || projecten[0];
-  if (p.simpel) return renderSimpelRapport(m, p);
-  const posten = maakPosten(p), regels = invoerlijst(posten), maten = lijnMaten(p);
-  const koppelingen = [...new Map(posten.filter(x => x.sleutel).map(x => [x.sleutel, x])).entries()];
-  // Per opname (notitie) of lijn tellen, niet per post.
-  const open = new Set(posten.filter(x => x.open).map(x => x.locatie + '|' + x.opmerking)).size + maten.filter(x => x.lijn.maat == null).length;
-  const fotos = p.submappen.reduce((a, s) => a + s.fotos.length, 0);
-  const tegel = (n, l, kl) => `<div class="tegel"><b style="${kl ? `color:${kl}` : ''}">${n}</b><small>${l}</small></div>`;
-  m.innerHTML = `<div class="pad" style="padding-bottom:32px">
-    <div class="tegels">${tegel(meetstaat(p).reduce((a, g) => a + g.regels.length, 0), 'regels')}${tegel(maten.length, 'lijnen')}${tegel(fotos, "foto's")}${tegel(open, 'open', open ? 'var(--open)' : '')}</div>
-    ${p.verstuurd ? `<div class="melding ok" style="display:flex;justify-content:space-between;align-items:center">Verstuurd op ${datumNL(new Date(p.verstuurd))}<button class="ghost" id="rpOngedaan" style="color:var(--muted);padding:0">Ongedaan maken</button></div>` : ''}
-    <button class="primary" id="rpStuur" ${RP.bezig ? 'disabled' : ''}>${ic('stuur')} ${RP.bezig === 'stuur' ? 'Rapport maken…' : `Versturen: ${esc(p.werknummer)}`}</button>
-    <div style="color:var(--muted);font-size:12px;text-align:center;margin:6px 0 10px">De PDF van dit project via WhatsApp, mail of een andere app. Er wordt niets opgeslagen.</div>
-    <button class="outline" id="rpXlsx" ${RP.bezig ? 'disabled' : ''}>${ic('table')} ${RP.bezig === 'xlsx' ? 'Excel maken…' : 'Alleen Excel opslaan'}</button>
-    <button class="outline" id="rpPdf" style="margin-top:10px" ${RP.bezig ? 'disabled' : ''}>${ic('pdf')} ${RP.bezig === 'pdf' ? 'PDF maken…' : 'Alleen PDF opslaan'}</button>
-    <h3 style="margin:32px 0 0;color:var(--gold)">Voor Topcalc</h3>
-    <div class="label" style="margin-top:10px">MEETSTAAT</div>
-    <div style="color:var(--muted);font-size:13px;margin-bottom:8px">Precies zoals in Topcalc, per gevel onder elkaar. Maten in cm. Tik op Code of Type om een code te kiezen.</div>
-    ${meetstaatHtml(p)}
-    ${regels.some(x => !x.object) ? `<div class="label" style="margin-top:28px">ZONDER TOPCALC-CODE</div>
-    <div style="color:var(--muted);font-size:13px;margin-bottom:8px">Hier vond de app geen code. Tik erop om de code te kiezen of een woord te leren.</div>` + regels.map((x, i) => x.object ? '' : `<div class="post open" data-leer="${i}" style="cursor:pointer"><span class="pcode leeg">—</span>
-      <div class="pinfo"><div>${esc(x.omschrijving)}</div><small>${esc([x.locatie, 'tik om een woord te leren'].join(' • '))}</small></div><b></b></div>`).join('') : ''}
-    ${koppelingen.length ? vakKop('koppel', ic('table'), 'Welke code bij welk onderdeel', `${koppelingen.length} koppelingen • tik om aan te passen`) + (!VAK_OPEN.has('koppel') ? '' : `
-    <div style="color:var(--muted);font-size:13px;margin:8px 0">De app kiest de code uit je Topcalc-lijst op onderdeel, binnen of buiten, materiaal en maat. Tik op een koppeling om een andere code te kiezen.</div>
-    <div class="card codes">${koppelingen.map(([k, x]) => `<button data-sleutel="${esc(k)}"><span>${esc(sleutelLabel(k))}<small style="display:block;color:var(--muted);font-size:12px">${esc(TC.get(x.object)?.naam || '')}</small></span><b class="${k in eigenCodes ? 'eigen' : ''}">${esc(postCode(x))}</b></button>`).join('')}</div>`) : ''}
-  </div>`;
-  m.querySelectorAll('[data-vak]').forEach(b => b.onclick = () => { VAK_OPEN.has(b.dataset.vak) ? VAK_OPEN.delete(b.dataset.vak) : VAK_OPEN.add(b.dataset.vak); render(); });
-  const exporteer = async (soort, werk) => {
-    if (!await eerstControle(p)) return;
-    RP.bezig = soort; render();
-    try { await werk(); } catch (e) { toast(`${{ pdf: 'PDF', xlsx: 'Excel', stuur: 'Rapport' }[soort]} maken mislukt: ${e.message}`); }
-    RP.bezig = null; render();
-  };
-  const excel = () => maakXlsx([
-    { naam: 'Meetstaat', kop: ['Gevel', 'Keer', ...FORM_KOLOMMEN], rijen: meetstaat(p).flatMap(g => g.regels.map(r => [`${g.nr}. ${g.naam}`, g.keer, ...r.map((v, c) => c > 2 && c < 7 && /^\d+$/.test(v) ? +v : v)])), breedtes: [18, 6, 7, 7, 40, 9, 9, 10, 8, 10] },
-    { naam: 'Opname', kop: TOPCALC_KOLOMMEN, rijen: [...posten].sort((a, b) => (!a.object - !b.object) || postCode(a).localeCompare(postCode(b))).map(postRij), breedtes: [8, 10, 45, 10, 8, 28, 16, 11, 11, 11, 10, 50] },
-    { naam: 'Maten', kop: ['Locatie', 'Foto', 'TopCalc code', 'Lijn', 'Richting', 'Maat (m)', 'Aantal stijlen/dorpels', 'Bron'],
-      rijen: maten.map(x => [x.locatie, x.foto, x.code, x.nr, x.lijn.richting === 'horizontaal' ? 'Horizontaal' : 'Verticaal', x.lijn.maat, lijnAantal(x.lijn), x.lijn.bron || (x.lijn.maat == null ? 'open' : '')]), breedtes: [16, 6, 12, 6, 12, 10, 12, 10] },
-    { naam: 'Project', kop: ['Veld', 'Waarde'], rijen: [['Adres', p.adres], ['Werknummer', p.werknummer], ['Klant', p.klant], ...bagRijen(p), ...planRijen(p)], breedtes: [14, 60] },
-  ]);
-  $('#rpXlsx').onclick = () => exporteer('xlsx', async () => download(excel(), bestandsnaam(p, 'xlsx')));
-  $('#rpPdf').onclick = () => exporteer('pdf', async () => download(await maakPdf(p, posten), bestandsnaam(p, 'pdf')));
-  // Versturen: de PDF wordt in het geheugen gemaakt en direct aan het deelscherm gegeven (WhatsApp, mail enz.).
-  // Er wordt niets gedownload; daarvoor zijn de knoppen "Alleen PDF/Excel opslaan".
-  $('#rpStuur').onclick = () => exporteer('stuur', async () => {
-    const blob = await maakPdf(p, posten);
-    if (!await deelPdf(blob, bestandsnaam(p, 'pdf'), `Opname ${p.werknummer}, ${p.adres}`, mailTekst(p))) return;
-    p.verstuurd = new Date().toISOString(); RP.projectId = p.id; bewaar();
-    // In de app daarna stil een back-up van dit project in het BuildCalc-mapje (geen download).
-    if (Native) await backupMaken(p, true);
-  });
-  const ov = $('#rpOngedaan'); if (ov) ov.onclick = () => { delete p.verstuurd; bewaar(); render(); };
-  m.querySelectorAll('[data-leer]').forEach(b => b.onclick = () => {
-    const r = regels[+b.dataset.leer];
-    menu([['table', 'Topcalc-code kiezen', async () => {
-      const n = p.submappen.flatMap(s => s.notities || []).find(x => x.tekst === r.opmerking); if (!n) return;
-      const code = await codeKiezer(notitieLabel(n.tekst) || 'Topcalc-code'); if (code) { n.code = code; bewaar(); render(); }
-    }], ['leer', 'Woord leren', () => woordLeren(r.opmerking)]]);
-  });
-  m.querySelectorAll('[data-sleutel]').forEach(b => b.onclick = async () => {
-    const k = b.dataset.sleutel, huidig = koppelingen.find(([x]) => x === k)[1];
-    const standaard = postCode(postenVoorNotitie(huidig.opmerking, huidig.locatie, () => null)[0]);
-    const code = await codeKiezer(sleutelLabel(k), postCode(huidig), true);
-    if (code == null) return;
-    zetCode(k, code === standaard ? '' : code); render();
-  });
+  renderSimpelRapport(m, p);
 }
 
 // ---------- kleine UI-hulpjes ----------
@@ -8644,20 +7423,6 @@ function inmPlan() {
   Object.values(pk).forEach(l => l.filter(x => !week.has(x.id) && !maand.has(x.id)).slice(0, tempo(l) * 3).forEach(x => zet(maand, x, 'tempo')));
   const later = open.filter(x => !week.has(x.id) && !maand.has(x.id)).map(x => ({ x }));
   return { week: [...week.values()], maand: [...maand.values()], later, dl };
-}
-// Per dag één gebied: adressen binnen 2,5 km (of in dezelfde straat) horen bij elkaar. Volgorde: dichtstbijzijnde eerst.
-function inmDagen(week, dl) {
-  const groepen = [];
-  [...week].sort((a, b) => dl(a.x) - dl(b.x)).forEach(v => {
-    const g = groepen.find(g => inmKm(g[0].x, v.x) < 2.5 || (inmKm(g[0].x, v.x) === 99 && (inmStraat(g[0].x.adres) === inmStraat(v.x.adres) || inmPlaats(g[0].x) && inmPlaats(g[0].x) === inmPlaats(v.x))));
-    g ? g.push(v) : groepen.push([v]);
-  });
-  return groepen.map(g => { const uit = [g.shift()]; while (g.length) { const l = uit.at(-1).x; g.sort((a, b) => inmKm(l, a.x) - inmKm(l, b.x)); uit.push(g.shift()); } return uit; });
-}
-function inmWerkdagen(n) {
-  const uit = [], d = new Date(); d.setHours(12, 0, 0, 0);
-  while (uit.length < n) { if (d.getDay() % 6) uit.push(new Date(d)); d.setDate(d.getDate() + 1); }
-  return uit;
 }
 const inmDatum = s => { const d = new Date(s + 'T12:00:00'); return d.toLocaleDateString('nl-NL', { day: 'numeric', month: 'short', ...(d.getFullYear() !== new Date().getFullYear() ? { year: 'numeric' } : {}) }); };
 // Wie ben ik (voor "Ik pak dit")? De naam uit Instellingen; in het voorbeeld "Dave".
