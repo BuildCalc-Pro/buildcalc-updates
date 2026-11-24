@@ -3584,7 +3584,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.24-2';
+const APP_VERSIE = '2026.11.24-3';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
@@ -8206,6 +8206,7 @@ function hkIndeling(b, onderaan = true) {
   const boom = hkSplits(ctx, { x0: k.x0 + t, y0: k.y0 + t, x1: k.x1 - t, y1: k.y1 - t }, 0);
   hkOpruimen(ctx, boom);
   for (const v of hkBladeren(boom)) v.soort = hkSoort(ctx, v);
+  hkStolp(ctx, boom);
   return { boom, t, hout: ctx.hout, th };
 }
 // Fractie van de rijen (of kolommen) waar op deze plek een rand is.
@@ -8289,7 +8290,10 @@ function hkSplits(ctx, r, diepte) {
   if (s.verf && s.overgang != null) { if (s.houtLaag) { p0 = s.p0; p1 = s.overgang; } else { p0 = s.overgang; p1 = s.p1; } }
   else if (s.verf) { const h = Math.max(3, Math.round(ctx.bar * .55)), lo = houtig(s.staand, s.p0 - h - 1, s.p0 - 2), hi = houtig(s.staand, s.p1 + 2, s.p1 + h + 1), bar = Math.max(t, ctx.bar);
     const grens = s.staand ? [r.x0, r.x1] : [r.y0, r.y1];
-    if (lo >= hi) { p1 = s.p0; p0 = Math.max(grens[0] + 4, s.p0 - bar); } else { p0 = s.p1; p1 = Math.min(grens[1] - 4, s.p1 + bar); } }
+    // Aan geen van beide kanten kozijnhout (glas links en rechts): de donkere balk is zelf de middenstijl, bijvoorbeeld
+    // twee ramen die naar elkaar toe draaien (stolp). Ook als beide kanten even licht zijn (glas met lucht erin). Dan splitsen op de balk.
+    if (s.staand && !(Math.max(lo, hi) >= .75 && Math.min(lo, hi) <= .35)) { p0 = s.p0; p1 = s.p1; }
+    else if (lo >= hi) { p1 = s.p0; p0 = Math.max(grens[0] + 4, s.p0 - bar); } else { p0 = s.p1; p1 = Math.min(grens[1] - 4, s.p1 + bar); } }
   vak.split = { staand: s.staand, p0, p1 };
   vak.kids = s.staand
     ? [hkSplits(ctx, { ...r, x1: p0 }, diepte + 1), hkSplits(ctx, { ...r, x0: p1 }, diepte + 1)]
@@ -8312,6 +8316,21 @@ function hkOpruimen(ctx, n) {
   const i = n.kids.findIndex(strook);
   if (i >= 0 && n.kids.length === 2) { const ander = n.kids[1 - i]; for (const key of Object.keys(n)) delete n[key]; Object.assign(n, ander); }
   return n;
+}
+// Twee ramen naast elkaar met dezelfde smalle geverfde rand (stolpramen): is er één als raam herkend, dan de ander ook.
+// En een raampje boven een dorpel met een groter raam eronder (bovenlicht) is meestal een vast raam.
+function hkStolp(ctx, boom) {
+  const zelfde = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]) < 35;
+  const loop = n => { if (!n.kids) return; n.kids.forEach(loop);
+    if (!n.split?.staand || n.kids.length !== 2 || n.kids.some(c => c.kids)) return;
+    const [a, c] = n.kids, wa = a.x1 - a.x0, wc = c.x1 - c.x0;
+    if (Math.min(wa, wc) / Math.max(wa, wc) < .7) return;
+    for (const [x, y] of [[a, c], [c, a]]) if (x.soort === 'Kozijn' && y.soort === 'Draairaam' && y.smal && (x.zij || []).filter(k => y.zij.some(e => zelfde(k, e)) || (x.hL && (k[0] + k[1] + k[2]) / 3 < x.hL * .6)).length >= 2) x.soort = 'Draairaam'; };
+  loop(boom);
+  const { k } = ctx, kh = k.y1 - k.y0, bl = hkBladeren(boom);
+  for (const v of bl) { if (v.soort !== 'Draairaam' || v.y1 > k.y0 + kh * .5) continue;
+    const onder = bl.filter(o => o !== v && o.y0 >= v.y1 - 2 && Math.min(o.x1, v.x1) - Math.max(o.x0, v.x0) > (v.x1 - v.x0) * .5);
+    if (onder.length && onder.every(o => (o.soort === 'Draairaam' || o.soort === 'Deur') && o.y1 - o.y0 > (v.y1 - v.y0) * 1.3)) v.soort = 'Vast raam'; }
 }
 // Soort van een vak: deur, paneel, draairaam of vast raam.
 function hkSoort(ctx, v) {
@@ -8347,7 +8366,23 @@ function hkSoort(ctx, v) {
   const rm = [0, 1, 2].map(c => { const q = ring.map(p => p[c]).sort((a, b) => a - b); return q[q.length >> 1]; });
   const ringEgaal = ring.filter(p => Math.hypot(p[0] - rm[0], p[1] - rm[1], p[2] - rm[2]) < 30).length / ring.length;
   const ringAnders = Math.hypot(rm[0] - hout[0], rm[1] - hout[1], rm[2] - hout[2]) > 40 && Math.hypot(rm[0] - rm[1], (rm[0] + rm[1]) / 2 - rm[2]) > 12;
-  const anderHout = (rand && rand.hout < .35 && rand.sd < 25 && Math.hypot(rand.rg, rand.yb) > 12) || (ringEgaal > .45 && ringAnders);
+  // Smal geverfd raamhout (zwart of grijs raampje in een wit kozijn): per zijkant een strook net binnen het vak die
+  // over de hele lengte één kleur heeft en niet de kozijnkleur. Op minstens drie zijkanten dezelfde kleur = een raam.
+  const zijKleur = [];
+  for (const kant of [0, 1, 2, 3]) { let best = null;
+    for (let d = Math.max(1, t * .1); d <= t * 2; d += 1) { const px = [];
+      for (let k = 0; k < 40; k++) { const u = .12 + .76 * k / 39, x = kant === 0 ? v.x0 + d : kant === 1 ? v.x1 - d : v.x0 + w * u, y = kant === 2 ? v.y0 + d : kant === 3 ? v.y1 - d : v.y0 + h * u;
+        const i = Math.round(y) * W + Math.round(x); px.push([rgb[i * 3], rgb[i * 3 + 1], rgb[i * 3 + 2]]); }
+      const md = [0, 1, 2].map(c => { const q = px.map(p => p[c]).sort((a, b) => a - b); return q[q.length >> 1]; });
+      const eg = px.filter(p => Math.hypot(p[0] - md[0], p[1] - md[1], p[2] - md[2]) < 30).length / px.length;
+      if (eg >= .75 && Math.hypot(md[0] - hout[0], md[1] - hout[1], md[2] - hout[2]) > 60 && (!best || eg > best.eg)) best = { eg, md }; }
+    if (best) zijKleur.push(best.md); }
+  // Donker raamhout tegen een licht kozijn: de kleur verschilt per zijkant door het licht, dus dan volstaat "donker" op
+  // drie zijkanten, mits er op minstens drie zijkanten ook een binnenrand (raamhout → glas) zit.
+  const donker = zijKleur.filter(c => (c[0] + c[1] + c[2]) / 3 < hL * .6).length;
+  const smalRaam = (zijKleur.length >= 3 && zijKleur.filter(c => zijKleur.filter(e => Math.hypot(c[0] - e[0], c[1] - e[1], c[2] - e[2]) < 35).length >= 3).length >= 3) || (donker >= 3 && kanten >= 3);
+  const anderHout = (rand && rand.hout < .35 && rand.sd < 25 && Math.hypot(rand.rg, rand.yb) > 12) || (ringEgaal > .45 && ringAnders) || smalRaam;
+  v.zij = zijKleur; v.smal = smalRaam; v.hL = hL;
   if (anderHout) return w > h * 1.25 ? 'Klepraam' : 'Draairaam';
   return 'Kozijn';
 }
@@ -8435,7 +8470,12 @@ function hkBovenOnder(beeld, hoek, kleur) {
     if (dy > max) return oud;
     return bovenrand(nieuw, kant) > 25 && bovenrand(nieuw, kant) > bovenrand(oud, kant) * 1.1 ? nieuw : oud; };
   const kiesOnder = (oud, nieuw) => { const dy = nieuw[1] - oud[1]; return dy <= 0 && -dy <= max ? nieuw : oud; };
-  return [kiesBoven(lb, nlb, 1), kiesBoven(rb, nrb, -1), kiesOnder(ro, nro), kiesOnder(lo, nlo)];
+  // De onderkant als geheel: schuift één hoek een flink stuk omhoog en mag de andere dat niet (te ver), dan klopt het
+  // niet (lichtere stenen, een plant) en blijven beide hoeken staan.
+  let nRo = kiesOnder(ro, nro), nLo = kiesOnder(lo, nlo);
+  const ver = (o, n) => o[1] - n[1] > hoogte * .03;
+  if ((nRo === nro) !== (nLo === nlo) && (ver(ro, nRo) || ver(lo, nLo))) { nRo = ro; nLo = lo; }
+  return [kiesBoven(lb, nlb, 1), kiesBoven(rb, nrb, -1), nRo, nLo];
 }
 
 // Metselwerk aan de rand eraf: zolang de buitenste rij (of kolom) binnen het kozijn vooral steen is, schuift die kant
