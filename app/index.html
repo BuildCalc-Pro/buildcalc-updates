@@ -1840,7 +1840,9 @@ function tekenUI2() {
   V.el.classList.toggle('loc', opLoc);
   const kt = $('#vkantTop', V.el); kt.hidden = !opLoc; kt.classList.toggle('on', !!f.kantoor); kt.textContent = f.kantoor ? '✓ Kantoor' : 'Kantoor';
   kt.onclick = () => { f.kantoor = !f.kantoor; bewaar(); tekenUI(); toast(f.kantoor ? 'Staat klaar om op kantoor uit te werken.' : 'Niet meer gemarkeerd voor kantoor.'); };
-  if (opLoc && !V.sel) { st.textContent = ''; st.hidden = true; } else st.hidden = false;
+  // Op locatie blijft de foto groot, behalve als de kozijnherkenning iets laat zien (herkennen, kaartje met de maat, gevel).
+  const kznVak = KZN() && !!(V.herk || V.kaart || V.gevel);
+  if (opLoc && !V.sel && !kznVak) { st.textContent = ''; st.hidden = true; } else st.hidden = false;
   if (ond.length && !ond.some(o => o.letter === V.ond)) V.ond = ond[0].letter;
   if (!ond.length) V.ond = null;
   const vTop = ond.find(x => x.letter === V.ond)?.in || V.ond;
@@ -3582,7 +3584,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.24-1';
+const APP_VERSIE = '2026.11.24-2';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
