@@ -3584,7 +3584,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.24-9';
+const APP_VERSIE = '2026.11.24-10';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
@@ -9658,7 +9658,7 @@ const tcAantal = s => { try { return tcLijst(s).filter(r => !tcLeeg(r)).length; 
 // Gok = een maat die de app zelf uit de foto haalt (foto-schaal, vanzelf getelde stenen, buurkozijn, overzichtsfoto).
 // Bij herkende kozijnen telt een gok nooit: alleen gemeten (laser), zelf ingevuld, uit een sjabloon, of een vak naar
 // verhouding in een kozijn met zo'n echte maat. Zonder echte maat staat er "maat ?".
-const rsGok = l => !!l && (l.uitRef || l.bron === 'foto' || l.bron === 'overzicht' || !!l.gvBuur || !!l.gvDicht || (l.bron === 'stenen' && !!(l.gvAutoSt || l.gvStoot)));
+const rsGok = l => !!l && (l.uitRef || l.bron === 'foto' || l.bron === 'overzicht' || l.bron === 'stenen' || !!l.gvBuur || !!l.gvDicht);
 function rsLijnOk(f, l) {
   if (!l || l.maat == null || !(l.maat > 0) || rsGok(l)) return false;
   if (l.bron !== 'deel') return true;
@@ -9669,7 +9669,8 @@ function rsLijnOk(f, l) {
 function rsGokWeg(f) {
   if (!f?.lijnen) return;
   const herk = new Set(ondVan(f).filter(o => o.herkend).map(o => o.letter));
-  for (const l of f.lijnen) if (herk.has(l.kozijn) && l.maat != null && (rsGok(l) || (l.bron === 'deel' && !rsLijnOk(f, l)))) l.maat = null;
+  // Ook zelf getrokken lijnen en getelde kozijnen: een maat uit de foto (schaal, stenen) wordt nooit vanzelf ingevuld.
+  for (const l of f.lijnen) if (l.maat != null && !l.hoek && (rsGok(l) || (herk.has(l.kozijn) && l.bron === 'deel' && !rsLijnOk(f, l)))) l.maat = null;
 }
 
 // ---------- Sjabloon: een gemeten kozijn van beneden (maat + indeling) op een kozijn boven leggen ----------
@@ -9790,8 +9791,7 @@ function meerMenu(f) {
     ['ster', 'Herken kozijnen', () => { uit(); V.modus = 'bekijken'; tekenUI(); herkStart(); }],
     ['ruler', 'Lijn trekken', () => { uit(); tekenUI(); V.el.querySelector('#vmodes [data-m=lijn]')?.click(); }],
     ['ballon', 'Opmerking', () => { uit(); tekenUI(); V.el.querySelector('#vmodes [data-m=opmerking]')?.click(); }],
-    ['hash', 'Tellen (kozijn met 2 tikken)', () => { uit(); tekenUI(); klik('#vtel')(); }],
-    ['vert', '10 lagen (laaghoogte)', () => { uit(); tekenUI(); klik('#vl10')(); }]);
+  );
   menu(items);
 }
 
@@ -9946,6 +9946,7 @@ function kaartPaneel(f, st) {
     : staat === 'in' ? `<div style="display:flex;gap:8px;align-items:center"><span style="flex:1;padding:10px 12px;border-radius:10px;background:rgba(87,224,210,.14);color:#57E0D2;font-weight:700;font-size:15px">In Topcalc ✓${doel !== o || K.stijl ? ` <small style="font-weight:400">via ${esc(nDoel)}</small>` : ''}</span>${doel.herkend ? '<button class="ghost" id="ktcuit" style="width:auto;padding:8px 10px;font-size:13px;color:var(--muted)">Eruit</button>' : ''}</div>`
     : staat === 'elders' ? `<div style="padding:10px 12px;border-radius:10px;background:var(--surface-high);color:#B0BEC5;font-size:14px">Telt via een andere foto (typefoto of begane grond), hier niet.</div>`
     : staat === 'negeer' ? `<div style="padding:10px 12px;border-radius:10px;background:var(--surface-high);color:#B0BEC5;font-size:14px">Genegeerd: telt nergens mee.</div>`
+    : !magTc && echt ? ''
     : !magTc ? `<button class="primary" disabled style="width:100%;padding:12px;font-size:16px;opacity:.35">＋ Naar Topcalc</button><div style="font-size:12.5px;color:var(--muted);margin-top:4px;text-align:center">Kan pas als de maat ${check?.waarom === 'buiten' || check?.waarom === 'plek' ? 'klopt' : 'bekend is'}.</div>`
     : `<button class="primary" id="ktcin" style="width:100%;padding:12px;font-size:16px">＋ Naar Topcalc${doel !== o || K.stijl ? ` <small style="font-weight:400">(${esc(nDoel)})</small>` : ''}</button>`;
   const kidsOk = kidsUit.filter(x => rsOk(f, x));
