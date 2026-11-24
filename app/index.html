@@ -544,6 +544,38 @@ function oudeGevelWeg(p) {
   }
 }
 projecten.forEach(oudeGevelWeg);
+// Eenmalig: de testkozijnen van de kozijnherkenning (24-11-2026) weg. Alles wat die proef maakte heeft "herkend";
+// een kozijn dat er al eerder stond blijft, alleen de lijnen van die dag zonder lasermaat gaan eraf. Kopie in bc_kznTestWeg1.kopie.
+const KZN_WEG = 'bc_kznTestWeg1';
+let kznWegMelding = '';
+(function kznTestWeg() {
+  try { if (localStorage.getItem(KZN_WEG)) return; } catch { return; }
+  const CUT = Date.parse('2026-11-24T14:00:00Z'), tijd = l => parseInt(String(l?.id || '').split('-')[0], 36) || 0, nieuw = l => tijd(l) >= CUT;
+  const gok = l => !(l.maat > 0) || l.uitRef || l.via || l.kopie || l.sjabloon || ['foto', 'stenen', 'sjabloon', 'deel', 'pui', 'ijk', 'gevel', 'standaard'].includes(l.bron);
+  const kopie = []; let nK = 0, nL = 0, nS = 0;
+  for (const p of projecten) {
+    if (p.sjablonen?.length) { kopie.push({ project: p.id, sjablonen: p.sjablonen }); nS += p.sjablonen.length; }
+    if ('sjablonen' in p) { delete p.sjablonen; delete p.sjV; }
+    for (const s of p.submappen || []) for (const f of s.fotos || []) {
+      const ond = f.onderdelen || [], lijnen = f.lijnen || [];
+      const herk = ond.filter(o => o.herkend); if (!herk.length && !lijnen.some(l => nieuw(l) && (l.sjabloon || l.sjOpen))) continue;
+      const weg = new Set(), houd = new Set();
+      for (const o of herk) (lijnen.some(l => l.kozijn === o.letter && !nieuw(l)) ? houd : weg).add(o.letter);
+      for (let meer = true; meer;) { meer = false; for (const o of ond) if (o.in && weg.has(o.in) && !weg.has(o.letter)) { weg.add(o.letter); meer = true; } }
+      const letters = new Set(ond.filter(o => !weg.has(o.letter)).map(o => o.letter));
+      const eruit = l => weg.has(l.kozijn) || (nieuw(l) && (houd.has(l.kozijn) ? gok(l) : (!!l.kozijn && !letters.has(l.kozijn))));
+      const wegL = lijnen.filter(eruit), wegO = ond.filter(o => weg.has(o.letter));
+      kopie.push({ foto: f.id, onderdelen: JSON.parse(JSON.stringify(ond)), lijnen: JSON.parse(JSON.stringify(lijnen)) });
+      f.lijnen = lijnen.filter(l => !eruit(l));
+      for (const l of f.lijnen) if (l.sjabloon || l.sjOpen) { for (const k of ['sjabloon', 'sjOpen', 'sjRef', 'sjKopie']) delete l[k]; if (l.bron === 'sjabloon') { l.maat = null; delete l.bron; } }
+      f.onderdelen = ond.filter(o => !weg.has(o.letter));
+      for (const o of f.onderdelen) if (o.herkend) for (const k of ['herkend', 'kader', 'gvGlas', 'raamNaad']) delete o[k];
+      nK += wegO.length; nL += wegL.length;
+    }
+  }
+  try { if (kopie.length) localStorage.setItem(KZN_WEG + '.kopie', JSON.stringify(kopie)); localStorage.setItem(KEY, JSON.stringify(projecten)); localStorage.setItem(KZN_WEG, '1'); } catch { return; }
+  if (nK || nL || nS) kznWegMelding = `Testkozijnen van de kozijnherkenning verwijderd: ${nK} ${nK === 1 ? 'onderdeel' : 'onderdelen'}, ${nL} ${nL === 1 ? 'lijn' : 'lijnen'}${nS ? `, ${nS} ${nS === 1 ? 'sjabloon' : 'sjablonen'}` : ''}.`;
+})();
 // Alle projecten werken simpel: mappen en foto's, zonder stappenplan of Kadaster. Het oude plan blijft in de gegevens bewaard.
 const zetSimpel = p => { if (p.simpel) return; p.simpel = true;
   if (!p.submappen.length) p.submappen = ['Voorgevel', 'Achtergevel', 'Zijgevel'].map(naam => ({ id: nieuwId(), naam, aangemaakt: new Date().toISOString(), fotos: [], notities: [] })); };
@@ -3555,7 +3587,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.24-14';
+const APP_VERSIE = '2026.11.24-15';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
@@ -7869,6 +7901,7 @@ function renderInstellingen(m) {
 $('#instel').onclick = () => { tab = 'instellingen'; render(); };
 
 render();
+if (kznWegMelding) setTimeout(() => toast(kznWegMelding, 7000), 800);
 if (/koppel=BCK1/.test(location.hash)) { const k = decodeURIComponent(location.hash); history.replaceState(null, '', location.pathname + location.search); setTimeout(() => inmKoppelCode(k), 300); }
 else if (inmGekoppeld()) setTimeout(() => inmHaal(true), 2000); // aantal voor het bolletje op Inmeten
 // De app werkt zonder AI. Een oude Gemini-sleutel wordt van het toestel gehaald.
