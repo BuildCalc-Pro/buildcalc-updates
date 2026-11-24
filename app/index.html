@@ -408,7 +408,28 @@ table.form td[data-ncode] { cursor: pointer; text-decoration: underline dotted v
 .lgrond.min { background: var(--surface-high); color: var(--text); }
 .vkant { flex: none; padding: 5px 10px; border-radius: 999px; border: 1px solid var(--gold-dark); background: none; color: var(--a2); font-size: 13px; font-weight: 600; margin-right: 6px; }
 .vkant.on { background: color-mix(in srgb, var(--a2) 22%, transparent); border-color: var(--a2); }
-.viewer.loc #vmodes [data-m=bekijken], .viewer.loc #vtel { display: none; }
+.viewer.loc #vmodes [data-m=bekijken], .viewer.loc #vgsj { display: none; }
+.gmed { position: fixed; inset: 0; z-index: 60; background: #000; display: flex; flex-direction: column; color: var(--text); }
+.gmbar { display: flex; align-items: center; gap: 8px; padding: 6px 8px; padding-top: max(6px, env(safe-area-inset-top)); background: #111; color: #fff; }
+.gmbar .t { flex: 1; font-weight: 700; font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gmbar .iconbtn { color: #fff; }
+.gmstage { position: relative; flex: 1; min-height: 0; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; }
+.gmsurf { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+.gmsurf img { display: block; width: 100%; height: 100%; pointer-events: none; -webkit-user-drag: none; }
+.gmsurf svg { position: absolute; inset: 0; overflow: visible; }
+.gmloep { position: absolute; top: 12px; width: 150px; height: 150px; border-radius: 50%; border: 2px solid #D4AF37; box-shadow: 0 2px 12px rgba(0,0,0,.6); pointer-events: none; }
+.gmzoom { position: absolute; right: 10px; bottom: 10px; display: flex; flex-direction: column; gap: 6px; }
+.gmzoom button { width: 40px; height: 40px; border-radius: 20px; border: 1px solid #555; background: rgba(20,20,20,.8); color: #fff; font-size: 20px; line-height: 1; padding: 0; }
+.gmpaneel { background: var(--surface); padding: 10px 12px; padding-bottom: max(12px, env(safe-area-inset-bottom)); max-height: 46vh; overflow-y: auto; }
+.gmuitleg { font-size: 14px; color: var(--muted); margin-bottom: 8px; line-height: 1.4; }
+.gmuitleg b { color: var(--text); }
+.gmklein { font-size: 13px; color: var(--muted); margin: 2px 0 8px; }
+.gmklein b { color: #57E0D2; }
+.gmrij { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+.gmrij label { font-size: 14px; color: var(--muted); }
+.gmknop { padding: 10px 14px; border-radius: 10px; border: 1px solid var(--gold-dark); background: var(--surface-high); color: var(--text); font: inherit; font-weight: 600; }
+.gmknop.hoofd { background: var(--gold); border-color: var(--gold); color: #000; flex: 1; }
+.gmchips { display: flex; gap: 6px; overflow-x: auto; margin-bottom: 8px; padding-bottom: 2px; }
 .kantoorknop { width: 100%; margin: 0 0 8px; padding: 10px; border-radius: 10px; border: 1px solid var(--gold-dark); background: var(--surface-high); color: var(--a2); font-weight: 600; }
 .ondrij { display: flex; gap: 6px; overflow-x: auto; margin: 0 0 8px; padding-bottom: 2px; }
 .ondchip { flex: none; padding: 7px 12px; border-radius: 16px; border: 1px solid var(--line, #444); background: var(--surface-high); color: inherit; font-size: 14px; white-space: nowrap; }
@@ -1520,6 +1541,288 @@ async function fotosVerkleinen(voortgang) {
   return { n, bespaard: voor - na };
 }
 
+// ---------- Gevelmaat: referentie en sjablonen per gevelmap (4-punts perspectief) ----------
+// Alles hoort bij één gevelmap (s.gm): Achtergevel rekent alleen met de referentie van Achtergevel.
+// Referentie: 4 versleepbare hoeken op een gelaserd kozijn of pui + de gelaserde breedte × hoogte (cm).
+// Sjabloon: 4 versleepbare hoeken op een ander onderdeel; de maat komt uit de homografie van de referentie.
+// Een homografie geldt voor één vlak op één foto: het referentiekader moet op dezelfde foto staan als het sjabloon.
+// Niets gaat vanzelf naar Topcalc: alleen de knop "+ Naar Topcalc".
+const gmVan = s => { if (!s.gm || typeof s.gm !== 'object') s.gm = {}; s.gm.sj ??= []; return s.gm; };
+const gmRefOp = (s, fid) => { const r = s.gm?.ref; return r?.fotos?.[fid] || null; };
+const gmRefKlaar = s => { const r = s.gm?.ref; return !!(r && r.B > 0 && r.H > 0 && Object.keys(r.fotos || {}).length); };
+const gmD = (a, b) => Math.hypot(b[0] - a[0], b[1] - a[1]);
+// Breedte en hoogte (cm) van 4 hoeken (linksboven, rechtsboven, rechtsonder, linksonder) via de referentie op dezelfde foto.
+function gmMaat(s, fid, p, iw, ih) {
+  const r = s.gm?.ref, rf = gmRefOp(s, fid);
+  if (!r || !(r.B > 0) || !(r.H > 0) || !rf || !p || p.length !== 4) return null;
+  const px = q => q.map(([x, y]) => [x * iw, y * ih]);
+  const M = homografie(px(rf.p), [[0, 0], [r.B, 0], [r.B, r.H], [0, r.H]]); if (!M) return null;
+  const q = px(p).map(([x, y]) => hPunt(M, x, y));
+  const B = (gmD(q[0], q[1]) + gmD(q[3], q[2])) / 2, H = (gmD(q[0], q[3]) + gmD(q[1], q[2])) / 2;
+  return isFinite(B) && isFinite(H) && B > 0 && H > 0 && B < 10000 && H < 10000 ? { B: Math.round(B), H: Math.round(H) } : null;
+}
+// Een sjabloon volgt de berekening, behalve een maat die je zelf hebt aangepast.
+function gmHerreken(s, sj) {
+  const m = gmMaat(s, sj.fotoId, sj.p, sj.iw, sj.ih); sj.calc = m;
+  if (m) { if (!sj.handB) sj.B = m.B; if (!sj.handH) sj.H = m.H; }
+}
+const gmSjOp = (s, fid) => (s.gm?.sj || []).filter(x => x.fotoId === fid);
+function gmTcRij(s, sj) { return sj.tc ? (s.tc || []).find(r => r.id === sj.tc) || null : null; }
+function gmNaarTopcalc(s, sj) {
+  const lijst = tcLijst(s); let r = gmTcRij(s, sj);
+  if (!r) { r = { id: nieuwId(), code: '', type: '', oms: '', b: '', h: '', st: '', n: '1', bestek: isRdo(s) ? 'RDO' : 'ONB' }; lijst.push(r); sj.tc = r.id; }
+  r.oms = sj.naam || 'Sjabloon'; r.b = String(sj.B); r.h = String(sj.H); r.gm = sj.id; bewaar(); return r;
+}
+// In de gewone fotoweergave: referentie (lichtblauw) en sjablonen (goud) met hun maat, alleen om te zien.
+function gmSvg(s, f, W, H) {
+  if (!s?.gm || !f) return '';
+  const vak = (p, kl, tekst, dik) => { const xy = p.map(([x, y]) => [x * W, y * H]);
+    const lx = Math.min(...xy.map(a => a[0])), ly = Math.min(...xy.map(a => a[1]));
+    return `<polygon points="${xy.map(a => a.join(',')).join(' ')}" fill="none" stroke="${kl}" stroke-width="${dik}"/>` +
+      (tekst ? `<text x="${lx + 4}" y="${ly - 5}" fill="${kl}" stroke="#000" stroke-width="3" paint-order="stroke" font-size="13" font-weight="700">${esc(tekst)}</text>` : ''); };
+  const r = s.gm.ref, rf = gmRefOp(s, f.id);
+  return (rf && r ? vak(rf.p, '#57E0D2', `Referentie ${r.B || '?'} × ${r.H || '?'}`, 2) : '') +
+    gmSjOp(s, f.id).map(sj => vak(sj.p, '#D4AF37', `${sj.naam || 'Sjabloon'} ${sj.B ?? '?'} × ${sj.H ?? '?'}`, 2)).join('');
+}
+
+let GM = null;
+// modus: 'ref' (referentie zetten) of 'sj' (sjabloon opleggen, op kantoor).
+async function gmOpen(p, s, fi, modus) {
+  const f = s.fotos[fi]; if (!f) return;
+  gmVan(s);
+  const el = document.createElement('div'); el.className = 'gmed';
+  el.innerHTML = `<div class="gmbar"><button class="iconbtn" id="gmsluit" aria-label="Sluiten">${ic('close')}</button><div class="t" id="gmtitel"></div></div>
+    <div class="gmstage" id="gmstage"><div class="gmsurf" id="gmsurf"><img id="gmimg" alt="" draggable="false"><svg id="gmsvg"></svg></div>
+      <canvas class="gmloep" id="gmloep" width="150" height="150" hidden></canvas>
+      <div class="gmzoom"><button data-z="1" aria-label="Inzoomen">+</button><button data-z="-1" aria-label="Uitzoomen">−</button><button data-z="0" aria-label="Passend">⤢</button></div></div>
+    <div class="gmpaneel" id="gmpaneel"></div>`;
+  document.body.appendChild(el);
+  GM = { p, s, f, fi, el, modus, iw: 0, ih: 0, w: 0, h: 0, z: { s: 1, tx: 0, ty: 0 }, sel: null, draft: null };
+  $('#gmsluit', el).onclick = gmSluit;
+  el.querySelectorAll('[data-z]').forEach(b => b.onclick = () => { const z = +b.dataset.z; if (!z) gmZoom(1, null, true); else gmZoom(GM.z.s * (z > 0 ? 1.6 : 1 / 1.6)); });
+  const img = $('#gmimg', el), u = await fotoUrl(f.id);
+  if (!u) { toast('Foto ontbreekt.'); return gmSluit(); }
+  img.onload = () => { if (!GM) return; GM.iw = img.naturalWidth; GM.ih = img.naturalHeight; gmBegin(); gmSchik(); };
+  img.src = u;
+  window.addEventListener('resize', gmSchik);
+  gmGebaren($('#gmstage', el));
+}
+function gmSluit() {
+  window.removeEventListener('resize', gmSchik);
+  GM?.el.remove(); GM = null;
+  if (V) { tekenUI(); tekenLijnen(); } else render();
+}
+// Startstand: in Referentie het bestaande kader (of een rechthoek midden-onder), in Sjabloon het eerste sjabloon.
+function gmBegin() {
+  const { s, f } = GM, r = s.gm.ref, rf = gmRefOp(s, f.id);
+  GM.draft = { p: rf ? rf.p.map(a => [...a]) : gmStartVak(.3, .55, .7, .9), B: r?.B ?? '', H: r?.H ?? '', naam: r?.naam || '', nieuw: !rf };
+  for (const sj of gmSjOp(s, f.id)) gmHerreken(s, sj);
+  GM.sel = gmSjOp(s, f.id).at(-1)?.id || null;
+}
+const gmStartVak = (x1, y1, x2, y2) => [[x1, y1], [x2, y1], [x2, y2], [x1, y2]];
+function gmSchik() {
+  if (!GM?.iw) return;
+  const st = $('#gmstage', GM.el).getBoundingClientRect(), rand = 14;
+  const k = Math.min((st.width - 2 * rand) / GM.iw, (st.height - 2 * rand) / GM.ih);
+  GM.w = GM.iw * k; GM.h = GM.ih * k; GM.ox = (st.width - GM.w) / 2; GM.oy = (st.height - GM.h) / 2;
+  Object.assign($('#gmsurf', GM.el).style, { width: GM.w + 'px', height: GM.h + 'px' });
+  gmZoom(GM.z.s, null, GM.z.s === 1);
+}
+function gmZoom(sc, rond = null, reset = false) {
+  if (!GM?.w) return;
+  const st = $('#gmstage', GM.el).getBoundingClientRect(), z = GM.z, oud = z.s;
+  sc = Math.max(1, Math.min(12, sc));
+  if (reset || sc === 1) { z.s = 1; z.tx = GM.ox; z.ty = GM.oy; }
+  else { const [cx, cy] = rond || [st.width / 2, st.height / 2];
+    z.tx = cx - (cx - z.tx) * sc / oud; z.ty = cy - (cy - z.ty) * sc / oud; z.s = sc; }
+  $('#gmsurf', GM.el).style.transform = `translate(${z.tx}px,${z.ty}px) scale(${z.s})`;
+  gmTeken();
+}
+// Schermpunt -> fotopunt (0-1).
+function gmNorm(cx, cy) {
+  const r = $('#gmsurf', GM.el).getBoundingClientRect();
+  return [(cx - r.left) / r.width, (cy - r.top) / r.height];
+}
+const gmKlem = v => Math.max(-.05, Math.min(1.05, v));
+function gmSjNu() { return gmSjOp(GM.s, GM.f.id).find(x => x.id === GM.sel) || null; }
+// Welke vakken op dit scherm versleepbaar zijn.
+function gmVakken() {
+  const { s, f, modus } = GM, uit = [];
+  if (modus === 'ref') uit.push({ id: 'ref', p: GM.draft.p, kl: '#57E0D2', actief: true, tekst: 'Referentie' });
+  else {
+    const rf = gmRefOp(s, f.id), r = s.gm.ref;
+    if (rf) uit.push({ id: 'ref', p: rf.p, kl: '#57E0D2', actief: false, tekst: `Referentie ${r.B} × ${r.H} cm` });
+    for (const sj of gmSjOp(s, f.id)) uit.push({ id: sj.id, p: sj.p, kl: '#D4AF37', actief: sj.id === GM.sel, tekst: `${sj.naam || 'Sjabloon'} ${sj.B ?? '?'} × ${sj.H ?? '?'} cm` });
+  }
+  return uit;
+}
+function gmTeken() {
+  if (!GM?.w) return;
+  const W = GM.w, H = GM.h, zs = GM.z.s, svg = $('#gmsvg', GM.el);
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`); svg.setAttribute('width', W); svg.setAttribute('height', H);
+  const rh = 9 / zs, hit = 26 / zs, lw = 2.2 / zs, fs = 14 / zs;
+  svg.innerHTML = gmVakken().sort((a, b) => a.actief - b.actief).map(v => {
+    const xy = v.p.map(([x, y]) => [x * W, y * H]), pts = xy.map(a => a.join(',')).join(' ');
+    const lx = Math.min(...xy.map(a => a[0])), ly = Math.min(...xy.map(a => a[1]));
+    return `<g data-vak="${v.id}"><polygon points="${pts}" fill="${v.actief ? (v.kl === '#57E0D2' ? 'rgba(87,224,210,.12)' : 'rgba(212,175,55,.14)') : 'rgba(0,0,0,0)'}" stroke="${v.kl}" stroke-width="${v.actief ? lw * 1.2 : lw * .8}" ${v.actief ? '' : `stroke-dasharray="${6 / zs} ${4 / zs}"`} data-romp="${v.id}"/>
+      <text x="${lx + 4 / zs}" y="${ly - 6 / zs}" fill="${v.kl}" stroke="#000" stroke-width="${3 / zs}" paint-order="stroke" font-size="${fs}" font-weight="700" pointer-events="none">${esc(v.tekst)}</text>
+      ${v.actief ? xy.map(([x, y], i) => `<circle cx="${x}" cy="${y}" r="${hit}" fill="rgba(0,0,0,0)" data-hoek="${i}" data-van="${v.id}"/><circle cx="${x}" cy="${y}" r="${rh}" fill="rgba(0,0,0,.25)" stroke="${v.kl}" stroke-width="${lw}" pointer-events="none"/><circle cx="${x}" cy="${y}" r="${1.6 / zs}" fill="#fff" pointer-events="none"/><text x="${x + 11 / zs}" y="${y - 11 / zs}" fill="#fff" stroke="#000" stroke-width="${3 / zs}" paint-order="stroke" font-size="${12 / zs}" font-weight="700" pointer-events="none">${i + 1}</text>`).join('') : ''}</g>`;
+  }).join('');
+  gmPaneel();
+  // Het paneel onder de foto verandert van hoogte: dan de foto opnieuw passend maken.
+  const sh = Math.round($('#gmstage', GM.el).getBoundingClientRect().height);
+  if (sh !== GM.stH) { GM.stH = sh; if (GM.z.s === 1) gmSchik(); }
+}
+// Vergrootglas bij het slepen van een hoek: 3× de foto rond het punt, met een kruisje.
+function gmLoep(pt, vak, clientX) {
+  const c = $('#gmloep', GM.el), img = $('#gmimg', GM.el); if (!c || !pt) { if (c) c.hidden = true; return; }
+  const st = $('#gmstage', GM.el).getBoundingClientRect();
+  c.hidden = false; c.style.left = (clientX - st.left < st.width / 2 ? st.width - 162 : 12) + 'px';
+  const g = c.getContext('2d'), S = 150, schaal = GM.w * GM.z.s / GM.iw * 3, bron = S / schaal;
+  const cx = pt[0] * GM.iw, cy = pt[1] * GM.ih;
+  g.fillStyle = '#000'; g.fillRect(0, 0, S, S);
+  try { g.drawImage(img, cx - bron / 2, cy - bron / 2, bron, bron, 0, 0, S, S); } catch (e) {}
+  if (vak) { g.strokeStyle = vak.kl; g.lineWidth = 1.5; g.beginPath();
+    vak.p.forEach(([x, y], i) => { const X = (x * GM.iw - cx) * schaal + S / 2, Y = (y * GM.ih - cy) * schaal + S / 2; i ? g.lineTo(X, Y) : g.moveTo(X, Y); }); g.closePath(); g.stroke(); }
+  g.strokeStyle = '#fff'; g.lineWidth = 1; g.beginPath(); g.moveTo(S / 2, S / 2 - 18); g.lineTo(S / 2, S / 2 - 4); g.moveTo(S / 2, S / 2 + 4); g.lineTo(S / 2, S / 2 + 18);
+  g.moveTo(S / 2 - 18, S / 2); g.lineTo(S / 2 - 4, S / 2); g.moveTo(S / 2 + 4, S / 2); g.lineTo(S / 2 + 18, S / 2); g.stroke();
+  g.fillStyle = '#D4AF37'; g.beginPath(); g.arc(S / 2, S / 2, 2, 0, 7); g.fill();
+}
+// Slepen: een hoek (met vergrootglas), het hele vak (binnenkant), of de foto (schuiven als je ingezoomd bent). Knijpen = zoomen.
+function gmGebaren(stage) {
+  const vingers = new Map(); let sleep = null, knijp = null;
+  stage.addEventListener('wheel', e => { if (!GM) return; e.preventDefault(); const st = stage.getBoundingClientRect(); gmZoom(GM.z.s * (e.deltaY < 0 ? 1.2 : 1 / 1.2), [e.clientX - st.left, e.clientY - st.top]); }, { passive: false });
+  stage.addEventListener('pointerdown', e => {
+    if (!GM?.w || e.target.closest('.gmzoom')) return;
+    vingers.set(e.pointerId, [e.clientX, e.clientY]);
+    try { stage.setPointerCapture(e.pointerId); } catch (x) {}
+    if (vingers.size === 2) { const [a, b] = [...vingers.values()]; knijp = { d: gmD(a, b), s: GM.z.s }; sleep = null; $('#gmloep', GM.el).hidden = true; return; }
+    const hoek = e.target.closest('[data-hoek]'), romp = e.target.closest('[data-romp]');
+    const vakken = gmVakken();
+    if (hoek) { const v = vakken.find(x => x.id === hoek.dataset.van); sleep = { soort: 'hoek', v, i: +hoek.dataset.hoek, start: gmNorm(e.clientX, e.clientY), van: [...v.p[+hoek.dataset.hoek]] }; gmLoep(v.p[sleep.i], v, e.clientX); }
+    else if (romp) { const v = vakken.find(x => x.id === romp.dataset.romp);
+      if (!v.actief) { if (GM.modus === 'sj' && v.id !== 'ref') { GM.sel = v.id; gmTeken(); } sleep = { soort: 'foto', x: e.clientX, y: e.clientY, tx: GM.z.tx, ty: GM.z.ty }; }
+      else sleep = { soort: 'vak', v, start: gmNorm(e.clientX, e.clientY), van: v.p.map(a => [...a]) }; }
+    else sleep = { soort: 'foto', x: e.clientX, y: e.clientY, tx: GM.z.tx, ty: GM.z.ty };
+    e.preventDefault();
+  });
+  stage.addEventListener('pointermove', e => {
+    if (!GM || !vingers.has(e.pointerId)) return;
+    vingers.set(e.pointerId, [e.clientX, e.clientY]);
+    if (knijp && vingers.size === 2) { const [a, b] = [...vingers.values()], st = stage.getBoundingClientRect();
+      gmZoom(knijp.s * gmD(a, b) / knijp.d, [(a[0] + b[0]) / 2 - st.left, (a[1] + b[1]) / 2 - st.top]); return; }
+    if (!sleep) return;
+    if (sleep.soort === 'foto') { if (GM.z.s === 1) return; GM.z.tx = sleep.tx + e.clientX - sleep.x; GM.z.ty = sleep.ty + e.clientY - sleep.y;
+      $('#gmsurf', GM.el).style.transform = `translate(${GM.z.tx}px,${GM.z.ty}px) scale(${GM.z.s})`; return; }
+    const nu = gmNorm(e.clientX, e.clientY), dx = nu[0] - sleep.start[0], dy = nu[1] - sleep.start[1];
+    if (sleep.soort === 'hoek') { sleep.v.p[sleep.i][0] = gmKlem(sleep.van[0] + dx); sleep.v.p[sleep.i][1] = gmKlem(sleep.van[1] + dy); gmLoep(sleep.v.p[sleep.i], sleep.v, e.clientX); }
+    else sleep.v.p.forEach((a, i) => { a[0] = gmKlem(sleep.van[i][0] + dx); a[1] = gmKlem(sleep.van[i][1] + dy); });
+    sleep.bewogen = true; gmNaSlepen(false);
+  });
+  const los = e => {
+    if (!vingers.has(e.pointerId)) return; vingers.delete(e.pointerId);
+    if (vingers.size < 2) knijp = null;
+    if (GM && sleep && sleep.soort !== 'foto' && sleep.bewogen) gmNaSlepen(true);
+    if (GM) $('#gmloep', GM.el).hidden = true;
+    if (!vingers.size) sleep = null;
+  };
+  stage.addEventListener('pointerup', los); stage.addEventListener('pointercancel', los);
+}
+// Na slepen: sjabloon direct herrekenen (en bewaren bij loslaten). Het referentiekader bewaar je met Opslaan.
+function gmNaSlepen(klaar) {
+  if (GM.modus === 'sj') { const sj = gmSjNu(); if (sj) { gmHerreken(GM.s, sj); if (klaar) bewaar(); } }
+  else GM.draft.veranderd = true;
+  gmTeken();
+}
+const gmInp = (id, w, v, ph = '') => `<input id="${id}" inputmode="numeric" autocomplete="off" value="${esc(v ?? '')}" placeholder="${ph}" style="width:${w};text-align:center;padding:8px 6px;font:inherit;font-size:17px;font-weight:700;color:var(--text);background:var(--surface-high);border:1px solid var(--gold-dark);border-radius:8px">`;
+const gmCm = v => { const n = Math.round(getal(String(v ?? '').replace(/[^\d.,]/g, '')) ?? NaN); return n > 0 && n < 10000 ? n : null; };
+function gmPaneel() {
+  const pn = $('#gmpaneel', GM.el), { s, f, fi, modus } = GM, r = s.gm.ref, rf = gmRefOp(s, f.id);
+  const actief = document.activeElement?.id, waarde = actief && pn.contains(document.activeElement) ? document.activeElement.value : null;
+  $('#gmtitel', GM.el).textContent = `${modus === 'ref' ? 'Referentie' : 'Sjabloon'} · ${s.naam} · foto ${fi + 1}`;
+  const elders = r ? Object.keys(r.fotos || {}).filter(id => id !== f.id).map(id => s.fotos.findIndex(x => x.id === id) + 1).filter(n => n > 0) : [];
+  let h = '';
+  if (modus === 'ref') {
+    const d = GM.draft;
+    h = `<div class="gmuitleg">Sleep de 4 hoeken precies op de 4 <b>buitenhoeken</b> van het kozijn of de pui die je gelaserd hebt (ook als de foto scheef staat). Vul de gelaserde maat in en tik Opslaan.${elders.length ? ` <br><small>Deze referentie van ${esc(s.naam)} staat ook op foto ${elders.join(', ')}.</small>` : ''}</div>
+      <div class="gmrij"><input id="gmrnaam" placeholder="Naam, bijv. Pui beneden" value="${esc(d.naam)}" autocomplete="off" style="flex:1;min-width:0;padding:8px;font:inherit;color:var(--text);background:var(--surface-high);border:1px solid var(--surface-high);border-radius:8px"></div>
+      <div class="gmrij"><label>Breedte</label>${gmInp('gmrb', '5.5em', d.B, 'cm')}<span>×</span><label>Hoogte</label>${gmInp('gmrh', '5.5em', d.H, 'cm')}<span>cm</span></div>
+      <div class="gmrij"><button class="gmknop hoofd" id="gmropslaan">Opslaan</button>${rf ? '<button class="gmknop" id="gmrweg" style="color:var(--danger)">Weghalen van deze foto</button>' : ''}${opKantoorNu() && rf ? '<button class="gmknop" id="gmnaarsj">Naar sjabloon</button>' : ''}</div>`;
+  } else if (!r || !(r.B > 0 && r.H > 0)) {
+    h = `<div class="gmuitleg">${esc(s.naam)} heeft nog geen referentie. Zet eerst op een benedenfoto het referentiekader op een gelaserd kozijn of pui.</div>
+      <div class="gmrij"><button class="gmknop hoofd" id="gmnaarref">Referentie op deze foto zetten</button></div>`;
+  } else if (!rf) {
+    h = `<div class="gmuitleg">De referentie van ${esc(s.naam)} (${esc(r.naam || 'kozijn')}, ${r.B} × ${r.H} cm) staat op foto ${elders.join(', ') || '?'}, niet op deze foto. Een sjabloon rekent alleen met een referentie op <b>dezelfde foto</b> en in hetzelfde gevelvlak. Staat dat kozijn ook op deze foto? Zet het kader er dan hier op.</div>
+      <div class="gmrij"><button class="gmknop hoofd" id="gmnaarref">Referentiekader op deze foto zetten</button></div>`;
+  } else {
+    const lijst = gmSjOp(s, f.id), sj = gmSjNu(), rij = sj && gmTcRij(s, sj);
+    const zelfde = rij && rij.b === String(sj.B) && rij.h === String(sj.H) && rij.oms === (sj.naam || 'Sjabloon');
+    h = `<div class="gmchips">${lijst.map(x => `<button class="ondchip${x.id === GM.sel ? ' on' : ''}" data-gmsj="${x.id}">${esc(x.naam || 'Sjabloon')} <b>${x.B ?? '?'}×${x.H ?? '?'}</b>${gmTcRij(s, x) ? ' ✓' : ''}</button>`).join('')}<button class="ondchip plus" id="gmnieuw">+ Sjabloon</button></div>
+      ${sj ? `<div class="gmuitleg">Sleep de 4 hoeken op de 4 hoeken van het kozijn of de deur. Binnen het vak slepen verschuift het hele sjabloon.</div>
+      <div class="gmrij"><input id="gmnaam" placeholder="Naam, bijv. Raam boven links" value="${esc(sj.naam || '')}" autocomplete="off" style="flex:1;min-width:0;padding:8px;font:inherit;color:var(--text);background:var(--surface-high);border:1px solid var(--surface-high);border-radius:8px"></div>
+      <div class="gmrij"><label>Breedte</label>${gmInp('gmb', '5.5em', sj.B)}<span>×</span><label>Hoogte</label>${gmInp('gmh', '5.5em', sj.H)}<span>cm</span></div>
+      <div class="gmklein">${sj.calc ? `Berekend uit de referentie (${r.B} × ${r.H} cm): <b>${sj.calc.B} × ${sj.calc.H} cm</b>${sj.handB || sj.handH ? ' · <button class="ghost" id="gmterug" style="color:var(--gold);padding:0;font-size:13px">terug naar berekend</button>' : ''}` : 'Kan niet rekenen: kijk of de hoeken goed staan.'}</div>
+      <div class="gmrij"><button class="gmknop hoofd" id="gmtc">${!rij ? '+ Naar Topcalc' : zelfde ? '✓ In Topcalc' : '↻ Topcalc bijwerken'}</button><button class="gmknop" id="gmweg" style="color:var(--danger)">Verwijderen</button></div>`
+      : `<div class="gmuitleg">Tik op <b>+ Sjabloon</b> en sleep de 4 hoeken op een raam, deur of kozijn in hetzelfde gevelvlak als de referentie.</div>`}`;
+  }
+  pn.innerHTML = h;
+  if (actief && $('#' + actief, pn)) { const i = $('#' + actief, pn); if (waarde != null) i.value = waarde; i.focus(); }
+  const knop = (id, fn) => { const b = $('#' + id, pn); if (b) b.onclick = fn; };
+  knop('gmnaarref', () => { GM.modus = 'ref'; gmBegin(); gmTeken(); });
+  knop('gmnaarsj', () => { GM.modus = 'sj'; gmBegin(); gmTeken(); });
+  if (modus === 'ref') {
+    const d = GM.draft;
+    $('#gmrnaam', pn).oninput = e => d.naam = e.target.value;
+    $('#gmrb', pn).oninput = e => d.B = e.target.value; $('#gmrh', pn).oninput = e => d.H = e.target.value;
+    knop('gmropslaan', () => {
+      const B = gmCm(d.B), H = gmCm(d.H);
+      if (!B || !H) return toast('Vul de gelaserde breedte en hoogte in (cm).');
+      const g = gmVan(s); g.ref ??= { fotos: {} }; g.ref.fotos ??= {};
+      g.ref.B = B; g.ref.H = H; g.ref.naam = d.naam.trim();
+      g.ref.fotos[f.id] = { p: d.p.map(a => [...a]), iw: GM.iw, ih: GM.ih };
+      for (const x of g.sj) gmHerreken(s, x);
+      bewaar(); d.B = B; d.H = H;
+      toast(`Referentie ${s.naam} opgeslagen: ${B} × ${H} cm.${opKantoorNu() ? ' Leg nu een sjabloon op.' : ''}`);
+      if (opKantoorNu()) { GM.modus = 'sj'; gmBegin(); }
+      gmTeken();
+    });
+    knop('gmrweg', async () => {
+      if (!await bevestig('Referentie weghalen?', `Het referentiekader op deze foto gaat weg. Sjablonen op deze foto rekenen dan niet meer.`)) return;
+      delete s.gm.ref.fotos[f.id]; if (!Object.keys(s.gm.ref.fotos).length) s.gm.ref = null;
+      for (const x of gmSjOp(s, f.id)) gmHerreken(s, x);
+      bewaar(); gmBegin(); gmTeken();
+    });
+    return;
+  }
+  pn.querySelectorAll('[data-gmsj]').forEach(b => b.onclick = () => { GM.sel = b.dataset.gmsj; gmTeken(); });
+  knop('gmnieuw', () => {
+    // Nieuw sjabloon midden in wat je nu ziet, even groot als een raam.
+    const st = $('#gmstage', GM.el).getBoundingClientRect(), [cx, cy] = gmNorm(st.left + st.width / 2, st.top + st.height * .45);
+    const bw = .12 / GM.z.s, bh = .1 / GM.z.s * (GM.w / GM.h);
+    const sj = { id: nieuwId(), fotoId: f.id, iw: GM.iw, ih: GM.ih, p: gmStartVak(cx - bw, cy - bh, cx + bw, cy + bh), naam: `Sjabloon ${s.gm.sj.length + 1}` };
+    gmHerreken(s, sj); s.gm.sj.push(sj); GM.sel = sj.id; bewaar(); gmTeken();
+  });
+  const sj = gmSjNu(); if (!sj) return;
+  $('#gmnaam', pn).oninput = e => { sj.naam = e.target.value; bewaar(); };
+  $('#gmnaam', pn).onchange = () => gmTeken();
+  for (const [id, k, hk] of [['gmb', 'B', 'handB'], ['gmh', 'H', 'handH']]) $('#' + id, pn).onchange = e => {
+    const v = gmCm(e.target.value); if (!v) { e.target.value = sj[k] ?? ''; return; }
+    sj[k] = v; sj[hk] = !sj.calc || v !== sj.calc[k]; bewaar(); gmTeken(); };
+  knop('gmterug', () => { delete sj.handB; delete sj.handH; gmHerreken(s, sj); bewaar(); gmTeken(); });
+  knop('gmtc', () => {
+    const b = gmCm($('#gmb', pn).value), hh = gmCm($('#gmh', pn).value);
+    if (!b || !hh) return toast('Vul eerst een breedte en hoogte in.');
+    if (b !== sj.B) { sj.B = b; sj.handB = !sj.calc || b !== sj.calc.B; } if (hh !== sj.H) { sj.H = hh; sj.handH = !sj.calc || hh !== sj.calc.H; }
+    const al = !!gmTcRij(s, sj); gmNaarTopcalc(s, sj); gmTeken();
+    toast(`${sj.naam || 'Sjabloon'} ${sj.B} × ${sj.H} cm ${al ? 'bijgewerkt in' : 'staat nu in'} de Topcalc-lijst van ${s.naam}. Code kies je in de Topcalc-lijst.`, 5000);
+  });
+  knop('gmweg', async () => {
+    const rij = gmTcRij(s, sj);
+    if (!await bevestig('Sjabloon verwijderen?', `${sj.naam || 'Sjabloon'} gaat weg van deze foto.${rij ? ' De regel in de Topcalc-lijst blijft staan.' : ''}`)) return;
+    s.gm.sj = s.gm.sj.filter(x => x !== sj); GM.sel = gmSjOp(s, f.id).at(-1)?.id || null; bewaar(); gmTeken();
+  });
+}
+
 // ---------- full-screen foto met maatlijnen ----------
 let V = null; // { p, s, i, modus, sel, el, maat, nieuw, greep }
 function openViewer(p, s, i) {
@@ -1535,7 +1838,7 @@ function openViewer(p, s, i) {
       <button class="navarrow r" id="vnext" aria-label="Volgende foto">${ic('right')}</button><span class="weg" id="vweg2" hidden>Foto ontbreekt</span>
       <div class="vbalk" id="vbalk" hidden></div><div class="vspraak" id="vspraak"></div><button class="mic vmic" id="vmic" aria-label="Inspreken">${ic('mic')}</button></div>
     <div class="vbottom"><div class="status" id="vstatus"></div><div id="vextra"></div><div class="modes" id="vmodes">
-      <button data-m="bekijken">${ic('hand')}Bekijken</button><button data-m="lijn">${ic('ruler')}Lijn</button><button data-m="opmerking">${ic('ballon')}Opmerking</button><button id="vtel">${ic('hash')}Tellen</button><button id="vl10">${ic('vert')}10 lagen</button></div></div>`;
+      <button data-m="bekijken">${ic('hand')}Bekijken</button><button data-m="lijn">${ic('ruler')}Lijn</button><button data-m="opmerking">${ic('ballon')}Opmerking</button><button id="vgref">${ic('doel')}Referentie</button><button id="vgsj">${ic('ruler')}Sjabloon</button></div></div>`;
   document.body.appendChild(el);
   V = { p, s, i, modus: 'bekijken', sel: null, el, zoom: { s: 1, tx: 0, ty: 0 } };
   if (p.simpel) $('#vmic', el).hidden = true; // simpele projecten: geen spraak
@@ -1627,8 +1930,8 @@ function openViewer(p, s, i) {
     if (!s.fotos.length) return sluitViewer();
     naarFoto(Math.min(V.i, s.fotos.length - 1));
   };
-  $('#vtel', el).onclick = () => { if (V.hoeken || V.telNu) { V.hoeken = null; V.telNu = null; tekenUI(); return; } telStart(); };
-  $('#vl10', el).onclick = () => plus10Lagen(foto());
+  $('#vgref', el).onclick = () => gmOpen(V.p, V.s, V.i, 'ref');
+  $('#vgsj', el).onclick = () => gmOpen(V.p, V.s, V.i, 'sj');
   el.querySelectorAll('[data-m]').forEach(b => b.onclick = () => { V.modus = V.el.classList.contains('loc') && V.modus === b.dataset.m ? 'bekijken' : b.dataset.m; V.sel = null; if (V.modus !== 'lijn') V.telDeel = null; tekenUI(); });
   koppelGebaren($('#surf', el));
   koppelVegen($('#stage', el));
@@ -1703,7 +2006,7 @@ function tekenUI2() {
   $('#vprev', V.el).hidden = V.i === 0 || V.modus !== 'bekijken';
   $('#vnext', V.el).hidden = V.i === n - 1 || V.modus !== 'bekijken';
   V.el.querySelectorAll('[data-m]').forEach(b => b.classList.toggle('on', b.dataset.m === V.modus && !V.hoeken && !V.telNu));
-  $('#vtel', V.el).classList.toggle('on', V.hoeken?.soort === 'tel' || !!V.telNu);
+  $('#vtel', V.el)?.classList.toggle('on', V.hoeken?.soort === 'tel' || !!V.telNu);
   const st = $('#vstatus', V.el);
   herrekenRef(f);
   if (V.hoeken) {
@@ -1738,7 +2041,7 @@ function tekenUI2() {
       ${lijn?.lagen10 ? `<div style="font-size:12px;color:#81D4FA;padding:0 4px">${lijn.maat > 0 ? `10 lagen = ${maatLabel(lijn.maat)}: laaghoogte ${cmKort(laagUitRef(f))} cm. Telt nergens mee, is de maat voor het tellen op deze gevel.` : 'Laser 10 lagen steen, van voeg tot voeg. Schuif de lijn op die plek.'}</div>` : ''}
       ${lijn?.vlakRef ? '<div style="font-size:12px;color:#81D4FA;padding:0 4px">Gemeten maat van het referentievlak. Telt nergens mee, zet de foto recht.</div>' : ''}
       ${lijn?.bron === 'deel' ? `<div style="font-size:12px;color:#57E0D2;padding:0 4px">≈ ${lijn.hand ? 'zelf bijgesteld' : `uit de maat van ${esc(ondVan(f).find(o => o.letter === lijn.kozijn)?.in || '')}. Verschuif de lijn, dan rekent hij mee`}.</div>` : ''}
-      ${lijn && opKantoorNu() && !lijn.lagen10 && !lijn.vlakRef && lijn.bron !== 'deel' ? `<div class="teller"><span>${ligtLijn(lijn) ? 'Stenen tellen <small style="color:var(--muted)">(22 cm, per halve)</small>' : `Lagen tellen <small style="color:var(--muted)">(${cmKort(laagVoor(f).cm)} cm)</small>`}</span>
+      ${false ? `<div class="teller"><span>${ligtLijn(lijn) ? 'Stenen tellen <small style="color:var(--muted)">(22 cm, per halve)</small>' : `Lagen tellen <small style="color:var(--muted)">(${cmKort(laagVoor(f).cm)} cm)</small>`}</span>
         ${lijn.stenen ? `<button data-smin aria-label="Minder">−</button><input data-snum inputmode="decimal" style="width:3.6em;text-align:center" value="${String(lijn.stenen).replace('.', ',')}"><button data-splus aria-label="Meer">+</button>`
           : `<button class="ghost" data-sauto style="color:var(--gold);font-weight:600;white-space:nowrap">Tel automatisch</button>`}</div>` : ''}
       ${lijn && (lijn.ref || lijn.telt) && !lijn.lagen10 && !lijn.vlakRef ? `<div class="teller"><span>Lasermaat</span><button class="ondchip${lijn.ref ? ' on' : ''}" data-lref="1" style="width:auto;padding:4px 10px;font-size:13px;color:#81D4FA">Alleen referentie</button><button class="ondchip${!lijn.ref ? ' on' : ''}" data-lref="0" style="width:auto;padding:4px 10px;font-size:13px">Telt mee</button></div>` : ''}
@@ -1749,7 +2052,7 @@ function tekenUI2() {
       : lijn && lijn !== richtingLijn(lijn.richting) ? `<div class="teller"><span>Soort stuk</span><button class="ondchip${stukSoort(lijn) === 'stijl' ? ' on' : ''}" data-soort="stijl" style="width:auto;padding:4px 10px;font-size:13px">↕ Stijl</button><button class="ondchip${stukSoort(lijn) === 'dorpel' ? ' on' : ''}" data-soort="dorpel" style="width:auto;padding:4px 10px;font-size:13px">↔ Dorpel</button></div>
         ${stukAantal(lijn) !== 1 ? `<div class="teller"><span>Aantal van dit stuk <small style="color:var(--muted)">(zelfde lengte)</small></span><button data-kmin aria-label="Minder">−</button><input data-knum type="number" inputmode="numeric" min="0" max="20" value="${stukAantal(lijn)}"><button data-kplus aria-label="Meer">+</button></div>` : ''}`
         : `${extraRij('verticaal', 'Extra stijlen', 'verticaal')}${extraRij('horizontaal', 'Extra dorpels', 'horizontaal')}`}
-      ${lijn && lijn.maat == null && (refMaat(f, lijn) != null || schaalRef(f, lijn)) ? `<button class="ghost" id="lschaal" style="color:var(--gold);font-weight:600;text-align:left;padding:2px 4px">Uitrekenen uit de foto (${refMaat(f, lijn) != null ? '≈ ' + maatLabel(refMaat(f, lijn)) + ', rechtgezet' : '± ' + maatLabel(schaalMaat(f, lijn))})</button>` : ''}
+      ${false ? `<button class="ghost" id="lschaal" style="color:var(--gold);font-weight:600;text-align:left;padding:2px 4px">Uitrekenen uit de foto (${refMaat(f, lijn) != null ? '≈ ' + maatLabel(refMaat(f, lijn)) + ', rechtgezet' : '± ' + maatLabel(schaalMaat(f, lijn))})</button>` : ''}
       ${lijn?.uitRef && lijn.maat != null ? `<div style="font-size:12px;color:#57E0D2;padding:0 4px">≈ Uit de foto, ${fotoMeter(f)?.soort === 'ref' ? `rechtgezet met referentie ${f.ref?.L || ''}` : fotoMeter(f)?.soort === 'stenen' ? `vanzelf rechtgezet, met de stenen als schaal (${cmKort(fotoMeter(f).laag)} cm per laag, ${laagUitleg({ bron: fotoMeter(f).laagBron })})` : !fotoMeter(f) && lijn.tik ? 'grove schatting met standaard stenen (6,2 cm per laag). Meet op deze foto één lijn met de laser voor een goede maat' : 'vanzelf rechtgezet, met je gemeten maten als schaal'}. Meet je hem met de laser, dan telt de laser.</div>` : ''}
       ${lijn?.uitRef && lijn.maat != null && lijn.richting === 'horizontaal' && fotoMeter(f)?.breedteGok ? `<div style="font-size:12px;color:#FFA726;padding:0 4px">⚠ Op deze foto is geen breedte gemeten, dus deze breedte is onzeker (soms de helft te klein of te groot). Typ of laser op deze foto één breedte, bijvoorbeeld van het raam beneden, dan klopt hij.</div>` : ''}
       ${lijn && afwijking(f, lijn) != null ? `<div style="font-size:12px;color:#FFA726;padding:0 4px">⚠ Volgens de foto is dit ongeveer ${maatLabel(afwijking(f, lijn))}. Dat scheelt ${Math.round(Math.abs(afwijking(f, lijn) - lijn.maat) * 100)} cm met je maat. Klopt je maat? Zo ja, dan hoef je niks te doen.</div>` : ''}
@@ -1825,7 +2128,7 @@ function tekenUI2() {
       if (!heeftB || !heeftH) {
         const naamO = `${ondTonen(oNu)}${oNu.naam ? ' ' + ondKortNaam(oNu) : ''}`;
         st.className = 'status uitleg';
-        st.innerHTML = `<div class="vuitleg"><b>${esc(naamO)}</b>: ${lengte ? 'trek de <b>lengte</b> (liggend), of typ hem zelf in. Alleen de strekkende meters tellen, een hoogte is niet nodig' : !heeftB && !heeftH ? 'trek eerst de <b>breedte</b> (liggend), dan de <b>hoogte</b> (staand)' : !heeftB ? 'trek nu de <b>breedte</b> (liggend)' : 'trek nu de <b>hoogte</b> (staand)'}. De app rekent de maat uit de foto, met je lasermaten als schaal.</div>
+        st.innerHTML = `<div class="vuitleg"><b>${esc(naamO)}</b>: ${lengte ? 'trek de <b>lengte</b> (liggend), of typ hem zelf in. Alleen de strekkende meters tellen, een hoogte is niet nodig' : !heeftB && !heeftH ? 'trek eerst de <b>breedte</b> (liggend), dan de <b>hoogte</b> (staand)' : !heeftB ? 'trek nu de <b>breedte</b> (liggend)' : 'trek nu de <b>hoogte</b> (staand)'}. Meet met de laser of typ de maat.</div>
           <div style="display:flex;gap:8px;margin-top:6px"><button class="ghost" id="ondtype" style="color:var(--gold)">${lengte ? 'Lengte zelf typen' : 'Maten zelf typen'}</button></div>`;
         $('#ondtype', st).onclick = () => {
           const L = oNu.letter, nieuw = [];
@@ -1885,10 +2188,6 @@ function tekenUI2() {
       ...(dikteCm && ['ONB', 'ONI'].includes(ob) && !isWand(o) ? [diktekant(o, ob)
         ? ['close', `Geen diktekant (nu +${dikteCm} cm op de breedte)`, () => { o.dikte = false; bewaar(); tekenUI(); toast(`${o.naam || o.letter}: geen ${dikteCm} cm meer bij de breedte.`); }]
         : ['plus', `Diktekant: +${dikteCm} cm bij de breedte`, () => { o.dikte = true; bewaar(); tekenUI(); toast(`${o.naam || o.letter}: ${dikteCm} cm bij de breedte in de Topcalc-lijst.`); }]] : []),
-      ...(f.ref && (f.ref.L || null) === o.letter
-        ? [['ruler', 'Referentie: hoeken opnieuw aantikken', () => startHoeken(f, o.letter)], ['close', 'Referentie weghalen', () => { delete f.ref; bewaar(); tekenUI(); }]]
-        : [['ruler', 'Gebruik als referentie (4 hoeken)', () => { if (!refLijnen(f, o.letter)) { toast(`Meet eerst de breedte en hoogte van ${o.letter}${o.naam ? ' ' + o.naam : ''} (laser of typen). Daarna tik je de 4 hoeken aan.`); return; }
-            if (f.ref) toast('De oude referentie op deze foto wordt vervangen.'); startHoeken(f, o.letter); }]]),
       ...(o.codes?.length ? [['close', 'Codes weghalen', () => { delete o.codes; bewaar(); tekenUI(); }]] : []),
       ['ruler', 'Referentielijnen maken (telt niet mee)', () => { const oud = { lijnen: JSON.parse(JSON.stringify(f.lijnen)), ond: JSON.parse(JSON.stringify(f.onderdelen || [])) };
         maakRef(f, o.letter); V.ond = null; bewaar(); tekenUI();
@@ -2562,6 +2861,7 @@ async function keurNaMaken(f, blob, waar) {
   } catch (e) { console.warn(e); }
 }
 function berekenVlak(f, img) {
+  return;
   if (!f || VLAK.has(f.id) || !img?.naturalWidth) return;
   VLAK.set(f.id, { ok: false, bezig: true });
   setTimeout(() => {
@@ -2576,6 +2876,7 @@ function berekenVlak(f, img) {
 // Hoe BuildCalc een lijn uit de foto meet: eerst het referentiekozijn (4 hoeken), anders de vanzelf rechtgezette foto
 // met je gemeten lijnen als schaal (liggende lijnen voor de breedte, staande voor de hoogte).
 function fotoMeter(f) {
+  return null;   // 2026-11-24: geen maten meer uit de foto behalve via Referentie + Sjabloon (gevelmaat)
   const ref = refVan(f);
   if (ref) return { soort: 'ref', L: ref.L, maat: l => { if (l === ref.b || l === ref.h) return null;
     const [ax, ay] = hPunt(ref.M, l.x1, l.y1), [bx, by] = hPunt(ref.M, l.x2, l.y2); return Math.hypot(bx - ax, by - ay); },
@@ -2601,6 +2902,7 @@ const laserLijnen = f => f.lijnen.filter(l => l.maat != null && !l.uitRef && l.b
 // Controle: wijkt een lasermaat flink af van wat de foto zegt (referentiekozijn, je andere maten in dezelfde richting, of de stenen)?
 // Geeft de verwachte maat (m) terug als het meer dan 4 cm en 4% scheelt, anders null. De lasermaat blijft gewoon staan.
 function afwijking(f, l) {
+  return null;
   const ond = ondVan(f).find(o => o.letter === l.kozijn);
   if (l.aftrek || isWand(ond)) return null;   // wand: hoogtes mogen verschillen
   // Lengte (daklijst, goot): je typt vaak de hele lengte (Google Earth) en de foto toont maar een stuk. Dan geen controle.
@@ -2784,7 +3086,7 @@ function tekenLijnen2() {
     const kl = sel ? '#D4AF37' : uitFoto ? '#9FE7FF' : maat == null ? '#FFA726' : nareken ? '#FF9800' : ref ? '#81D4FA' : af ? '#FF8A50' : geschat ? '#FFB74D' : '#FFFFFF';   // geschat (≈ uit de foto): oranje stippellijn
     return (dim ? `<g opacity="${heelVaag ? .2 : .45}">${svgPijl(x1, y1, x2, y2, label, kl, sp, geschat && !sel)}</g>` : svgPijl(x1, y1, x2, y2, label, kl, sp, geschat && !sel)) +
       (sel ? [[x1, y1], [x2, y2]].map(([x, y]) => `<circle cx="${x}" cy="${y}" r="${rh}" fill="rgba(212,175,55,.2)" stroke="${kl}" stroke-width="${1.6 * rh / 9}"/>`).join('') : '');
-  }).join('') + sjNummers(foto(), W, H, nuId, rh) + refSvg(foto(), W, H) + tikSvg(foto(), W, H) + stenenStreepjes(W, H) + typeChip(foto(), W, H) + ballonnenSvg(foto(), W, H) + labelsSvg(foto(), W, H);
+  }).join('') + sjNummers(foto(), W, H, nuId, rh) + refSvg(foto(), W, H) + tikSvg(foto(), W, H) + stenenStreepjes(W, H) + typeChip(foto(), W, H) + ballonnenSvg(foto(), W, H) + labelsSvg(foto(), W, H) + gmSvg(V.s, foto(), W, H);
   // Alleen bij tekenen of een geselecteerde lijn vangen we het slepen af.
   const vrij = V.modus === 'bekijken' && !V.sel;
   // Knijpen en schuiven doet de app zelf (inzoomen op de foto), dus de browser mag hier niets.
@@ -3148,7 +3450,7 @@ function lijnPaarVraag(f, a, b) {
       // Een deel van een kozijn: geen code vragen (die vul je in Topcalc in), meteen het deelpaneel met soort, ± en aantal.
       // Maat uit de maat van het kozijn (zoveel keer zo breed en hoog op de foto), behalve een lijn die je met de laser mat.
       const box = ondBox(f, ouder), km = kozijnMaten(f, ouder.letter);
-      if (box && km?.B && km?.H) { const rw = Math.min(1, Math.abs(h.x2 - h.x1) / (box[2] - box[0])), rh = Math.min(1, Math.abs(v.y2 - v.y1) / (box[3] - box[1]));
+      if (false) { const rw = Math.min(1, Math.abs(h.x2 - h.x1) / (box[2] - box[0])), rh = Math.min(1, Math.abs(v.y2 - v.y1) / (box[3] - box[1]));
         for (const [l, m] of [[h, km.B * rw], [v, km.H * rh]]) if (l.maat == null || l.uitRef || l.bron === 'foto') { delete l.uitRef; Object.assign(l, { maat: Math.round(m * 100) / 100, bron: 'deel', kant: true }); }
         o.tel = { deel: [rw, rh] }; } else o.tel = { lijn: true };
       o.naam = `${soort} in ${ouder.letter}`; V.deelSoort = soort;
@@ -3218,6 +3520,7 @@ function maakZelfde(f, l, L) {
 // krijgt dezelfde code. Wat al een code heeft blijft staan. Geeft de letters terug die zijn ingevuld.
 const soortVan = o => (o.naam || '').match(/^(Kozijn|Draairaam|Paneel|Luik|Deur|Vast raam)/)?.[1] || (o.naam || '').replace(/\s*\d+$/, '').trim();
 function codeNaarGelijke(f, o, code, bestek) {
+  return [];
   if (isWand(o)) return [];
   const soort = soortVan(o), uit = [];
   for (const x of ondVan(f)) {
@@ -3587,7 +3890,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.24-15';
+const APP_VERSIE = '2026.11.24-16';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
@@ -5805,7 +6108,7 @@ function deelMaak(f, ouder, x0, y0, x1, y1) {
 function deelHerreken(f) {
   let anders = false;
   for (const o of ondVan(f)) if (o.in && !/\d$/.test(o.letter)) { letterWissel(f, o.letter, deelLetter(f, o.in)); anders = true; }
-  for (const o of ondVan(f)) { if (!o.in || !o.tel) continue;
+  for (const o of ondVan(f)) { if (!o.in || !o.tel || true) continue;   // geen automatische vakverdeling meer
     // Oudere delen (getrokken lijnen met een maat uit de foto): voortaan ook uit de maat van het kozijn.
     if (!o.tel.deel) { o.tel.deel = [0, 0]; for (const l of f.lijnen) if (l.kozijn === o.letter && !l.ref && (l.uitRef || l.bron === 'foto')) { delete l.uitRef; l.bron = 'deel'; l.kant = true; } }
     const ouder = ondVan(f).find(x => x.letter === o.in), k = kozijnMaten(f, o.in), box = ouder && ondBox(f, ouder);
@@ -6361,7 +6664,7 @@ function tcVanFotos(s) {
   if (volg.some((r, i) => r !== lijst[i])) lijst.splice(0, lijst.length, ...volg);
 }
 function tcLijst(s) {
-  tcLijstBasis(s); try { tcVanFotos(s); } catch (e) { console.warn(e); }
+  tcLijstBasis(s); for (const r of s.tc) if (r.bron) delete r.bron;   // alleen nog via "+ Naar Topcalc" of zelf typen
   return s.tc;
 }
 function tcLijstBasis(s) {
