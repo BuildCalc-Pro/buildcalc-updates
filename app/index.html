@@ -3584,7 +3584,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.24-8';
+const APP_VERSIE = '2026.11.24-9';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
@@ -8615,12 +8615,14 @@ function herkStart() {
 }
 
 // Het voorstel op de foto: kozijnen met nummer, vakken met een kleur en de code van de soort.
+// Alleen kozijnen: de app deelt geen vakken (raam, paneel, luik) meer in. Die bepaal je zelf.
+const HK_VAKKEN = false;
 function herkSvg(f, W, H) {
   if (!V?.herk || V.herk.fid !== f.id) return '';
   const z = V.zoom?.s || 1, k1 = 1 / Math.pow(z, .75), P = q => q.map(([x, y]) => `${x * W},${y * H}`).join(' ');
   let s = '';
   V.herk.kozijnen.forEach((k, i) => {
-    if (k.aan) {
+    if (k.aan && HK_VAKKEN) {
       for (const v of hkBladeren(k.boom)) { const kl = HK_KLEUR[v.soort] || '#fff', [mx, my] = hkMidden(v.hoek);
         s += `<polygon points="${P(v.hoek)}" fill="${kl}" fill-opacity=".28" stroke="${kl}" stroke-width="${1.6 * k1}"/>`;
         s += `<text x="${mx * W}" y="${my * H + 4 * k1}" text-anchor="middle" fill="#fff" stroke="#000" stroke-width="${2.4 * k1}" paint-order="stroke" font-size="${11 * k1}" font-weight="800">${HK_KORT[v.soort] || '?'}</text>`; }
@@ -8650,6 +8652,7 @@ function herkTik(x, y) {
   // 1. Op het nummer van een kozijn: overslaan of weer meenemen.
   for (const k of H.kozijnen) { const [hx, hy] = k.hoek[0], b = 18 / Math.pow(zoom, .75);
     if (px[0] >= hx * V.w - 4 && px[0] <= hx * V.w + b + 4 && px[1] >= hy * V.h - b - 4 && px[1] <= hy * V.h + 4) { k.aan = !k.aan; tekenUI(); return true; } }
+  if (!HK_VAKKEN) { for (const k of H.kozijnen) if (!k.aan && hkUV(k.hoek, [x, y])) { k.aan = true; tekenUI(); return true; } return true; }
   // 2. Streep erbij: het vak waar je tikt wordt op die plek gesplitst.
   if (H.streep) {
     for (const k of H.kozijnen) if (k.aan) for (const v of hkBladeren(k.boom)) { const uv = hkUV(v.hoek, [x, y]); if (!uv) continue;
@@ -8688,15 +8691,16 @@ function herkPaneel(f, st) {
   const delen = [nSt ? `${nSt} ${nSt === 1 ? 'stijl' : 'stijlen'}` : '', nDo ? `${nDo} ${nDo === 1 ? 'dorpel' : 'dorpels'}` : ''].filter(Boolean).join(', ');
   const bezig = H.streep ? `Tik in het vak waar de ${H.streep === 'staand' ? 'stijl' : 'dorpel'} komt.` : H.wijs ? `Tik ${H.wijs.length ? 'rechtsonder' : 'linksboven'} van het kozijn (buitenkant).` : '';
   st.innerHTML = `<div style="font-size:14.5px;line-height:1.4;margin:0 0 6px">${bezig ? `<b style="color:var(--gold)">${bezig}</b>`
+      : H.kozijnen.length && !HK_VAKKEN ? `<b>${aan.length} ${aan.length === 1 ? 'kozijn' : 'kozijnen'}.</b> Tik een nummer om een kozijn over te slaan.`
       : H.kozijnen.length ? `<b>${aan.length} ${aan.length === 1 ? 'kozijn' : 'kozijnen'}, ${vakken} ${vakken === 1 ? 'vak' : 'vakken'}${delen ? `, ${delen}` : ''}.</b> Tik een vak voor een andere soort, een stijl of dorpel om hem weg te halen.`
-      : 'Geen kozijnen gevonden. Wijs er zelf een aan via Aanpassen.'}${rand ? ` <span style="color:#B0BEC5">${rand} randstuk telt niet.</span>` : ''}${meter ? '' : ' <span style="color:#FFA726">Nog geen schaal: maten volgen.</span>'}</div>
-    ${soorten.length ? `<div style="margin:0 0 8px;font-size:12.5px;color:var(--muted)">${soorten.map(n => `<b style="color:${HK_KLEUR[n]}">${HK_KORT[n]}</b> ${n === 'Kozijn' ? 'glas in kozijn' : n.toLowerCase()}`).join(' · ')}${delen ? ' · <b style="color:#57E0D2">▮</b> stijl/dorpel (kozijn)' : ''}</div>` : ''}
+      : 'Geen kozijnen gevonden. Wijs er zelf een aan via Aanpassen.'}${rand ? ` <span style="color:#B0BEC5">${rand} randstuk telt niet.</span>` : ''}</div>
+    ${soorten.length && HK_VAKKEN ? `<div style="margin:0 0 8px;font-size:12.5px;color:var(--muted)">${soorten.map(n => `<b style="color:${HK_KLEUR[n]}">${HK_KORT[n]}</b> ${n === 'Kozijn' ? 'glas in kozijn' : n.toLowerCase()}`).join(' · ')}${delen ? ' · <b style="color:#57E0D2">▮</b> stijl/dorpel (kozijn)' : ''}</div>` : ''}
     <div style="display:flex;gap:8px">${bezig ? '<button class="outline" id="hkklaar" style="flex:1;padding:11px;font-size:15px">Klaar</button>'
       : `<button class="outline" id="hkmeer" style="flex:0 0 auto;width:auto;padding:11px 16px;font-size:15px">Aanpassen ⋯</button>${aan.length ? `<button class="primary" id="hkok" style="flex:1;padding:11px;font-size:16px">Overnemen (${aan.length})</button>` : ''}`}</div>`;
   const zetStreep = s => { H.wijs = null; H.streep = s; tekenUI(); };
   if ($('#hkklaar', st)) $('#hkklaar', st).onclick = () => { H.streep = null; H.wijs = null; tekenUI(); };
   if ($('#hkmeer', st)) $('#hkmeer', st).onclick = () => menu([
-    ...(H.kozijnen.length ? [['plus', '＋ Stijl (staand) toevoegen', () => zetStreep('staand')], ['plus', '＋ Dorpel (liggend) toevoegen', () => zetStreep('liggend')]] : []),
+    ...(H.kozijnen.length && HK_VAKKEN ? [['plus', '＋ Stijl (staand) toevoegen', () => zetStreep('staand')], ['plus', '＋ Dorpel (liggend) toevoegen', () => zetStreep('liggend')]] : []),
     ['plus', '＋ Kozijn zelf aanwijzen (2 tikken)', () => { H.streep = null; H.wijs = []; tekenUI(); }],
     ['close', 'Stoppen zonder overnemen', () => { V.herk = null; tekenUI(); }]]);
   if ($('#hkok', st)) $('#hkok', st).onclick = () => herkOvernemen(f);
@@ -8729,6 +8733,7 @@ function herkOvernemen(f) {
     } else { hor = lijn(L, 'horizontaal', q[3], q[2]); ver = lijn(L, 'verticaal', q[1], q[2]); }
     // Doorlopende stijlen (van boven tot onder) en dorpels (van links tot rechts).
     // Een stijl of dorpel die niet de hele maat loopt (bijv. tussen een paneel en een raampje) wordt een los kort stuk.
+    if (!HK_VAKKEN) k.boom = { hoek: k.boom?.hoek || q };   // alleen het kozijn: geen vakken, stijlen of dorpels
     let stijlen = 0, dorpels = 0; const rq = k.boom.hoek || q, kb = lengte(rq[0], rq[1]), kh = lengte(rq[0], rq[3]), kort = [];
     const tel = n => { if (!n.kids) return; if (n.split.raam) { n.kids.forEach(tel); return; }   // raamhout telt niet als kozijnstijl
       const len = lengte(...n.split.lijn);
@@ -8758,6 +8763,7 @@ function herkOvernemen(f) {
     // De vakken: elk een deel van dit kozijn, met de maat uit de maat van het kozijn.
     for (const v of hkBladeren(k.boom)) {
       // Glas direct in het kozijn hoort bij het kozijn zelf: geen apart deel.
+      if (!HK_VAKKEN) continue;
       if (v.soort === 'Kozijn') { o.gvGlas.push(v.hoek.map(p => [...p])); continue; }
       if (!v.soort) continue;
       const D = deelLetter(f, L), p = v.hoek, soort = v.soort;
@@ -8772,7 +8778,7 @@ function herkOvernemen(f) {
   stenenHerreken(f); herrekenRef(f);
   V.herk = null; V.ond = null; V.alles = true; bewaar(); tekenUI();
   const zonderMaat = letters.some(L => !kozijnMaten(f, L));
-  ongedaanToast(`${letters.length} ${letters.length === 1 ? 'kozijn' : 'kozijnen'} overgenomen (${letters.join(', ')}).${zonderMaat ? ' Maten volgen zodra de foto een schaal heeft.' : ''}`, () => { f.lijnen = oud.lijnen; f.onderdelen = oud.ond; bewaar(); tekenUI(); });
+  ongedaanToast(`${letters.length} ${letters.length === 1 ? 'kozijn' : 'kozijnen'} overgenomen (${letters.join(', ')}).${zonderMaat ? ' Tik een kozijn om de referentie of je eigen maat erop te leggen.' : ''}`, () => { f.lijnen = oud.lijnen; f.onderdelen = oud.ond; bewaar(); tekenUI(); });
 }
 
 // ---------- Gevel: overzichtsfoto + typefoto's + gelaserde begane grond ----------
@@ -9679,7 +9685,7 @@ function sjOpslaan(f, top) {
 function sjMaak(f, top) {
   const k = kozijnMaten(f, top.letter); if (!k?.B || !k?.H || !rsKozijnOk(f, top)) return null;
   const M = hkHomografie(top.kader, [[0, 0], [1, 0], [1, 1], [0, 1]]), uv = q => q.map(p => hkPunt(M, p[0], p[1]).map(v => Math.round(v * 1e4) / 1e4));
-  const vakken = ondVan(f).filter(o => o.in === top.letter && o.kader?.length === 4).map(v => { const m = rsVakMaat(f, v), c = rsVak(f, top, v.kader, m);
+  const vakken = [].filter(o => o.in === top.letter && o.kader?.length === 4).map(v => { const m = rsVakMaat(f, v), c = rsVak(f, top, v.kader, m);
     return { soort: soortDeel(v), q: uv(v.kader), B: c.ok ? m.B : null, H: c.ok ? m.H : null, codes: v.codes || null }; });
   const hor = gvLijn(f, top.letter, 'horizontaal'), ver = gvLijn(f, top.letter, 'verticaal');
   const t = { id: nieuwId(), naam: ondKortNaam(top) || `Kozijn ${fotoLetter(top.letter)}`, B: k.B, H: k.H, st: ver?.aantal || 0, dp: hor?.aantal || 0,
@@ -9699,9 +9705,10 @@ function sjRekenen(f, top, t) {
   if (top.gvVan) gvTypeLos(f, top);
   for (const [l, v] of [[hor, B], [ver, H]]) { for (const k of ['uitRef', 'stenen', 'gvAutoSt', 'gvStoot', 'gvBuur', 'gvDicht', 'gvKopie']) delete l[k]; Object.assign(l, { maat: Math.round(v * 100) / 100, bron: 'sjabloon', sjabloon: t.id, sjRef: true }); }
   herrekenRef(f); bewaar(); tekenUI();
-  ongedaanToast(`${ondKortNaam(top) || L}: ${cmT(B)} × ${cmT(H)} cm, uitgerekend met referentie ${cmT(t.B)} × ${cmT(t.H)}. Vakken naar verhouding. Controleer en pas aan met "wijzig". Niets naar Topcalc gezet.`, () => { f.lijnen = oud.lijnen; f.onderdelen = oud.ond; herrekenRef(f); bewaar(); tekenUI(); }, 8000);
+  ongedaanToast(`${ondKortNaam(top) || L}: ${cmT(B)} × ${cmT(H)} cm, uitgerekend met referentie ${cmT(t.B)} × ${cmT(t.H)}. Controleer en pas aan met "wijzig". Niets naar Topcalc gezet.`, () => { f.lijnen = oud.lijnen; f.onderdelen = oud.ond; herrekenRef(f); bewaar(); tekenUI(); }, 8000);
 }
 function sjToepassen(f, top, t) {
+  t = { ...t, vakken: [], glas: [], naden: [] };   // alleen de maat: vakken vult de app niet zelf in
   const oud = { lijnen: JSON.parse(JSON.stringify(f.lijnen)), ond: JSON.parse(JSON.stringify(f.onderdelen || [])) }, L = top.letter;
   const M = hkHomografie([[0, 0], [1, 0], [1, 1], [0, 1]], top.kader), naar = q => q.map(p => hkPunt(M, p[0], p[1]));
   const hor = gvLijn(f, L, 'horizontaal') || f.lijnen.find(l => l.kozijn === L && l.richting === 'horizontaal'), ver = gvLijn(f, L, 'verticaal') || f.lijnen.find(l => l.kozijn === L && l.richting === 'verticaal');
@@ -9721,7 +9728,7 @@ function sjToepassen(f, top, t) {
   if (t.vakken.length) top.gvGlas = (t.glas || []).map(naar); if (t.naden?.length) top.raamNaad = t.naden.map(naar); else delete top.raamNaad;
   delete top.gvVan; top.sjabloon = t.id; if (!top.codes && t.codes) top.codes = JSON.parse(JSON.stringify(t.codes));
   herrekenRef(f); bewaar(); tekenUI();
-  ongedaanToast(`Sjabloon ${t.naam} op ${ondKortNaam(top) || L}: ${cmT(t.B)} × ${cmT(t.H)}${t.vakken.length ? `, ${t.vakken.length} vakken` : ''}. Niets naar Topcalc gezet.`, () => { f.lijnen = oud.lijnen; f.onderdelen = oud.ond; herrekenRef(f); bewaar(); tekenUI(); });
+  ongedaanToast(`Sjabloon ${t.naam} op ${ondKortNaam(top) || L}: ${cmT(t.B)} × ${cmT(t.H)}${t.vakken.length ? `, ${t.vakken.length} vakken` : ''}. Controleer en pas aan met "wijzig". Niets naar Topcalc gezet.`, () => { f.lijnen = oud.lijnen; f.onderdelen = oud.ond; herrekenRef(f); bewaar(); tekenUI(); });
 }
 // Losse maten (zonder herkend kozijn) als sjabloon: alleen de maat, geen vakken.
 const sjLos = f => { const los = r => [...f.lijnen].reverse().find(l => !l.kozijn && l.richting === r && l.maat > 0 && ['laser', 'hand', 'spraak'].includes(l.bron));
