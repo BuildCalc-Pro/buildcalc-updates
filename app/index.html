@@ -3584,7 +3584,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.24-6';
+const APP_VERSIE = '2026.11.24-7';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
@@ -8874,7 +8874,7 @@ const gvTypeVan = (f, o) => { for (const g of gvFotos(f)) for (const t of ondVan
     if (typeof tcFilter === 'function') tcFilter(s);
   };
   const oudRef = herrekenRef;
-  herrekenRef = function (f) { if (!KZN()) return oudRef(f); try { gvSync(f); } catch (e) { console.warn(e); } const r = oudRef(f); try { gvDichtbij(f); } catch (e) { console.warn(e); } try { gvBuurToepassen(f); } catch (e) { console.warn(e); } return r; };
+  herrekenRef = function (f) { if (!KZN()) return oudRef(f); try { gvSync(f); } catch (e) { console.warn(e); } const r = oudRef(f); try { gvDichtbij(f); } catch (e) { console.warn(e); } try { gvBuurToepassen(f); } catch (e) { console.warn(e); } try { if (typeof rsGokWeg === 'function') rsGokWeg(f); } catch (e) { console.warn(e); } return r; };
 }
 
 // Laaghoogte: de gelaserde 10 lagen, anders geijkt op een gelaserd kozijn in deze map (hoogte ÷ getelde lagen),
@@ -9649,60 +9649,62 @@ const tcAantal = s => { try { return tcLijst(s).filter(r => !tcLeeg(r)).length; 
 // Een kozijnmaat is geldig als hij gemeten is (laser, getypt, ingesproken, van het overzicht, stenen geteld) of uit de foto komt
 // met een echte schaal (een gemeten maat op de foto, of 10 lagen gelaserd voor de hoogte). De breedte zonder gemeten breedte en
 // de standaard laaghoogte zijn een gok: daarmee rekenen we geen vakken uit en zetten we niets in Topcalc.
-// Handmatig anker: op een foto zonder lasermaat rekent de app de kozijnen erboven pas uit als je dat zelf vraagt
-// ("Bereken maten boven"). Tot dan hebben ze geen maat. Foto's met een lasermaat werken zoals altijd.
-// Zelf gemeten en ingevuld (getypt of ingesproken, niet gelaserd en niet uit de foto).
-const rsZeker = l => !!l && l.maat > 0 && !l.uitRef && !l.lagen10 && !['foto', 'stenen', 'deel', 'overzicht', 'laser'].includes(l.bron);
-// Losse maten (zonder kozijn), bijvoorbeeld de breedte en hoogte van de pui: ook een anker.
-const rsLos = f => { const l = f.lijnen.filter(x => !x.kozijn && rsZeker(x)), b = l.find(x => x.richting === 'horizontaal'), h = l.find(x => x.richting === 'verticaal'); return b || h ? { b, h } : null; };
-// Het herkende kozijn waar die losse maten op liggen (zelfde breedte en hoogte, binnen 4%) is het onderkozijn zelf.
-const rsLosKozijn = (f, o) => { const los = rsLos(f); if (!los || !o || o.in) return false; const k = kozijnMaten(f, o.letter); if (!k?.B || !k?.H) return false;
-  const bij = (l, m) => !l || Math.abs(m - l.maat) <= l.maat * .04; return bij(los.b, k.B) && bij(los.h, k.H); };
-const rsAnkers = f => gvTops(f).filter(o => (rsZeker(gvLijn(f, o.letter, 'horizontaal')) && rsZeker(gvLijn(f, o.letter, 'verticaal'))) || rsLosKozijn(f, o));
-const rsHeeftAnker = f => rsAnkers(f).length > 0 || !!rsLos(f);
-const rsLaser = f => f.lijnen.some(l => l.bron === 'laser' && !l.uitRef && l.maat > 0) || gvTops(f).some(o => o.gvLaser);
-const rsBovenWacht = f => !!f && !f.maatBoven && !rsLaser(f) && rsHeeftAnker(f);
-const rsHandBasis = f => !!f && !rsLaser(f) && rsHeeftAnker(f);
-const rsAnkerTekst = f => { const los = rsLos(f);
-  const op = los ? gvTops(f).find(o => rsLosKozijn(f, o)) : null;
-  return [...rsAnkers(f).filter(o => o !== op).map(o => `${esc(ondKortNaam(o) || 'Kozijn ' + fotoLetter(o.letter))} = ${cmT(gvLijn(f, o.letter, 'horizontaal').maat)} × ${cmT(gvLijn(f, o.letter, 'verticaal').maat)} cm`),
-    ...(los ? [`losse maten ${[los.b && cmT(los.b.maat), los.h && cmT(los.h.maat)].filter(Boolean).join(' × ')} cm${op ? ` op ${esc(ondKortNaam(op) || 'Kozijn ' + fotoLetter(op.letter))}` : ''}`] : [])].join(', '); };
-// Detailfoto zonder eigen maat: de maat van hetzelfde kozijn op een andere foto in deze map (met een anker of lasermaat).
-// Gebeurt alleen op jouw opdracht ("Bereken maten boven" en dan het kozijn kiezen). Telt daarna hier, niet op die foto.
-const rsBronnen = f => gvFotos(f).filter(g => g !== f && (rsHeeftAnker(g) || rsLaser(g)) && gvTops(g).some(k => k.herkend && !k.gvNegeer));
-function rsVanAndere(f, o) {
-  const bronnen = rsBronnen(f);
-  if (!bronnen.length) return toast('Geen andere foto in deze map met een gemeten maat. Vul op een overzichtsfoto de maat van het onderkozijn in en tik daar Herken.', 6000);
-  // Jouw opdracht: op die foto('s) de maten boven uitrekenen als dat nog niet gebeurd was.
-  for (const g of bronnen) if (rsBovenWacht(g)) { g.maatBoven = { t: new Date().toISOString(), via: f.id }; herrekenRef(g); }
-  const k0 = kozijnMaten(f, o.letter), r0 = k0?.B && k0?.H ? k0.B / k0.H : (() => { const q = o.kader; if (q?.length !== 4) return null;
-    const w = Math.hypot(q[1][0] - q[0][0], q[1][1] - q[0][1]) * V.w, h = Math.hypot(q[3][0] - q[0][0], q[3][1] - q[0][1]) * V.h; return h ? w / h : null; })();
-  const opties = [];
-  for (const g of bronnen) for (const k of gvTops(g)) { if (k.gvNegeer || !rsKozijnOk(g, k) || rsAnkers(g).includes(k)) continue;
-    const m = kozijnMaten(g, k.letter); if (!m?.B || !m?.H) continue;
-    opties.push({ g, k, m, d: r0 ? Math.abs(Math.log(m.B / m.H / r0)) : 0 }); }
-  if (!opties.length) { bewaar(); tekenUI(); return toast(`Op ${bronnen.map(g => gvFotoNaam(f, g)).join(', ')} staan nog geen herkende kozijnen boven het onderkozijn. Tik daar Herken en Overnemen.`, 6000); }
-  opties.sort((a, b) => a.d - b.d);
-  bewaar(); tekenUI();
-  menu(opties.slice(0, 8).map((x, i) => ['ruler', `${i === 0 && r0 ? '★ ' : ''}${gvNaam(x.k)} op ${gvFotoNaam(f, x.g)}: ${cmT(x.m.B)} × ${cmT(x.m.H)} cm${i === 0 && r0 ? ' <small>(vorm lijkt het meest)</small>' : ''}`, () => gvTypeKoppel(f, o, x.g, x.k.letter, true)]));
-}
-function rsBerekenBoven(f) {
-  f.maatBoven = { t: new Date().toISOString(), anker: rsAnkers(f).map(o => o.letter) }; herrekenRef(f); bewaar(); tekenUI();
-  const n = gvTops(f).filter(o => !rsAnkers(f).includes(o) && rsKozijnOk(f, o)).length;
-  ongedaanToast(`${n} ${n === 1 ? 'kozijn' : 'kozijnen'} uitgerekend uit ${rsAnkerTekst(f)}. Niets naar Topcalc gezet.`, () => { delete f.maatBoven; herrekenRef(f); bewaar(); tekenUI(); });
-}
+// Gok = een maat die de app zelf uit de foto haalt (foto-schaal, vanzelf getelde stenen, buurkozijn, overzichtsfoto).
+// Bij herkende kozijnen telt een gok nooit: alleen gemeten (laser), zelf ingevuld, uit een sjabloon, of een vak naar
+// verhouding in een kozijn met zo'n echte maat. Zonder echte maat staat er "maat ?".
+const rsGok = l => !!l && (l.uitRef || l.bron === 'foto' || l.bron === 'overzicht' || !!l.gvBuur || !!l.gvDicht || (l.bron === 'stenen' && !!(l.gvAutoSt || l.gvStoot)));
 function rsLijnOk(f, l) {
-  if (!l || l.maat == null || !(l.maat > 0)) return false;
-  if ((l.uitRef || l.bron === 'foto' || l.gvBuur) && rsBovenWacht(f)) { const o = ondVan(f).find(x => x.letter === l.kozijn), top = o?.in ? ondVan(f).find(x => x.letter === o.in) : o;
-    if (!rsLosKozijn(f, top)) return false; }
-  if (l.gvBuur) return true;
-  if (!l.uitRef && l.bron !== 'foto' && l.bron !== 'deel') return true;
-  const fm = fotoMeter(f); if (!fm) return false;
-  if (fm.soort === 'ref') return true;
-  if (l.richting === 'horizontaal' && fm.breedteGok) return false;
-  if (fm.soort === 'stenen' && fm.laagBron === 'standaard') return false;
-  return true;
+  if (!l || l.maat == null || !(l.maat > 0) || rsGok(l)) return false;
+  if (l.bron !== 'deel') return true;
+  const o = ondVan(f).find(x => x.letter === l.kozijn), top = o?.in ? ondVan(f).find(x => x.letter === o.in) : null;
+  return !top || rsKozijnOk(f, top);
 }
+// Na elke herberekening: gokmaten van herkende onderdelen leegmaken, zodat ze nergens (lijst, PDF, Topcalc) opduiken.
+function rsGokWeg(f) {
+  if (!f?.lijnen) return;
+  const herk = new Set(ondVan(f).filter(o => o.herkend).map(o => o.letter));
+  for (const l of f.lijnen) if (herk.has(l.kozijn) && l.maat != null && (rsGok(l) || (l.bron === 'deel' && !rsLijnOk(f, l)))) l.maat = null;
+}
+
+// ---------- Sjabloon: een gemeten kozijn van beneden (maat + indeling) op een kozijn boven leggen ----------
+// Opgeslagen per project. De vakken staan als plek binnen het kozijn (0..1) met hun eigen maat in meters.
+const sjLijst = f => { const p = fotoPlek(f)?.p; if (!p) return []; p.sjablonen ??= []; return p.sjablonen; };
+const sjNaam = t => `${esc(t.naam)} · ${cmT(t.B)} × ${cmT(t.H)}${t.vakken.length ? ` · ${t.vakken.length} ${t.vakken.length === 1 ? 'vak' : 'vakken'}` : ''}`;
+function sjOpslaan(f, top) {
+  const k = kozijnMaten(f, top.letter); if (!k?.B || !k?.H || !rsKozijnOk(f, top)) return toast('Dit kozijn heeft nog geen echte maat.');
+  const M = hkHomografie(top.kader, [[0, 0], [1, 0], [1, 1], [0, 1]]), uv = q => q.map(p => hkPunt(M, p[0], p[1]).map(v => Math.round(v * 1e4) / 1e4));
+  const vakken = ondVan(f).filter(o => o.in === top.letter && o.kader?.length === 4).map(v => { const m = rsVakMaat(f, v), c = rsVak(f, top, v.kader, m);
+    return { soort: soortDeel(v), q: uv(v.kader), B: c.ok ? m.B : null, H: c.ok ? m.H : null, codes: v.codes || null }; });
+  const hor = gvLijn(f, top.letter, 'horizontaal'), ver = gvLijn(f, top.letter, 'verticaal');
+  const t = { id: nieuwId(), naam: ondKortNaam(top) || `Kozijn ${fotoLetter(top.letter)}`, B: k.B, H: k.H, st: ver?.aantal || 0, dp: hor?.aantal || 0,
+    vakken, glas: (top.gvGlas || []).map(uv), naden: (top.raamNaad || []).map(uv), codes: top.codes || null, van: { foto: f.id, L: top.letter } };
+  const lijst = sjLijst(f), oud = lijst.findIndex(x => x.van?.foto === f.id && x.van?.L === top.letter);
+  if (oud >= 0) lijst.splice(oud, 1, t); else lijst.push(t);
+  bewaar(); tekenUI(); toast(`Sjabloon bewaard: ${t.naam} ${cmT(t.B)} × ${cmT(t.H)}. Tik boven een kozijn aan om het erop te leggen.`, 4500);
+}
+function sjToepassen(f, top, t) {
+  const oud = { lijnen: JSON.parse(JSON.stringify(f.lijnen)), ond: JSON.parse(JSON.stringify(f.onderdelen || [])) }, L = top.letter;
+  const M = hkHomografie([[0, 0], [1, 0], [1, 1], [0, 1]], top.kader), naar = q => q.map(p => hkPunt(M, p[0], p[1]));
+  const hor = gvLijn(f, L, 'horizontaal') || f.lijnen.find(l => l.kozijn === L && l.richting === 'horizontaal'), ver = gvLijn(f, L, 'verticaal') || f.lijnen.find(l => l.kozijn === L && l.richting === 'verticaal');
+  if (!hor || !ver) return toast('Dit kozijn heeft geen maatlijnen.');
+  for (const [l, m] of [[hor, t.B], [ver, t.H]]) { for (const k of ['uitRef', 'stenen', 'gvAutoSt', 'gvStoot', 'gvBuur', 'gvDicht', 'gvKopie']) delete l[k]; Object.assign(l, { maat: m, bron: 'sjabloon', sjabloon: t.id }); }
+  if (t.st) ver.aantal = t.st; else delete ver.aantal; if (t.dp) hor.aantal = t.dp; else delete hor.aantal;
+  // De vakken van dit kozijn worden die van het sjabloon, op dezelfde plek binnen het kozijn.
+  const kids = ondVan(f).filter(o => o.in === L).map(o => o.letter);
+  f.lijnen = f.lijnen.filter(l => !kids.includes(l.kozijn)); f.onderdelen = ondVan(f).filter(o => !kids.includes(o.letter));
+  const lijn = (D, r, a, b, m) => ({ id: nieuwId(), kozijn: D, richting: r, x1: a[0], y1: a[1], x2: b[0], y2: b[1], maat: m, kant: true, bron: m != null ? 'sjabloon' : 'deel' });
+  for (const v of t.vakken) { const p = naar(v.q), D = deelLetter(f, L);
+    const dh = lijn(D, 'horizontaal', p[3], p[2], v.B), dv = lijn(D, 'verticaal', p[1], p[2], v.H);
+    nieuwOnderdeel(f, D, `${v.soort} in ${L}`, [dh, dv]);
+    Object.assign(ondVan(f).find(x => x.letter === D), { in: L, kader: p, bestek: top.bestek, herkend: true, tel: { deel: [v.B && t.B ? v.B / t.B : 0, v.H && t.H ? v.H / t.H : 0] }, ...(v.codes ? { codes: JSON.parse(JSON.stringify(v.codes)) } : {}) });
+    f.lijnen.push(dh, dv); }
+  top.gvGlas = (t.glas || []).map(naar); if (t.naden?.length) top.raamNaad = t.naden.map(naar); else delete top.raamNaad;
+  delete top.gvVan; top.sjabloon = t.id; if (!top.codes && t.codes) top.codes = JSON.parse(JSON.stringify(t.codes));
+  herrekenRef(f); bewaar(); tekenUI();
+  ongedaanToast(`Sjabloon ${t.naam} op ${ondKortNaam(top) || L}: ${cmT(t.B)} × ${cmT(t.H)}${t.vakken.length ? `, ${t.vakken.length} vakken` : ''}. Niets naar Topcalc gezet.`, () => { f.lijnen = oud.lijnen; f.onderdelen = oud.ond; herrekenRef(f); bewaar(); tekenUI(); });
+}
+function sjWeg(f, id) { const lijst = sjLijst(f), i = lijst.findIndex(t => t.id === id); if (i < 0) return; const [t] = lijst.splice(i, 1); bewaar(); tekenUI();
+  ongedaanToast(`Sjabloon ${t.naam} verwijderd.`, () => { sjLijst(f).splice(i, 0, t); bewaar(); tekenUI(); }); }
 const rsKozijnOk = (f, top) => !!top && rsLijnOk(f, gvLijn(f, top.letter, 'horizontaal')) && rsLijnOk(f, gvLijn(f, top.letter, 'verticaal'));
 // Maat van een vak zoals het kaartje hem toont: de lijnen van het vak zelf.
 function rsVakMaat(f, v) { const k = kozijnMaten(f, v.letter); if (k?.B && k?.H) return { B: k.B, H: k.H };
@@ -9750,19 +9752,10 @@ function meerMenu(f) {
   if (V.herk || V.gevel || V.hoeken || V.telNu || V.modus !== 'bekijken') items.push(['close', 'Stoppen (terug naar bekijken)', () => { uit(); V.modus = 'bekijken'; V.sel = null; tekenUI(); }]);
   items.push(['plus', 'Losse regel (dakgoot, latei…)', () => losRegel(f)],
     ['ster', 'Herken kozijnen', () => { uit(); V.modus = 'bekijken'; tekenUI(); herkStart(); }],
-    ['huis', 'Gevel: maten en herkomst', () => { V.herk = null; V.kaart = null; V.gevel = false; gevelStart(); }],
     ['ruler', 'Lijn trekken', () => { uit(); tekenUI(); V.el.querySelector('#vmodes [data-m=lijn]')?.click(); }],
     ['ballon', 'Opmerking', () => { uit(); tekenUI(); V.el.querySelector('#vmodes [data-m=opmerking]')?.click(); }],
     ['hash', 'Tellen (kozijn met 2 tikken)', () => { uit(); tekenUI(); klik('#vtel')(); }],
     ['vert', '10 lagen (laaghoogte)', () => { uit(); tekenUI(); klik('#vl10')(); }]);
-  // Maten boven: op een foto met een eigen anker, of op een detailfoto vanuit een andere foto in deze map.
-  try { const zonder = gvTops(f).filter(o => o.herkend && !o.gvNegeer && !rsKozijnOk(f, o)).sort((a, b) => Math.max(...b.kader.map(p => p[1])) - Math.max(...a.kader.map(p => p[1])));
-    const bron = !rsHeeftAnker(f) && !rsLaser(f) && rsBronnen(f).length;
-    if (rsBovenWacht(f)) items.splice(1, 0, ['ruler', 'Bereken maten boven', () => { uit(); rsBerekenBoven(f); }]);
-    else if (bron) items.splice(1, 0, ['ruler', `Bereken maten boven (van ${gvFotoNaam(f, rsBronnen(f)[0])})`, () => { uit(); tekenUI();
-      if (!gvTops(f).some(o => o.herkend)) return toast('Tik eerst Herken kozijnen en daarna Overnemen op deze foto. Dan kies je welk kozijn het op de andere foto is.', 6000);
-      if (!zonder.length) return toast('Alle kozijnen op deze foto hebben al een maat.');
-      rsVanAndere(f, zonder[0]); }]); } catch (e) { console.warn(e); }
   menu(items);
 }
 
@@ -9833,11 +9826,9 @@ const cmT = m => m == null ? '?' : String(Math.round(m * 100));
 function kortHerkomst(f, o, l) {
   if (!l || l.maat == null) return { t: 'nog geen maat', kl: '#FFA726' };
   const v = typeof gvVergelijk === 'function' ? gvVergelijk(f, o, l) : null, mg = typeof gvMarge === 'function' ? gvMarge(f, o, l) : null;
-  const hb = (l.uitRef || l.bron === 'foto' || l.gvBuur) && rsHandBasis(f) ? `uit ${rsAnkerTekst(f)} (zelf ingevuld) + foto-schaal${l.gvBuur ? ' + buurkozijn' : ''}` : '';
-  const st = hb && v?.stenen != null && !v.mis ? `, stenen ${cmT(v.stenen)} kloppen` : hb && v?.mis ? `, stenen zeggen ${cmT(v.stenen)}` : '';
-  const ov = l.bron === 'overzicht' && o?.gvVan ? gvFoto(f, (o.in ? ondVan(f).find(x => x.letter === o.in) : o)?.gvVan?.foto || o.gvVan.foto) : null;
-  const t = hb ? hb + st : ov ? `van ${o.gvVan.letters.map(L => esc(ondKortNaam(ondVan(ov).find(x => x.letter === L)) || L)).join(', ')} op ${gvFotoNaam(f, ov)}${rsHandBasis(ov) ? ` (uit ${rsAnkerTekst(ov)} + foto-schaal)` : ''}` : l.gvBuur ? 'foto-schaal, gecorrigeerd met buurkozijn' : l.bron === 'laser' ? 'gelaserd' : l.bron === 'stenen' && l.gvAutoSt ? 'lagen geteld' : l.bron === 'stenen' && l.gvStoot ? 'stootvoegen geteld'
-    : l.bron === 'stenen' ? 'stenen geteld' : l.bron === 'overzicht' ? 'van het overzicht' : l.bron === 'deel' ? 'naar verhouding in het kozijn' : l.uitRef || l.bron === 'foto' ? 'foto-schaal' : l.bron === 'hand' ? 'zelf ingevuld' : l.bron || '';
+  const sj = l.bron === 'sjabloon' ? sjLijst(f).find(x => x.id === l.sjabloon) : null;
+  const t = l.bron === 'laser' ? 'gelaserd' : l.bron === 'sjabloon' ? `sjabloon${sj ? ' ' + sj.naam : ''}` : l.bron === 'hand' ? 'zelf ingevuld' : l.bron === 'spraak' ? 'ingesproken'
+    : l.bron === 'deel' ? 'naar verhouding in het kozijn' : rsGok(l) ? 'gok uit de foto, telt niet' : l.bron === 'stenen' ? 'stenen geteld' : l.bron || '';
   const pm = mg?.pct ? ` ±${Math.max(1, Math.round(l.maat * mg.pct))}` : '';
   return { t: `${t}${pm ? ',' + pm + ' cm' : ''}`, kl: v?.mis ? '#FFA726' : mg?.pct >= 4 ? '#FFCC80' : 'var(--muted)', mis: v?.mis };
 }
@@ -9881,38 +9872,32 @@ function kaartPaneel(f, st) {
     if (toon && (!check || check.ok)) try { const c = (o.codes || []).find(c => c?.code) || { code: '' }, r = tcVanOnderdeel(f, o, c);
       tcRegel = `${esc(r.oms)} · ${esc(r.b || '?')}${r.h ? ' × ' + esc(r.h) : ''}${r.st ? ` · ${esc(r.st)} strekkend` : ''}${r.n && r.n !== '1' ? ` · ${esc(r.n)}×` : ''}${r.dikte ? ` <small>(+${r.dikte} diktekant)</small>` : ''}`; } catch (e) { console.warn(e); }
   }
-  // Kozijn met een geschatte maat (uit de foto): meteen de echte maat invullen, of die van een gelijk kozijn overnemen.
+  // Kozijn zonder echte maat: een sjabloon erop leggen (één tik), of de buitenmaat zelf invullen. Nooit een gok uit de foto.
   let echt = '';
   const kHor = !o.in && !K.stijl && K.glas == null ? gvLijn(f, o.letter, 'horizontaal') : null, kVer = kHor ? gvLijn(f, o.letter, 'verticaal') : null;
-  const zeker = l => l && l.maat != null && !l.uitRef && ['laser', 'hand', 'spraak'].includes(l.bron);
-  if (kHor && kVer && o.gvVan && [kHor, kVer].every(l => l.bron === 'overzicht')) {
-    const ov = gvFoto(f, o.gvVan.foto);
-    echt = `<div style="margin:8px 0 10px;padding:10px 12px;border-radius:10px;background:var(--surface-high);font-size:14px">Maat overgenomen van ${o.gvVan.letters.map(L => esc(ondKortNaam(ondVan(ov || {}).find(x => x.letter === L)) || L)).join(', ')} op ${ov ? gvFotoNaam(f, ov) : 'een andere foto'}. Telt hier, daar niet. <button class="ghost" id="kvanlos" style="width:auto;padding:0;font-size:14px;color:var(--gold);text-decoration:underline">Loskoppelen</button></div>`;
-  } else if (kHor && kVer && !(zeker(kHor) && zeker(kVer))) {
-    const r0 = kHor.maat && kVer.maat ? kHor.maat / kVer.maat : null, gezien = new Set(), voorstel = [];
-    for (const g of gvFotos(f)) for (const x of gvTops(g)) { if (g === f && x === o) continue;
-      const h = gvLijn(g, x.letter, 'horizontaal'), v = gvLijn(g, x.letter, 'verticaal'); if (!zeker(h) || !zeker(v)) continue;
-      const key = `${cmT(h.maat)}x${cmT(v.maat)}`; if (gezien.has(key)) continue;
-      if (r0 && Math.abs(h.maat / v.maat / r0 - 1) > .1) continue;
-      gezien.add(key); voorstel.push({ B: h.maat, H: v.maat, t: `${esc(ondKortNaam(x) || 'Kozijn')}${g !== f ? ` op foto ${gvFotos(f).indexOf(g) + 1}` : ''}` }); }
+  const zeker = l => l && l.maat != null && !rsGok(l) && ['laser', 'hand', 'spraak', 'sjabloon'].includes(l.bron);
+  const sjVoor = x => sjLijst(f).filter(t => !(t.van?.foto === f.id && t.van?.L === x.letter)).slice(-4).reverse();
+  const sjKnoppen = x => sjVoor(x).map(t => `<div style="display:flex;gap:6px;margin-bottom:6px"><button class="primary" data-ksj="${t.id}" style="flex:1;padding:10px;font-size:14.5px">Sjabloon: <b>${sjNaam(t)}</b></button><button class="ghost" data-ksjweg="${t.id}" aria-label="Sjabloon verwijderen" style="width:auto;padding:6px 10px;color:var(--muted)">✕</button></div>`).join('');
+  if (kHor && kVer && !(zeker(kHor) && zeker(kVer))) {
+    const los = r => [...f.lijnen].reverse().find(l => !l.kozijn && l.richting === r && l.maat > 0 && ['laser', 'hand', 'spraak'].includes(l.bron));
+    const lH = los('horizontaal'), lV = los('verticaal'), heeftSj = sjVoor(o).length;
     const inv = 'style="width:5.2em;padding:9px 8px;font-size:17px;text-align:center;border-radius:8px;border:1px solid var(--surface-high);background:var(--bg,#111);color:var(--text)" inputmode="decimal"';
     echt = `<div style="margin:8px 0 10px;padding:10px 12px;border-radius:10px;background:rgba(255,167,38,.10);border:1px solid rgba(255,167,38,.35)">
-      ${rsBovenWacht(f) ? `<div style="font-size:14px;margin-bottom:8px"><b style="color:#FFA726">Nog niet uitgerekend.</b> Basis: ${rsAnkerTekst(f)} (zelf ingevuld). Tik hieronder om de maten erboven uit te rekenen, of vul deze maat zelf in.</div>
-      <button class="primary" id="kboven" style="width:100%;margin-bottom:8px;padding:10px;font-size:15px">Bereken maten boven</button>`
-      : rsHandBasis(f) && rsKozijnOk(f, o) ? `<div style="font-size:14px;margin-bottom:8px"><b style="color:#FFA726">Uitgerekend, niet gemeten.</b> Klopt het niet, of heb je hem toch gemeten? Vul dan hier de echte maat in.</div>`
-      : rsBronnen(f).length && !rsHeeftAnker(f) ? `<div style="font-size:14px;margin-bottom:8px"><b style="color:#FFA726">Deze foto heeft nog geen eigen maat.</b> Neem de maat over van hetzelfde kozijn op ${rsBronnen(f).map(g => gvFotoNaam(f, g)).join(', ')}, of vul hem zelf in.</div>
-      <button class="primary" id="kander" style="width:100%;margin-bottom:8px;padding:10px;font-size:15px">Bereken maten boven <small style="font-weight:400">(van ${gvFotoNaam(f, rsBronnen(f)[0])})</small></button>`
-      : `<div style="font-size:14px;margin-bottom:8px"><b style="color:#FFA726">Deze foto heeft nog geen echte schaal.</b> Vul de buitenmaat in (laser of zelf gemeten). Kozijnen erboven reken je daarna uit met "Bereken maten boven".</div>`}
-      ${voorstel.slice(0, 2).map((v, i) => `<button class="outline" data-kzelf="${i}" style="width:100%;margin-bottom:6px;padding:9px;font-size:14.5px">Zelfde als ${v.t}: <b>${cmT(v.B)} × ${cmT(v.H)}</b></button>`).join('')}
+      <div style="font-size:14px;margin-bottom:8px"><b style="color:#FFA726">Nog geen echte maat.</b> ${heeftSj ? 'Leg een sjabloon van beneden erop, of vul' : 'Vul'} de buitenmaat in (laser of zelf gemeten).</div>
+      ${sjKnoppen(o)}
+      ${lH && lV ? `<button class="outline" id="klos" style="width:100%;margin-bottom:6px;padding:9px;font-size:14.5px">Losse maten op deze foto: <b>${cmT(lH.maat)} × ${cmT(lV.maat)}</b></button>` : ''}
       <div style="display:flex;gap:8px;align-items:center"><input id="kecb" ${inv} placeholder="breedte"><span>×</span><input id="kech" ${inv} placeholder="hoogte"><span style="color:var(--muted)">cm</span>
       <button class="primary" id="kecok" style="flex:1;padding:10px;font-size:15px">Opslaan</button></div></div>`;
-    K.voorstel = voorstel;
+    K.los = lH && lV ? [lH.maat, lV.maat] : null;
+  } else if (kHor && kVer && kozOk && kHor.bron !== 'sjabloon' && kVer.bron !== 'sjabloon') {
+    const al = sjLijst(f).some(t => t.van?.foto === f.id && t.van?.L === o.letter);
+    echt = `<button class="outline" id="ksjbewaar" style="width:100%;margin:4px 0 8px;padding:9px;font-size:14.5px">${al ? 'Sjabloon bijwerken' : 'Bewaar als sjabloon'}</button>`;
   }
   const nDoel = ondKortNaam(doel) || doel.letter;
   // Uitleg als de maat ontbreekt of niet klopt (geen getal verzinnen).
   const fmt = m => m ? `${cmT(m.B)} × ${cmT(m.H)}` : '?';
   const uitleg = !check || check.ok ? '' : check.waarom === 'zelf' ? ''
-    : check.waarom === 'kozijn' || check.waarom === 'geen' ? `<div style="font-size:13.5px;margin:2px 0 8px;color:#FFCC80">De buitenmaat van ${esc(kNaam)} is nog niet gemeten. Zonder die maat zou elk getal hier verzonnen zijn.</div><button class="outline" id="knaarkoz" style="width:100%;margin-bottom:8px;padding:9px;font-size:14.5px">Kozijnmaat invullen</button>`
+    : check.waarom === 'kozijn' || check.waarom === 'geen' ? `<div style="font-size:13.5px;margin:2px 0 8px;color:#FFCC80">De buitenmaat van ${esc(kNaam)} is nog niet gemeten. Zonder die maat zou elk getal hier verzonnen zijn.</div>${sjKnoppen(top)}<button class="outline" id="knaarkoz" style="width:100%;margin-bottom:8px;padding:9px;font-size:14.5px">Kozijnmaat invullen</button>`
     : check.waarom === 'buiten' ? `<div style="font-size:13.5px;margin:2px 0 8px;color:#FFCC80">⚠ Deze maat past niet in ${esc(kNaam)} (${fmt(check.k)} cm). Controleer de lijnen met "wijzig".</div>`
     : `<div style="font-size:13.5px;margin:2px 0 8px;color:#FFCC80">⚠ Deze maat past niet bij de plek in ${esc(kNaam)}: daar hoort ongeveer ${fmt(check.verwacht)} cm. Controleer de lijnen met "wijzig".</div>`;
   const bijKozijn = !!(K.stijl || K.glas != null);
@@ -9939,15 +9924,16 @@ function kaartPaneel(f, st) {
   st.querySelectorAll('[data-kmaat]').forEach(b => b.onclick = () => { const l = f.lijnen.find(x => x.id === b.dataset.kmaat); if (l) maatSheet(l); });
   const zetEcht = (B, H) => { if (!(B > .1 && H > .1)) return toast('Vul de breedte en de hoogte in, in cm.');
     const oud = [kHor, kVer].map(l => ({ l, maat: l.maat, bron: l.bron, uitRef: l.uitRef, stenen: l.stenen }));
-    for (const [l, m] of [[kHor, B], [kVer, H]]) { delete l.uitRef; delete l.stenen; l.maat = Math.round(m * 1000) / 1000; l.bron = 'hand'; }
+    if (o.gvVan) gvTypeLos(f, o);
+    for (const [l, m] of [[kHor, B], [kVer, H]]) { for (const k of ['uitRef', 'stenen', 'gvAutoSt', 'gvStoot', 'gvBuur', 'gvDicht', 'gvKopie', 'sjabloon']) delete l[k]; l.maat = Math.round(m * 1000) / 1000; l.bron = 'hand'; }
     herrekenRef(f); bewaar(); tekenUI();
-    ongedaanToast(`${ondKortNaam(o) || 'Kozijn'}: ${cmT(B)} × ${cmT(H)} cm.${rsBovenWacht(f) ? ' Kozijnen erboven nog niet uitgerekend.' : ' Vakken opnieuw uitgerekend.'}`, () => { for (const x of oud) { x.l.maat = x.maat; x.l.bron = x.bron; if (x.uitRef) x.l.uitRef = x.uitRef; if (x.stenen) x.l.stenen = x.stenen; } herrekenRef(f); bewaar(); tekenUI(); }); };
+    ongedaanToast(`${ondKortNaam(o) || 'Kozijn'}: ${cmT(B)} × ${cmT(H)} cm. Vakken opnieuw uitgerekend. Niets naar Topcalc gezet.`, () => { for (const x of oud) { x.l.maat = x.maat; x.l.bron = x.bron; if (x.uitRef) x.l.uitRef = x.uitRef; if (x.stenen) x.l.stenen = x.stenen; } herrekenRef(f); bewaar(); tekenUI(); }); };
   const cm = v => { const n = parseFloat(String(v || '').replace(',', '.')); return n > 0 ? n / 100 : null; };
-  if ($('#kboven', st)) $('#kboven', st).onclick = () => rsBerekenBoven(f);
-  if ($('#kander', st)) $('#kander', st).onclick = () => rsVanAndere(f, o);
-  if ($('#kvanlos', st)) $('#kvanlos', st).onclick = () => { gvTypeLos(f, o); herrekenRef(f); bewaar(); tekenUI(); toast('Losgekoppeld: dit kozijn heeft weer geen maat.'); };
+  if ($('#klos', st)) $('#klos', st).onclick = () => K.los && zetEcht(...K.los);
+  st.querySelectorAll('[data-ksj]').forEach(b => b.onclick = () => { const t = sjLijst(f).find(x => x.id === b.dataset.ksj); if (t) { V.kaart = { fid: f.id, L: top.letter }; V.ond = top.letter; sjToepassen(f, top, t); } });
+  st.querySelectorAll('[data-ksjweg]').forEach(b => b.onclick = () => sjWeg(f, b.dataset.ksjweg));
+  if ($('#ksjbewaar', st)) $('#ksjbewaar', st).onclick = () => sjOpslaan(f, o);
   if ($('#kecok', st)) $('#kecok', st).onclick = () => zetEcht(cm($('#kecb', st).value), cm($('#kech', st).value));
-  st.querySelectorAll('[data-kzelf]').forEach(b => b.onclick = () => { const v = K.voorstel?.[+b.dataset.kzelf]; if (v) zetEcht(v.B, v.H); });
   if ($('#knaarkoz', st)) $('#knaarkoz', st).onclick = () => { V.kaart = { fid: f.id, L: top.letter }; V.ond = top.letter; tekenUI(); };
   if ($('#ktcin', st)) $('#ktcin', st).onclick = () => tcZet(f, [doel], true);
   if ($('#ktcuit', st)) $('#ktcuit', st).onclick = () => tcZet(f, [doel, ...(doel === top && !o.in ? [] : [])], false);
@@ -9980,23 +9966,12 @@ function rustPaneel(f, st) {
   }
   const inTc = alle.filter(o => tcStaat(f, o) === 'in').length, uit = alle.filter(o => tcStaat(f, o) === 'uit');
   const geschat = tops.filter(o => !rsKozijnOk(f, o)), mag = uit.filter(o => rsOk(f, o)), wacht = uit.length - mag.length;
-  // Handmatig anker: eerst jouw opdracht, dan pas maten boven. Daarna zichtbaar waar ze vandaan komen.
-  const boven = rsBovenWacht(f) && geschat.length ? `<div style="padding:9px 11px;margin-bottom:8px;border-radius:10px;background:rgba(255,167,38,.10);border:1px solid rgba(255,167,38,.35);font-size:14px">
-      <div style="margin-bottom:7px"><b>Basis:</b> ${rsAnkerTekst(f)} <span style="color:var(--muted)">(zelf ingevuld)</span>. ${geschat.length === 1 ? 'Het kozijn erboven heeft' : `De ${geschat.length} kozijnen erboven hebben`} nog geen maat.</div>
-      <button class="primary" id="rboven" style="width:100%;padding:10px;font-size:15px">Bereken maten boven</button></div>`
-    : !rsHeeftAnker(f) && !rsLaser(f) && geschat.length && rsBronnen(f).length ? `<div style="padding:9px 11px;margin-bottom:8px;border-radius:10px;background:rgba(255,167,38,.10);border:1px solid rgba(255,167,38,.35);font-size:14px">
-      <div style="margin-bottom:7px">Deze foto heeft geen eigen maat. ${esc(rsBronnen(f).map(g => gvFotoNaam(f, g)).join(', '))} heeft er wel een (${rsBronnen(f).map(g => rsHeeftAnker(g) ? rsAnkerTekst(g) : 'gelaserd').join('; ')}).</div>
-      <button class="primary" id="rander" style="width:100%;padding:10px;font-size:15px">Bereken maten boven <small style="font-weight:400">(van ${gvFotoNaam(f, rsBronnen(f)[0])})</small></button></div>`
-    : f.maatBoven && rsHandBasis(f) ? `<div style="font-size:13px;color:var(--muted);margin-bottom:8px;line-height:1.4">Maten boven uitgerekend uit ${rsAnkerTekst(f)} (zelf ingevuld) + foto-schaal. Tik een kozijn voor de marge. <button class="ghost" id="rbovenuit" style="width:auto;padding:0;font-size:13px;color:var(--gold);text-decoration:underline">Terugzetten</button></div>` : '';
-  st.innerHTML = `${boven}${geschat.length && !boven ? `<button class="ghost" id="rgeschat" style="display:block;width:100%;text-align:left;padding:8px 10px;margin-bottom:8px;border-radius:10px;background:rgba(255,167,38,.10);color:#FFA726;font-size:14px">⚠ Maat van ${geschat.length === 1 ? 'het kozijn' : geschat.length + ' kozijnen'} nog niet gemeten, dus nog geen vakmaten. <u>Tik om de maat van het onderste kozijn in te vullen</u></button>` : ''}<div style="font-size:14.5px;margin-bottom:8px"><b>Tik een vak, stijl of kozijn</b> <span style="color:var(--muted)">voor de maat en "+ Naar Topcalc".</span></div>
+  st.innerHTML = `${geschat.length ? `<button class="ghost" id="rgeschat" style="display:block;width:100%;text-align:left;padding:8px 10px;margin-bottom:8px;border-radius:10px;background:rgba(255,167,38,.10);color:#FFA726;font-size:14px">⚠ Maat van ${geschat.length === 1 ? 'het kozijn' : geschat.length + ' kozijnen'} nog niet bekend. <u>Tik een kozijn: vul de maat in${sjLijst(f).length ? ' of leg een sjabloon erop' : ''}</u></button>` : ''}<div style="font-size:14.5px;margin-bottom:8px"><b>Tik een vak, stijl of kozijn</b> <span style="color:var(--muted)">voor de maat en "+ Naar Topcalc".</span></div>
     <div style="display:flex;gap:8px;align-items:center"><span style="flex:1;font-size:13.5px;color:var(--muted)">${alle.length} onderdelen · <b style="color:${inTc ? '#57E0D2' : 'var(--muted)'}">${inTc} in Topcalc</b>${wacht ? ` · <span style="color:#FFA726">${wacht} wacht op maat</span>` : ''}</span>
     ${mag.length ? `<button class="outline" id="ralles" style="width:auto;padding:7px 12px;font-size:13.5px">＋ ${mag.length === 1 ? '1' : 'Alle ' + mag.length} naar Topcalc</button>` : ''}</div>
     <button class="ghost" id="rlos" style="display:block;width:100%;text-align:left;margin-top:6px;padding:6px 0;font-size:14.5px;color:var(--gold)">＋ Losse regel <small style="color:var(--muted)">dakgoot, latei, dakkapel…</small></button>`;
   $('#rlos', st).onclick = () => losRegel(f);
   if ($('#ralles', st)) $('#ralles', st).onclick = () => tcZet(f, mag, true);
-  if ($('#rboven', st)) $('#rboven', st).onclick = () => rsBerekenBoven(f);
-  if ($('#rander', st)) $('#rander', st).onclick = () => { const o = [...geschat].sort((a, b) => Math.max(...b.kader.map(p => p[1])) - Math.max(...a.kader.map(p => p[1])))[0]; rsVanAndere(f, o); };
-  if ($('#rbovenuit', st)) $('#rbovenuit', st).onclick = () => { delete f.maatBoven; herrekenRef(f); bewaar(); tekenUI(); toast('Maten boven teruggezet: weer zonder maat.'); };
   // Begin bij het onderste kozijn: dat meet je zelf (laser of meetlint), de rest volgt daaruit.
   if ($('#rgeschat', st)) $('#rgeschat', st).onclick = () => { const o = [...geschat].sort((a, b) => Math.max(...b.kader.map(p => p[1])) - Math.max(...a.kader.map(p => p[1])))[0]; V.kaart = { fid: f.id, L: o.letter }; V.ond = o.letter; tekenUI(); };
   return true;
