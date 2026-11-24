@@ -3584,7 +3584,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.24-3';
+const APP_VERSIE = '2026.11.24-4';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
@@ -8286,15 +8286,21 @@ function hkSplits(ctx, r, diepte) {
   goed.sort((a, c) => c.c - a.c);
   const s = goed[0], half = Math.max(1, Math.round(t * .4));
   let p0 = s.p0 === s.p1 ? s.p0 - half : s.p0, p1 = s.p0 === s.p1 ? s.p1 + half : s.p1;
+  let raam = false;
   // Geverfde balk = de rand van het raampje zelf. Het raampje begint bij die balk; de kozijnregel ligt aan de houtkant.
   if (s.verf && s.overgang != null) { if (s.houtLaag) { p0 = s.p0; p1 = s.overgang; } else { p0 = s.overgang; p1 = s.p1; } }
   else if (s.verf) { const h = Math.max(3, Math.round(ctx.bar * .55)), lo = houtig(s.staand, s.p0 - h - 1, s.p0 - 2), hi = houtig(s.staand, s.p1 + 2, s.p1 + h + 1), bar = Math.max(t, ctx.bar);
     const grens = s.staand ? [r.x0, r.x1] : [r.y0, r.y1];
     // Aan geen van beide kanten kozijnhout (glas links en rechts): de donkere balk is zelf de middenstijl, bijvoorbeeld
     // twee ramen die naar elkaar toe draaien (stolp). Ook als beide kanten even licht zijn (glas met lucht erin). Dan splitsen op de balk.
-    if (s.staand && !(Math.max(lo, hi) >= .75 && Math.min(lo, hi) <= .35)) { p0 = s.p0; p1 = s.p1; }
+    // Die balk is raamhout (de stijlen van de ramen zelf), geen kozijnhout: elk raam loopt door tot het midden ervan.
+    if (s.staand && !(Math.max(lo, hi) >= .75 && Math.min(lo, hi) <= .35)) {
+      // Alleen als de balk echt donkerder is dan het kozijnhout (zwart/grijs raamhout). Een lichte stijl in de schaduw
+      // is gewoon een kozijnstijl: dan op de balk splitsen.
+      const Ls = []; langs(true, s.p0 + 1, s.p1 - 1, i => Ls.push((rgb[i * 3] + rgb[i * 3 + 1] + rgb[i * 3 + 2]) / 3)); Ls.sort((a, b) => a - b);
+      if (Ls.length && Ls[Ls.length >> 1] < hL * .6) { p0 = p1 = Math.round((s.p0 + s.p1) / 2); raam = true; } else { p0 = s.p0; p1 = s.p1; } }
     else if (lo >= hi) { p1 = s.p0; p0 = Math.max(grens[0] + 4, s.p0 - bar); } else { p0 = s.p1; p1 = Math.min(grens[1] - 4, s.p1 + bar); } }
-  vak.split = { staand: s.staand, p0, p1 };
+  vak.split = { staand: s.staand, p0, p1, ...(raam ? { raam: true } : {}) };
   vak.kids = s.staand
     ? [hkSplits(ctx, { ...r, x1: p0 }, diepte + 1), hkSplits(ctx, { ...r, x0: p1 }, diepte + 1)]
     : [hkSplits(ctx, { ...r, y1: p0 }, diepte + 1), hkSplits(ctx, { ...r, y0: p1 }, diepte + 1)];
@@ -8522,7 +8528,7 @@ function herkenKozijnen(beeld) {
       if (geknipt && ronde === 0) { const t = ind.t, r = { x0: Math.max(u.k.x0, wortel.x0 - t), y0: Math.max(u.k.y0, wortel.y0 - t), x1: Math.min(u.k.x1, wortel.x1 + t), y1: Math.min(u.k.y1, wortel.y1 + t) };
         hoek = hkVerfijn(beeld, [naar(r.x0, r.y0), naar(r.x1, r.y0), naar(r.x1, r.y1), naar(r.x0, r.y1)], mu.kleur); continue; }
       const zet = n => ({ hoek: [naar(n.x0, n.y0), naar(n.x1, n.y0), naar(n.x1, n.y1), naar(n.x0, n.y1)], soort: n.soort,
-        ...(n.split ? { split: n.split.staand ? { staand: true, lijn: [naar((n.split.p0 + n.split.p1) / 2, n.y0), naar((n.split.p0 + n.split.p1) / 2, n.y1)] } : { staand: false, lijn: [naar(n.x0, (n.split.p0 + n.split.p1) / 2), naar(n.x1, (n.split.p0 + n.split.p1) / 2)] } } : {}),
+        ...(n.split ? { split: n.split.staand ? { staand: true, ...(n.split.raam ? { raam: true } : {}), lijn: [naar((n.split.p0 + n.split.p1) / 2, n.y0), naar((n.split.p0 + n.split.p1) / 2, n.y1)] } : { staand: false, lijn: [naar(n.x0, (n.split.p0 + n.split.p1) / 2), naar(n.x1, (n.split.p0 + n.split.p1) / 2)] } } : {}),
         ...(n.kids ? { kids: n.kids.map(zet) } : {}) });
       klaar = { hoek, t: ind.t / (u.k.x1 - u.k.x0) * Math.hypot(hoek[1][0] - hoek[0][0], hoek[1][1] - hoek[0][1]), hout: ind.hout, boom: zet(wortel) };
     }
@@ -8541,7 +8547,7 @@ function herkenBinnen(beeld, a, c, deurKan = true) {
   const u = hkUitsnede(beeld, hoek); if (!u) return null;
   const ind = hkIndeling(u, deurKan), naar = (x, y) => hkPunt(u.M, x, y);
   const zet = n => ({ hoek: [naar(n.x0, n.y0), naar(n.x1, n.y0), naar(n.x1, n.y1), naar(n.x0, n.y1)], soort: n.soort,
-    ...(n.split ? { split: n.split.staand ? { staand: true, lijn: [naar((n.split.p0 + n.split.p1) / 2, n.y0), naar((n.split.p0 + n.split.p1) / 2, n.y1)] } : { staand: false, lijn: [naar(n.x0, (n.split.p0 + n.split.p1) / 2), naar(n.x1, (n.split.p0 + n.split.p1) / 2)] } } : {}),
+    ...(n.split ? { split: n.split.staand ? { staand: true, ...(n.split.raam ? { raam: true } : {}), lijn: [naar((n.split.p0 + n.split.p1) / 2, n.y0), naar((n.split.p0 + n.split.p1) / 2, n.y1)] } : { staand: false, lijn: [naar(n.x0, (n.split.p0 + n.split.p1) / 2), naar(n.x1, (n.split.p0 + n.split.p1) / 2)] } } : {}),
     ...(n.kids ? { kids: n.kids.map(zet) } : {}) });
   return { hoek, t: ind.t, boom: zet(ind.boom) };
 }
@@ -8578,7 +8584,7 @@ function herkWijs(p) {
   const [a, c] = H.wijs; H.wijs = null;
   const img = $('#vimg', V.el), b = herkBeeld(img), naar = q => [q[0] / b.W, q[1] / b.H];
   let k = null; try { k = herkenBinnen(b, [a[0] * b.W, a[1] * b.H], [c[0] * b.W, c[1] * b.H], true); } catch (e) { console.warn(e); }
-  const zet = n => ({ hoek: n.hoek.map(naar), soort: n.soort, ...(n.split ? { split: { staand: n.split.staand, lijn: n.split.lijn.map(naar) } } : {}), ...(n.kids ? { kids: n.kids.map(zet) } : {}) });
+  const zet = n => ({ hoek: n.hoek.map(naar), soort: n.soort, ...(n.split ? { split: { staand: n.split.staand, ...(n.split.raam ? { raam: true } : {}), lijn: n.split.lijn.map(naar) } } : {}), ...(n.kids ? { kids: n.kids.map(zet) } : {}) });
   if (k) H.kozijnen.push({ hoek: k.hoek.map(naar), boom: zet(k.boom), aan: true, zelf: true });
   else { const q = [[a[0], a[1]], [c[0], a[1]], [c[0], c[1]], [a[0], c[1]]]; H.kozijnen.push({ hoek: q, boom: { hoek: q, soort: 'Kozijn' }, aan: true, zelf: true }); }
   trilKort(); tekenUI(); toast('Kozijn toegevoegd. Zet de stijlen en dorpels met ＋ Stijl en ＋ Dorpel, tik een vak voor de soort.', 6000);
@@ -8597,7 +8603,7 @@ function herkStart() {
       const bl = herkBeeld(img), W = bl.W, H = bl.H;
       res = herkenKozijnen(bl);
       const naar = p => [p[0] / W, p[1] / H];
-      const zet = n => ({ hoek: n.hoek.map(naar), soort: n.soort, ...(n.split ? { split: { staand: n.split.staand, lijn: n.split.lijn.map(naar) } } : {}), ...(n.kids ? { kids: n.kids.map(zet) } : {}) });
+      const zet = n => ({ hoek: n.hoek.map(naar), soort: n.soort, ...(n.split ? { split: { staand: n.split.staand, ...(n.split.raam ? { raam: true } : {}), lijn: n.split.lijn.map(naar) } } : {}), ...(n.kids ? { kids: n.kids.map(zet) } : {}) });
       // Kozijn dat de rand van de foto raakt: waarschijnlijk aangesneden (buurkozijn). Staat standaard uit.
       const rand = q => q.some(([x, y]) => x < .012 || y < .012 || x > .988 || y > .988);
       V.herk.kozijnen = res.kozijnen.map(k => { const q = k.hoek.map(naar), r = rand(q); return { hoek: q, boom: zet(k.boom), aan: !r, rand: r }; });
@@ -8618,8 +8624,13 @@ function herkSvg(f, W, H) {
       for (const v of hkBladeren(k.boom)) { const kl = HK_KLEUR[v.soort] || '#fff', [mx, my] = hkMidden(v.hoek);
         s += `<polygon points="${P(v.hoek)}" fill="${kl}" fill-opacity=".28" stroke="${kl}" stroke-width="${1.6 * k1}"/>`;
         s += `<text x="${mx * W}" y="${my * H + 4 * k1}" text-anchor="middle" fill="#fff" stroke="#000" stroke-width="${2.4 * k1}" paint-order="stroke" font-size="${11 * k1}" font-weight="800">${HK_KORT[v.soort] || '?'}</text>`; }
-      const stre = n => { if (!n.kids) return; const [a, b] = n.split.lijn;
-        s += `<line x1="${a[0] * W}" y1="${a[1] * H}" x2="${b[0] * W}" y2="${b[1] * H}" stroke="#fff" stroke-width="${1.2 * k1}" stroke-dasharray="${4 * k1} ${3 * k1}" opacity=".85"/>`; n.kids.forEach(stre); };
+      // Stijlen en dorpels horen bij het kozijn: in de kleur van het kozijn, als balk tussen de twee vakken.
+      const stre = n => { if (!n.kids) return; const [A, B] = n.kids;
+        const band = n.split.staand ? [A.hoek[1], B.hoek[0], B.hoek[3], A.hoek[2]] : [A.hoek[3], A.hoek[2], B.hoek[1], B.hoek[0]];
+        // Raamhout (de stijlen van twee ramen tegen elkaar) hoort bij de ramen: een lijn in de kleur van de ramen.
+        if (n.split.raam) { const kl = HK_KLEUR[hkBladeren(A)[0]?.soort] || '#fff', [a, b] = n.split.lijn;
+          s += `<line x1="${a[0] * W}" y1="${a[1] * H}" x2="${b[0] * W}" y2="${b[1] * H}" stroke="${kl}" stroke-width="${2 * k1}"/>`; }
+        else s += `<polygon points="${P(band)}" fill="#57E0D2" fill-opacity=".55" stroke="#57E0D2" stroke-width="${2 * k1}" stroke-linejoin="round"/>`; n.kids.forEach(stre); };
       stre(k.boom);
     }
     s += `<polygon points="${P(k.hoek)}" fill="none" stroke="${k.aan ? '#57E0D2' : '#888'}" stroke-width="${(k.aan ? 2.4 : 1.4) * k1}" ${k.aan ? '' : `stroke-dasharray="${6 * k1} ${4 * k1}"`}/>`;
@@ -8673,11 +8684,13 @@ function herkPaneel(f, st) {
   // Alleen de soorten die echt in beeld zijn als legenda.
   const soorten = [...new Set(aan.flatMap(k => hkBladeren(k.boom).map(v => v.soort || 'Kozijn')))];
   const rand = H.kozijnen.filter(k => k.rand && !k.aan).length;
+  let nSt = 0, nDo = 0; const telS = n => { if (!n.kids) return; if (!n.split.raam) n.split.staand ? nSt++ : nDo++; n.kids.forEach(telS); }; aan.forEach(k => telS(k.boom));
+  const delen = [nSt ? `${nSt} ${nSt === 1 ? 'stijl' : 'stijlen'}` : '', nDo ? `${nDo} ${nDo === 1 ? 'dorpel' : 'dorpels'}` : ''].filter(Boolean).join(', ');
   const bezig = H.streep ? `Tik in het vak waar de ${H.streep === 'staand' ? 'stijl' : 'dorpel'} komt.` : H.wijs ? `Tik ${H.wijs.length ? 'rechtsonder' : 'linksboven'} van het kozijn (buitenkant).` : '';
   st.innerHTML = `<div style="font-size:14.5px;line-height:1.4;margin:0 0 6px">${bezig ? `<b style="color:var(--gold)">${bezig}</b>`
-      : H.kozijnen.length ? `<b>${aan.length} ${aan.length === 1 ? 'kozijn' : 'kozijnen'}, ${vakken} ${vakken === 1 ? 'vak' : 'vakken'}.</b> Tik een vak voor een andere soort, een streep om hem weg te halen.`
+      : H.kozijnen.length ? `<b>${aan.length} ${aan.length === 1 ? 'kozijn' : 'kozijnen'}, ${vakken} ${vakken === 1 ? 'vak' : 'vakken'}${delen ? `, ${delen}` : ''}.</b> Tik een vak voor een andere soort, een stijl of dorpel om hem weg te halen.`
       : 'Geen kozijnen gevonden. Wijs er zelf een aan via Aanpassen.'}${rand ? ` <span style="color:#B0BEC5">${rand} randstuk telt niet.</span>` : ''}${meter ? '' : ' <span style="color:#FFA726">Nog geen schaal: maten volgen.</span>'}</div>
-    ${soorten.length ? `<div style="margin:0 0 8px;font-size:12.5px;color:var(--muted)">${soorten.map(n => `<b style="color:${HK_KLEUR[n]}">${HK_KORT[n]}</b> ${n === 'Kozijn' ? 'glas in kozijn' : n.toLowerCase()}`).join(' · ')}</div>` : ''}
+    ${soorten.length ? `<div style="margin:0 0 8px;font-size:12.5px;color:var(--muted)">${soorten.map(n => `<b style="color:${HK_KLEUR[n]}">${HK_KORT[n]}</b> ${n === 'Kozijn' ? 'glas in kozijn' : n.toLowerCase()}`).join(' · ')}${delen ? ' · <b style="color:#57E0D2">▮</b> stijl/dorpel (kozijn)' : ''}</div>` : ''}
     <div style="display:flex;gap:8px">${bezig ? '<button class="outline" id="hkklaar" style="flex:1;padding:11px;font-size:15px">Klaar</button>'
       : `<button class="outline" id="hkmeer" style="flex:0 0 auto;width:auto;padding:11px 16px;font-size:15px">Aanpassen ⋯</button>${aan.length ? `<button class="primary" id="hkok" style="flex:1;padding:11px;font-size:16px">Overnemen (${aan.length})</button>` : ''}`}</div>`;
   const zetStreep = s => { H.wijs = null; H.streep = s; tekenUI(); };
@@ -8717,7 +8730,8 @@ function herkOvernemen(f) {
     // Doorlopende stijlen (van boven tot onder) en dorpels (van links tot rechts).
     // Een stijl of dorpel die niet de hele maat loopt (bijv. tussen een paneel en een raampje) wordt een los kort stuk.
     let stijlen = 0, dorpels = 0; const rq = k.boom.hoek || q, kb = lengte(rq[0], rq[1]), kh = lengte(rq[0], rq[3]), kort = [];
-    const tel = n => { if (!n.kids) return; const len = lengte(...n.split.lijn);
+    const tel = n => { if (!n.kids) return; if (n.split.raam) { n.kids.forEach(tel); return; }   // raamhout telt niet als kozijnstijl
+      const len = lengte(...n.split.lijn);
       if (n.split.staand) { if (len > kh * .85) stijlen++; else kort.push(n.split); }
       else { if (len > kb * .85) dorpels++; else kort.push(n.split); }
       n.kids.forEach(tel); };
@@ -8735,7 +8749,9 @@ function herkOvernemen(f) {
     if (stijlen) ver.aantal = stijlen; else delete ver.aantal; if (dorpels) hor.aantal = dorpels; else delete hor.aantal;
     if (!best) nieuwOnderdeel(f, L, `Kozijn ${volgNr(f, 'Kozijn')}`, [hor, ver]);
     const o = ondVan(f).find(x => x.letter === L);
-    Object.assign(o, { kader: q, herkend: true, gvGlas: [] });
+    // Waar twee ramen tegen elkaar zitten (raamhout, geen kozijnstijl): onthouden, dan is dat op de foto geen stijl.
+    const naden = []; const zoekNaad = n => { if (!n.kids) return; if (n.split.raam) naden.push(n.split.lijn.map(p => [...p])); n.kids.forEach(zoekNaad); }; zoekNaad(k.boom);
+    Object.assign(o, { kader: q, herkend: true, gvGlas: [] }); if (naden.length) o.raamNaad = naden; else delete o.raamNaad;
     if (!best) { o.bestek = bt; if (vorige[bt + ' Kozijn']) o.codes = [{ code: vorige[bt + ' Kozijn'], bestek: bt }]; else delete o.codes; f.lijnen.push(hor, ver); }
     letters.push(L);
     for (const sp of kort) f.lijnen.push(lijn(L, sp.staand ? 'verticaal' : 'horizontaal', sp.lijn[0], sp.lijn[1], {}));
@@ -9729,6 +9745,7 @@ function kaartStijl(f, top, x, y) {
   const randen = [];
   for (const k of vakken) for (let i = 0; i < 4; i++) { const a = k[i], b = k[(i + 1) % 4], m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
     if (buiten(m) < 10) continue;
+    if ((top.raamNaad || []).some(([p, s]) => pxAfst(m[0], m[1], p, s) < 6)) continue;   // twee ramen tegen elkaar: raamhout
     const staand = Math.abs((b[1] - a[1]) * V.h) > Math.abs((b[0] - a[0]) * V.w); randen.push({ a, b, staand }); }
   let best = null;
   for (const r of randen) { const d = pxAfst(x, y, r.a, r.b); if (!best || d < best.d) best = { ...r, d }; }
@@ -9974,6 +9991,9 @@ function rustSvg(f, W, H) {
     (top.gvGlas || []).forEach((q, i) => { const [mx, my] = mid(q), aan = K && K.L === top.letter && K.glas === i;
       void mx; void my;   // glas wordt niet opgemeten: niets tekenen
       if (aan) sel += `<polygon points="${P(q)}" fill="#D4AF37" fill-opacity=".25" stroke="#D4AF37" stroke-width="${2.6 * k1}" pointer-events="none"/>`; });
+    // Kozijnhout (buitenrand, stijlen en dorpels) in de kleur van het kozijn: alles binnen het kozijn behalve de vakken.
+    if (kids.length) { const M = q => 'M' + q.map(([x, y]) => `${x * W},${y * H}`).join(' L') + ' Z';
+      s += `<path d="${M(top.kader)} ${kids.map(v => M(v.kader)).join(' ')}" fill="#57E0D2" fill-opacity=".38" fill-rule="evenodd" stroke="none" pointer-events="none"/>`; }
     for (const v of kids) { const sn = soortVan(v), kl = HK_KLEUR?.[sn] || '#fff', [mx, my] = mid(v.kader), vIn = tcStaat(f, v) === 'in';
       s += `<polygon points="${P(v.kader)}" fill="${kl}" fill-opacity=".16" stroke="${kl}" stroke-width="${1.2 * k1}" pointer-events="none"/>`
         + tekst(mx, my + 4 * k1, (kort[sn] || '?') + (vIn ? ' ✓' : ''), vIn ? '#57E0D2' : '#fff', 12) + maat(top, v.kader, mx, my, v);
