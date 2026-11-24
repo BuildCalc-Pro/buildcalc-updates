@@ -3584,7 +3584,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.24-12';
+const APP_VERSIE = '2026.11.24-13';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
@@ -9716,10 +9716,10 @@ function sjWeg(f, id) { const lijst = sjLijst(f), i = lijst.findIndex(t => t.id 
 
 // ---------- Kozijn aantikken zonder Overnemen: de app zoekt de buitenkant op die plek, of je wijst hem aan met 2 tikken ----------
 const RS_ZOEK = new Map();
-function rsMaakKozijn(f, q) {
+function rsMaakKozijn(f, q, soort = 'Kozijn') {
   const L = volgendeLetter(f), lijn = (r, a, b) => ({ id: nieuwId(), kozijn: L, richting: r, x1: a[0], y1: a[1], x2: b[0], y2: b[1], maat: null, kant: true });
   const hor = lijn('horizontaal', q[3], q[2]), ver = lijn('verticaal', q[1], q[2]);
-  nieuwOnderdeel(f, L, `Kozijn ${volgNr(f, 'Kozijn')}`, [hor, ver]);
+  nieuwOnderdeel(f, L, `${soort} ${volgNr(f, soort)}`, [hor, ver]);
   const o = ondVan(f).find(x => x.letter === L), bt = f.tikBestek || 'ONB';
   Object.assign(o, { kader: q.map(p => [...p]), herkend: true, gvGlas: [], bestek: bt });
   f.lijnen.push(hor, ver); bewaar();
@@ -9739,8 +9739,29 @@ function rsWijsTik(f, x, y) {
   V.wijs.push([x, y]); if (V.wijs.length < 2) { tekenUI(); return; }
   const [[a, b], [c, d]] = V.wijs, x0 = Math.min(a, c), x1 = Math.max(a, c), y0 = Math.min(b, d), y1 = Math.max(b, d); V.wijs = null;
   if (x1 - x0 < .01 || y1 - y0 < .01) { tekenUI(); return toast('Te klein. Tik linksboven en rechtsonder van het kozijn.'); }
-  rsMaakKozijn(f, [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]);
+  rsMaakKozijn(f, [[x0, y0], [x1, y0], [x1, y1], [x0, y1]], V.wijsSoort || 'Kozijn');
 }
+// ---------- Kader boven: maat uitrekenen met je lasermaten van beneden (op dezelfde foto) of met stenen tellen ----------
+// Referenties = paren gemeten lijnen op deze foto (laser of zelf ingevuld): losse maten of een gemeten kozijn.
+function rsRefs(f, zonder) {
+  const groep = new Map(), echt = l => l.maat > 0 && !rsGok(l) && ['laser', 'hand', 'spraak'].includes(l.bron) && !l.via && ['horizontaal', 'verticaal'].includes(l.richting);
+  for (const l of f.lijnen) { if (!echt(l) || (zonder && l.kozijn === zonder)) continue; const k = l.kozijn || 'los', g = groep.get(k) || {}; g[l.richting] = l; groep.set(k, g); }
+  const uit = [];
+  for (const [k, g] of groep) { const h = g.horizontaal, v = g.verticaal; if (!h || !v) continue;
+    const o = k === 'los' ? null : ondVan(f).find(x => x.letter === k);
+    uit.push({ t: `${o ? esc(ondKortNaam(o) || 'Kozijn') : 'Lasermaat'} ${cmT(h.maat)} × ${cmT(v.maat)}`, via: `referentie ${cmT(h.maat)} × ${cmT(v.maat)}`, B: h.maat, H: v.maat, rh: [[h.x1, h.y1], [h.x2, h.y2]], rv: [[v.x1, v.y1], [v.x2, v.y2]] }); }
+  return uit.slice(0, 4);
+}
+function rsStenenOk(f) { const vl = VLAK.get(f.id); return !!(vl?.ok && vl.laag && laagVoor(f)?.cm); }
+// Maat van een kader (4 hoeken) met een gekozen bron. Uitkomst buiten 20-600 cm: null (dan vult de app niets in).
+function rsKaderMaat(f, q, bron) {
+  let B, H; const lijn = (a, b) => ({ x1: a[0], y1: a[1], x2: b[0], y2: b[1] });
+  if (bron.stenen) { const vl = VLAK.get(f.id), k = laagVoor(f).cm / 100 / vl.laag, d = (a, b) => { const [dx, dy] = vlakD(vl, lijn(a, b)); return Math.hypot(dx, dy) * k; };
+    B = (d(q[0], q[1]) + d(q[3], q[2])) / 2; H = (d(q[0], q[3]) + d(q[1], q[2])) / 2; }
+  else { B = bron.B * refLen(f, q[3], q[2]) / refLen(f, ...bron.rh); H = bron.H * refLen(f, q[1], q[2]) / refLen(f, ...bron.rv); }
+  return B > .2 && B < 6 && H > .2 && H < 6 ? { B, H } : null;
+}
+
 const rsKozijnOk = (f, top) => !!top && rsLijnOk(f, gvLijn(f, top.letter, 'horizontaal')) && rsLijnOk(f, gvLijn(f, top.letter, 'verticaal'));
 // Maat van een vak zoals het kaartje hem toont: de lijnen van het vak zelf.
 function rsVakMaat(f, v) { const k = kozijnMaten(f, v.letter); if (k?.B && k?.H) return { B: k.B, H: k.H };
@@ -9787,7 +9808,7 @@ function meerMenu(f) {
   const items = [];
   if (V.herk || V.gevel || V.hoeken || V.telNu || V.modus !== 'bekijken') items.push(['close', 'Stoppen (terug naar bekijken)', () => { uit(); V.modus = 'bekijken'; V.sel = null; tekenUI(); }]);
   items.push(['plus', 'Losse regel (dakgoot, latei…)', () => losRegel(f)],
-    ['ster', 'Kozijn aanwijzen (2 tikken)', () => { uit(); V.modus = 'bekijken'; V.wijs = []; tekenUI(); }],
+    ['ster', 'Kader tekenen (2 tikken)', () => { uit(); V.modus = 'bekijken'; V.wijs = []; V.wijsSoort = 'Kozijn'; tekenUI(); }],
     ['ruler', 'Lijn trekken', () => { uit(); tekenUI(); V.el.querySelector('#vmodes [data-m=lijn]')?.click(); }],
     ['ballon', 'Opmerking', () => { uit(); tekenUI(); V.el.querySelector('#vmodes [data-m=opmerking]')?.click(); }],
   );
@@ -9863,7 +9884,7 @@ function kortHerkomst(f, o, l) {
   if (!l || l.maat == null) return { t: 'nog geen maat', kl: '#FFA726' };
   const v = typeof gvVergelijk === 'function' ? gvVergelijk(f, o, l) : null, mg = typeof gvMarge === 'function' ? gvMarge(f, o, l) : null;
   const sj = l.bron === 'sjabloon' && l.sjRef ? sjLijst(f).find(x => x.id === l.sjabloon) : null;
-  const t = l.bron === 'laser' ? 'gelaserd' : l.bron === 'sjabloon' ? (l.sjRef ? `berekend met referentie${sj ? ` ${cmT(sj.B)} × ${cmT(sj.H)}` : ''}` : l.sjKopie ? 'zelfde kozijn op een andere foto' : 'oude kopie, telt niet') : l.bron === 'hand' ? 'zelf ingevuld' : l.bron === 'spraak' ? 'ingesproken'
+  const t = l.bron === 'laser' ? 'gelaserd' : l.bron === 'sjabloon' ? (l.sjRef ? `berekend met referentie${sj ? ` ${cmT(sj.B)} × ${cmT(sj.H)}` : ''}` : l.sjKopie ? 'zelfde kozijn op een andere foto' : 'oude kopie, telt niet') : l.bron === 'hand' ? (l.via ? `${l.via}, door jou opgeslagen` : 'zelf ingevuld') : l.bron === 'spraak' ? 'ingesproken'
     : l.bron === 'deel' ? 'naar verhouding in het kozijn' : rsGok(l) ? 'gok uit de foto, telt niet' : l.bron === 'stenen' ? 'stenen geteld' : l.bron || '';
   const pm = mg?.pct ? ` ±${Math.max(1, Math.round(l.maat * mg.pct))}` : '';
   return { t: `${t}${pm ? ',' + pm + ' cm' : ''}`, kl: v?.mis ? '#FFA726' : mg?.pct >= 4 ? '#FFCC80' : 'var(--muted)', mis: v?.mis };
@@ -9921,24 +9942,21 @@ function kaartPaneel(f, st) {
   const andere = sjLijst(f).some(t => t.van?.foto !== f.id);
   const sjKnoppen = () => refs.map(t => `<div style="display:flex;gap:6px;margin-bottom:6px"><button class="primary" data-ksj="${t.id}" style="flex:1;padding:10px;font-size:14.5px">Bereken met referentie <b>${cmT(t.B)} × ${cmT(t.H)}</b></button><button class="ghost" data-ksjweg="${t.id}" aria-label="Verwijderen" style="width:auto;padding:6px 10px;color:var(--muted)">✕</button></div>`).join('')
     + zelfdeK.slice(0, 3).map(t => `<button class="outline" data-ksj="${t.id}" style="width:100%;margin-bottom:6px;padding:9px;font-size:14px">Hetzelfde kozijn als ${esc(t.naam)}: <b>${cmT(t.B)} × ${cmT(t.H)}</b></button>`).join('');
-  // Sjabloon: een referentie (of een kozijn dat je al hebt) vult alleen de velden vooraf in. Jij past ze aan en tikt Opslaan.
-  // Er wordt niets uitgerekend en niets bewaard zonder Opslaan.
-  const bronnen = [...sjLijst(f).filter(t => !(t.van?.foto === f.id && t.van?.L === o.letter)).reverse().map(t => ({ id: t.id, t: `Sjabloon ${cmT(t.B)} × ${cmT(t.H)}`, sub: t.naam, B: t.B, H: t.H, st: 0, dp: 0, weg: true })),
-    ...zelfdeK.map(t => { const g = gvFotos(f).find(x => x.id === t.van.foto), hv = g && gvLijn(g, t.van.L, 'verticaal'), hh = g && gvLijn(g, t.van.L, 'horizontaal');
-      return { id: t.id, t: `Sjabloon ${cmT(t.B)} × ${cmT(t.H)}`, sub: t.naam, B: t.B, H: t.H, st: hv?.aantal || 0, dp: hh?.aantal || 0 }; })].slice(0, 5);
+  // Kader: de maat uitrekenen met je lasermaten op deze foto of met stenen tellen. Vult de velden; jij past aan en tikt Opslaan.
+  const bronnen = kHor ? [...rsRefs(f, o.letter), ...(rsStenenOk(f) ? [{ t: 'Stenen tellen', via: 'stenen geteld', stenen: true }] : [])] : [];
   K.bronnen = bronnen;
   if (kHor && kVer && !o.in && !K.stijl && K.glas == null && (K.edit || !(zeker(kHor) && zeker(kVer)))) {
     const inv = w => `style="width:${w};padding:9px 6px;font-size:17px;text-align:center;border-radius:8px;border:1px solid var(--surface-high);background:var(--bg,#111);color:var(--text)" inputmode="decimal"`;
     const nu = zeker(kHor) && zeker(kVer);
     echt = `<div style="margin:8px 0 10px;padding:10px 12px;border-radius:10px;background:${nu ? 'var(--surface-high)' : 'rgba(255,167,38,.10)'};border:1px solid ${nu ? 'var(--surface-high)' : 'rgba(255,167,38,.35)'}">
-      ${bronnen.length ? `<div style="font-size:13.5px;margin-bottom:6px;color:var(--muted)">Leg een sjabloon op als referentie (vult niets in):</div><div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">${bronnen.map((b, i) => `<span style="display:inline-flex"><button class="ondchip" data-ksjvul="${i}" style="width:auto;padding:7px 11px;font-size:14px" title="${esc(b.sub)}">${b.t}</button>${b.weg ? `<button class="ghost" data-ksjweg="${b.id}" aria-label="Verwijderen" style="width:auto;padding:4px 6px;color:var(--muted)">✕</button>` : ''}</span>`).join('')}</div>` : ''}
+      ${bronnen.length ? `<div style="font-size:13.5px;margin-bottom:6px;color:var(--muted)">Bereken de maat van dit kader met:</div><div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">${bronnen.map((b, i) => `<button class="ondchip" data-ksjvul="${i}" style="width:auto;padding:7px 11px;font-size:14px">${b.t}</button>`).join('')}</div>` : `<div style="font-size:13.5px;margin-bottom:8px;color:var(--muted)">Geen lasermaat op deze foto en geen stenen te tellen: vul de maat zelf in.</div>`}
       <div id="ksjinfo" style="font-size:14px;margin-bottom:8px"></div><div style="display:flex;gap:8px;align-items:center;margin-bottom:6px"><input id="kecb" ${inv('5.2em')} placeholder="${nu ? cmT(kHor.maat) : 'breedte'}"><span>×</span><input id="kech" ${inv('5.2em')} placeholder="${nu ? cmT(kVer.maat) : 'hoogte'}"><span style="color:var(--muted)">cm</span></div>
       <div style="display:flex;gap:8px;align-items:center;font-size:14px;margin-bottom:8px"><span style="color:var(--muted)">Indeling:</span><input id="kecst" ${inv('3em')} placeholder="${kVer.aantal || 0}"><span>stijlen</span><input id="kecdp" ${inv('3em')} placeholder="${kHor.aantal || 0}"><span>dorpels</span></div>
       <button class="primary" id="kecok" style="width:100%;padding:10px;font-size:15px">Opslaan</button></div>`;
   } else if (kHor && kVer && kozOk) {
     const al = sjLijst(f).find(t => t.van?.foto === f.id && t.van?.L === o.letter), k0 = kozijnMaten(f, o.letter);
     const zelfde = al && k0 && Math.abs(al.B - k0.B) < .005 && Math.abs(al.H - k0.H) < .005;
-    echt = `<div style="display:flex;gap:6px;margin:4px 0 8px"><button class="outline" id="kaanpas" style="flex:1;padding:9px;font-size:14.5px">Maten en indeling aanpassen</button><button class="outline" id="ksjbewaar" style="flex:1;padding:9px;font-size:14.5px"${zelfde ? ' disabled' : ''}>${zelfde ? 'Sjabloon ✓' : 'Bewaar als sjabloon'}</button></div>`;
+    echt = `<div style="display:flex;gap:6px;margin:4px 0 8px"><button class="outline" id="kaanpas" style="flex:1;padding:9px;font-size:14.5px">Maten en indeling aanpassen</button></div>`;
   }
   const nDoel = ondKortNaam(doel) || doel.letter;
   // Uitleg als de maat ontbreekt of niet klopt (geen getal verzinnen).
@@ -9985,9 +10003,12 @@ function kaartPaneel(f, st) {
   const telIn = id => { const v = $(id, st)?.value; if (v == null || v === '') return null; const n = Math.round(parseFloat(String(v).replace(',', '.'))); return n >= 0 && n < 50 ? n : null; };
   const nuOk = rsLijnOk(f, kHor) && rsLijnOk(f, kVer);
   if ($('#kecok', st)) $('#kecok', st).onclick = () => { const B = cm($('#kecb', st).value) ?? (nuOk ? kHor.maat : null), H = cm($('#kech', st).value) ?? (nuOk ? kVer.maat : null);
-    if (K.sjGekozen) o.sjabloonRef = { B: K.sjGekozen.B, H: K.sjGekozen.H, naam: K.sjGekozen.sub }; zetEcht(B, H, telIn('#kecst'), telIn('#kecdp')); };
+    const via = K.sjGekozen?.via || null; zetEcht(B, H, telIn('#kecst'), telIn('#kecdp')); for (const l of [kHor, kVer]) { if (via) l.via = via; else delete l.via; } K.sjGekozen = null; bewaar(); tekenUI(); };
   st.querySelectorAll('[data-ksjvul]').forEach(b => b.onclick = () => { const v = K.bronnen?.[+b.dataset.ksjvul]; if (!v) return;
-    K.sjGekozen = v; $('#ksjinfo', st).innerHTML = `<b style="color:var(--gold)">Sjabloon op dit kozijn</b>: referentie ${cmT(v.B)} × ${cmT(v.H)} cm <small style="color:var(--muted)">(${esc(v.sub)})</small>. Vul hieronder zelf de maat en indeling van dít kozijn in.`;
+    const m = rsKaderMaat(f, o.kader, v);
+    if (!m) { K.sjGekozen = null; $('#ksjinfo', st).innerHTML = `<span style="color:#FFA726">Met ${esc(v.t)} komt er geen logische maat uit. Vul de maat zelf in.</span>`; return; }
+    K.sjGekozen = v; $('#kecb', st).value = cmT(m.B); $('#kech', st).value = cmT(m.H);
+    $('#ksjinfo', st).innerHTML = `<b style="color:var(--gold)">Berekend met ${v.stenen ? 'stenen tellen' : esc(v.via)}</b>. Controleer, pas aan en tik Opslaan.`;
     st.querySelectorAll('[data-ksjvul]').forEach(x => x.classList.toggle('on', x === b)); $('#kecb', st).focus(); });
   if ($('#kaanpas', st)) $('#kaanpas', st).onclick = () => { K.edit = true; tekenUI(); };
   if ($('#knaarkoz', st)) $('#knaarkoz', st).onclick = () => { V.kaart = { fid: f.id, L: top.letter }; V.ond = top.letter; tekenUI(); };
@@ -10013,28 +10034,18 @@ function rustPaneel(f, st) {
   if (V.el.classList.contains('loc') && !V.wijs) return false;
   st.className = 'status sel';
   if (V.wijs) {
-    st.innerHTML = `<div style="font-size:15px;margin-bottom:8px"><b style="color:var(--gold)">Tik ${V.wijs.length ? 'rechtsonder' : 'linksboven'} van het kozijn</b> <span style="color:var(--muted)">(buitenkant)</span></div><button class="outline" id="rwijsuit" style="width:100%;padding:10px;font-size:15px">Stoppen</button>`;
+    st.innerHTML = `<div style="font-size:15px;margin-bottom:8px"><b style="color:var(--gold)">Kader ${(V.wijsSoort || 'kozijn').toLowerCase()}: tik ${V.wijs.length ? 'rechtsonder' : 'linksboven'}</b> <span style="color:var(--muted)">(buitenkant)</span></div><button class="outline" id="rwijsuit" style="width:100%;padding:10px;font-size:15px">Stoppen</button>`;
     $('#rwijsuit', st).onclick = () => { V.wijs = null; tekenUI(); }; return true; }
   const alle = ondVan(f).filter(o => o.herkend), inTc = alle.filter(o => tcStaat(f, o) === 'in').length, mag = alle.filter(o => tcStaat(f, o) === 'uit' && rsOk(f, o));
-  // 1. Referentie: breedte × hoogte invullen en bewaren (losse lasermaten op deze foto staan er al in).
-  const lm = sjLos(f), eigen = sjLijst(f).find(t => t.van?.foto === f.id && t.van?.L === 'ref'), w = lm || eigen;
-  const inv = 'style="width:4.6em;padding:8px 6px;font-size:16px;text-align:center;border-radius:8px;border:1px solid var(--surface-high);background:var(--bg,#111);color:var(--text)" inputmode="decimal"';
-  const zelfde = eigen && lm && Math.abs(eigen.B - lm.B) < .005 && Math.abs(eigen.H - lm.H) < .005;
-  st.innerHTML = `<div style="padding:9px 11px;margin-bottom:8px;border-radius:10px;background:var(--surface-high)">
-      <div style="font-size:13.5px;color:var(--muted);margin-bottom:6px">Referentie ${eigen ? `op deze foto: <b style="color:var(--text)">${cmT(eigen.B)} × ${cmT(eigen.H)}</b> <button class="ghost" id="rrefweg" style="width:auto;padding:0 4px;font-size:13px;color:var(--muted)">✕</button>` : '(bekende maat, bijv. gelaserd)'}</div>
-      <div style="display:flex;gap:6px;align-items:center"><input id="rrb" ${inv} placeholder="breedte"><span>×</span><input id="rrh" ${inv} placeholder="hoogte"><span style="color:var(--muted);font-size:13px">cm</span>
-      <button class="primary" id="rref" style="flex:1;padding:9px 6px;font-size:14px">Bewaar als referentie</button></div></div>
-    <div style="font-size:14.5px;margin-bottom:8px"><b>Tik een kozijn op de foto</b> <span style="color:var(--muted)">voor de maat en "+ Naar Topcalc".</span></div>
-    <button class="outline" id="rwijs" style="width:100%;padding:9px;font-size:14.5px;margin-bottom:6px">Kozijn aanwijzen (2 tikken)</button>
+  const refs = rsRefs(f), sten = rsStenenOk(f);
+  st.innerHTML = `<div style="padding:9px 11px;margin-bottom:8px;border-radius:10px;background:var(--surface-high);font-size:13.5px">
+      ${refs.length ? `Referentie op deze foto: <b>${refs.map(r => r.t).join(', ')}</b>` : '<span style="color:var(--muted)">Nog geen lasermaat op deze foto (Meer → Lijn trekken).</span>'}${sten ? ' · stenen tellen kan' : ''}</div>
+    <div style="font-size:14.5px;margin-bottom:8px"><b>Teken een kader</b> <span style="color:var(--muted)">over een kozijn, raam of luik, of tik een kozijn aan.</span></div>
+    <div style="display:flex;gap:6px;margin-bottom:6px">${['Kozijn', 'Raam', 'Luik'].map(n => `<button class="outline" data-rwijs="${n}" style="flex:1;padding:9px 4px;font-size:14px">＋ Kader ${n.toLowerCase()}</button>`).join('')}</div>
     ${alle.length ? `<div style="display:flex;gap:8px;align-items:center"><span style="flex:1;font-size:13.5px;color:var(--muted)">${alle.length} ${alle.length === 1 ? 'kozijn' : 'onderdelen'} · <b style="color:${inTc ? '#57E0D2' : 'var(--muted)'}">${inTc} in Topcalc</b></span>
     ${mag.length ? `<button class="outline" id="ralles" style="width:auto;padding:7px 12px;font-size:13.5px">＋ ${mag.length === 1 ? '1' : 'Alle ' + mag.length} naar Topcalc</button>` : ''}</div>` : ''}
     <button class="ghost" id="rlos" style="display:block;width:100%;text-align:left;margin-top:6px;padding:6px 0;font-size:14.5px;color:var(--gold)">＋ Losse regel <small style="color:var(--muted)">dakgoot, latei, dakkapel…</small></button>`;
-  const cm = v => { const n = parseFloat(String(v || '').replace(',', '.')); return n > 0 ? n / 100 : null; };
-  $('#rref', st).onclick = () => { const B = cm($('#rrb', st).value), H = cm($('#rrh', st).value);
-    const metLijnen = lm && Math.abs(B - lm.B) < .005 && Math.abs(H - lm.H) < .005;
-    refOpslaan(f, B, H, metLijnen ? lm.rh : null, metLijnen ? lm.rv : null); };
-  if ($('#rrefweg', st)) $('#rrefweg', st).onclick = () => sjWeg(f, eigen.id);
-  $('#rwijs', st).onclick = () => { V.wijs = []; V.kaart = null; tekenUI(); };
+  st.querySelectorAll('[data-rwijs]').forEach(b => b.onclick = () => { V.wijs = []; V.wijsSoort = b.dataset.rwijs; V.kaart = null; tekenUI(); });
   $('#rlos', st).onclick = () => losRegel(f);
   if ($('#ralles', st)) $('#ralles', st).onclick = () => tcZet(f, mag, true);
   return true;
