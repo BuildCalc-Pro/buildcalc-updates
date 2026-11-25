@@ -2256,6 +2256,18 @@ function losKoppel(vx, f) {
     V.ond = L; bewaar(); tekenUI(); ongedaanToast(`De losse maten zijn nu kozijn ${L}. Code kiezen: tik twee keer op het kozijn.`, terug(o)); });
 }
 
+// "Andere foto's in deze map": tik op een kozijn = snel zien welke delen erin zitten (alleen kijken).
+function anderDelenHtml(g, o, key, kort) {
+  const delen = ondKinderen(g, o.letter); if (!delen.length || V?.anderOpen !== key) return '';
+  const ka = o.aantal > 1 ? o.aantal : 1;
+  return `<div class="lgdet" style="padding:2px 8px 8px 28px;font-size:13px">${delen.map(d => { const n = (d.aantal || 1) * ka, c = d.codes?.[0]?.code;
+    return `<div style="display:flex;gap:8px;justify-content:space-between;padding:2px 0"><span><b>${esc(ondKortNaam(d) || soortDeel(d))}</b>${c ? ` <small style="color:${bestekKleur(bestekVan(d, d.codes[0]))}">${bestekVan(d, d.codes[0])} ${esc(c)}</small>` : ' <small style="color:var(--muted)">geen code</small>'}</span><span style="white-space:nowrap">${kort(g, d)} · ${n}×</span></div>`; }).join('')}</div>`;
+}
+const anderDelenTeller = (g, o, key) => { const n = ondKinderen(g, o.letter).length; return n ? ` · <span data-anderopen="${key}" style="color:var(--gold);cursor:pointer;text-decoration:underline">${V?.anderOpen === key ? '▾' : '▸'} ${n} ${n === 1 ? 'deel' : 'delen'}</span>` : ''; };
+function anderKoppel(vx) {
+  vx.querySelectorAll('[data-anderopen]:not([data-anderopen=""])').forEach(x => x.onclick = e => { e.stopPropagation(); e.preventDefault(); V.anderOpen = V.anderOpen === x.dataset.anderopen ? null : x.dataset.anderopen; tekenUI(); });
+}
+
 // ---------- full-screen foto met maatlijnen ----------
 let V = null; // { p, s, i, modus, sel, el, maat, nieuw, greep }
 function openViewer(p, s, i) {
@@ -2600,7 +2612,7 @@ function tekenUI2() {
     menu(SOORTEN.map(sn => ['plus', sn, () => zetSoort(f, o, sn)])); });
   vx.querySelectorAll('[data-wandok]').forEach(b => b.onclick = () => { const o = ondVan(f).find(x => x.letter === b.dataset.wandok); if (!o) return; o.hoogtesOk = true; bewaar(); tekenUI(); });
   vx.querySelectorAll('[data-lsel]').forEach(b => b.onclick = () => { const l = f.lijnen.find(x => x.id === b.dataset.lsel); if (!l) return; if (l.kozijn) V.ond = l.kozijn; V.sel = l.id; tekenUI(); });
-  losKoppel(vx, f);
+  losKoppel(vx, f); anderKoppel(vx);
   vx.querySelectorAll('[data-ondmaat]').forEach(x => x.onclick = e => { e.stopPropagation(); e.preventDefault(); const o = ondVan(f).find(y => y.letter === x.dataset.ondmaat); if (o) ondMatenTypen(f, o); });
   vx.querySelectorAll('[data-ond]').forEach(b => b.onclick = () => {
     if (V.ond !== b.dataset.ond) { V.ond = b.dataset.ond; tekenUI(); return; }
@@ -3446,10 +3458,10 @@ function mapLijstHtml(f, metMaten = false, vTop = null) {
       ${aan && mo ? `<div class="lgdet">${delen.filter(L => mo.groepen.includes(L)).map(mo.blok).join('') || '<small style="color:var(--muted)">Nog geen maten: tik op Lijn en trek een lijn.</small>'}${!o.in && !isWand(o) && ondBox(f, o) ? `<button class="ghost" data-deelin="${o.letter}" style="color:var(--gold);padding:6px 4px;font-size:13px">＋ Deel in ${o.letter}: vast raam, draairaam… (2 lijnen trekken)</button>` : ''}</div>` : ''}`; }).join('');
   const losHtml = false ? `<div class="lgit" style="cursor:default"><span class="lgdot" style="background:var(--muted)"></span><span class="lgnaam"><b>Losse maten</b></span></div><div class="lgdet">${mo.blok(null)}</div>` : '';
   const ander = rijen.map(({ g, gi, o }) => { const key = `${g.id}|${o.letter}`, n = (f.ookHier || []).filter(x => x.foto === g.id && x.letter === o.letter).length;
-    return `<div class="lgit">${dot(o)}<span class="lgnaam"><b>${esc(ondKortNaam(o) || o.letter)}</b> <small>${code(o)}</small><br>
-      <small>${kort(g, o)} · ${o.aantal || 1}× · <button class="ghost" data-ooknaar="${gi}" style="padding:0;font-size:inherit;color:inherit;text-decoration:underline">foto ${gi + 1}</button></small></span>
+    return `<div class="lgit">${dot(o)}<span class="lgnaam" data-anderopen="${ondKinderen(g, o.letter).length ? key : ''}" style="cursor:pointer"><b>${esc(ondKortNaam(o) || o.letter)}</b> <small>${code(o)}</small><br>
+      <small>${kort(g, o)} · ${o.aantal || 1}× · <button class="ghost" data-ooknaar="${gi}" style="padding:0;font-size:inherit;color:inherit;text-decoration:underline">foto ${gi + 1}</button>${anderDelenTeller(g, o, key)}</small></span>
       ${n ? `<button class="lgrond min" data-ookmin="${key}" aria-label="Eén minder">−</button><b style="min-width:2.6em;text-align:center;font-size:12px">hier ${n}×</b>` : ''}
-      <button class="lgrond" data-ookplus="${key}" aria-label="Ook hier">+</button></div>`; }).join('\u0001');
+      <button class="lgrond" data-ookplus="${key}" aria-label="Ook hier">+</button></div>${anderDelenHtml(g, o, key, kort)}`; }).join('\u0001');
   const hierBlok = `<div class="lgkop${V.los ? ' nu' : ''}"><span>${V.los ? `FOTO ${V.i + 1} · OP JE ANDERE SCHERM` : 'OP DEZE FOTO'}</span><button class="ghost" id="vplusond" title="Nieuw onderdeel of wand">＋ Onderdeel</button></div>
     <div class="lggrp${V.los ? ' nu' : ''}">${hier + losHtml || '<div class="lgit" style="cursor:default"><small style="color:var(--muted)">Nog geen onderdelen. Tik op ＋ Onderdeel.</small></div>'}</div>`;
   if (V.los) {
@@ -4341,7 +4353,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.25-22';
+const APP_VERSIE = '2026.11.25-23';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
