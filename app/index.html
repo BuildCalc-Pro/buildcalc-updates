@@ -2280,6 +2280,19 @@ function ondLegeWeg(f) {
   f.legeOnd = [...(f.legeOnd || []), ...weg.map(o => ({ ...o }))]; f.onderdelen = ond.filter(o => !weg.includes(o)); bewaar();
 }
 
+// Fotoscherm (andere scherm): eigen vergrootglas naast de muis, net als in de app.
+function fsLoep(d, img, ev, aan) {
+  const c = d.getElementById('loep'); if (!c) return;
+  if (!aan || !img.naturalWidth) { c.style.display = 'none'; return; }
+  const b = img.getBoundingClientRect(), S = c.width, Z = 5, k = img.naturalWidth / b.width;
+  const nx = (ev.clientX - b.left) * k, ny = (ev.clientY - b.top) * k, half = S / 2 / Z * k, x = c.getContext('2d');
+  x.fillStyle = '#111'; x.fillRect(0, 0, S, S);
+  try { x.drawImage(img, nx - half, ny - half, half * 2, half * 2, 0, 0, S, S); } catch (e) {}
+  x.strokeStyle = '#FF8A50'; x.lineWidth = 1.5; x.beginPath(); x.moveTo(S / 2, S / 2 - 18); x.lineTo(S / 2, S / 2 + 18); x.moveTo(S / 2 - 18, S / 2); x.lineTo(S / 2 + 18, S / 2); x.stroke();
+  const vw = d.defaultView.innerWidth, lx = ev.clientX + 30 + S > vw ? ev.clientX - 30 - S : ev.clientX + 30, ly = ev.clientY - 30 - S < 0 ? ev.clientY + 30 : ev.clientY - 30 - S;
+  Object.assign(c.style, { left: lx + 'px', top: ly + 'px', display: 'block' });
+}
+
 // ---------- full-screen foto met maatlijnen ----------
 let V = null; // { p, s, i, modus, sel, el, maat, nieuw, greep }
 function openViewer(p, s, i) {
@@ -4365,7 +4378,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.25-24';
+const APP_VERSIE = '2026.11.25-25';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
@@ -7255,7 +7268,7 @@ function fotoScherm(p, fotos, i) {
         <span class="tip">Pijltjes: vorige / volgende · klik een lijn aan voor de maat</span>
         <button id="lijnknop" hidden>✏️ Lijn trekken</button><button id="vorige">◀ Vorige</button><button id="volgende">Volgende ▶</button></div>
       <div class="maten" id="maten"></div>
-      <div class="vlak"><div class="doos"><div class="houder"><img id="img" alt=""><svg id="svg"></svg></div></div></div>
+      <div class="vlak"><div class="doos"><div class="houder"><img id="img" alt=""><svg id="svg"></svg></div></div></div><canvas id="loep" width="260" height="260" style="position:fixed;display:none;pointer-events:none;border:3px solid #D4AF37;border-radius:50%;box-shadow:0 4px 18px #000a;z-index:9;background:#111"></canvas>
     </body></html>`);
     w.document.close();
   }
@@ -7285,7 +7298,7 @@ async function toonFotoScherm() {
     const hier = FS.opGa && V?.los && V.w && foto() === f;
     svg.innerHTML = telLijnen(f).map(l => svgPijl(l.x1 * W, l.y1 * H, l.x2 * W, l.y2 * H, lijnLabel(l), hier && l.id === V.sel ? '#FF8A50' : l.maat == null ? '#FFA726' : '#FFFFFF')).join('')
       + (hier && V.nieuw ? svgPijl(V.nieuw[0] / V.w * W, V.nieuw[1] / V.h * H, V.nieuw[2] / V.w * W, V.nieuw[3] / V.h * H, '', '#FF8A50') : '')
-      + ballonnenSvg(f, W, H) + labelsSvg(f, W, H);
+      + ballonnenSvg(f, W, H) + labelsSvg(f, W, H) + (typeof gmSvg === 'function' ? gmSvg(r.s, f, W, H) : '');
   };
   img.onload = teken; w.onresize = teken; FS.teken = teken;
   // Vanuit het fotoscherm: op de grote foto lijnen trekken, aanklikken en verslepen. De app doet het werk, dit venster stuurt de muis door.
@@ -7297,8 +7310,10 @@ async function toonFotoScherm() {
   let neer = false;
   img.ondragstart = ev => ev.preventDefault();
   img.onpointerdown = ev => { if (!FS.opGa || !V?.los || foto() !== r.f) return; ev.preventDefault(); neer = true; try { img.setPointerCapture(ev.pointerId); } catch (x) {} losDoor('pointerdown', ...nrm(ev)); };
-  img.onpointermove = ev => { if (neer) losDoor('pointermove', ...nrm(ev)); };
-  img.onpointerup = ev => { if (!neer) return; neer = false; losDoor('pointerup', ...nrm(ev)); };
+  const fsLijn = () => !!FS.opGa && V?.los && foto() === r.f && V.modus === 'lijn';
+  img.onpointermove = ev => { fsLoep(d, img, ev, (neer && !!FS.opGa && V?.los) || fsLijn()); if (neer || fsLijn()) losDoor('pointermove', ...nrm(ev)); };
+  img.onpointerleave = ev => { if (!neer) fsLoep(d, img, ev, false); };
+  img.onpointerup = ev => { if (!neer) return; neer = false; losDoor('pointerup', ...nrm(ev)); fsLoep(d, img, ev, fsLijn()); };
   svg.innerHTML = '';
   const u = await fotoUrl(r.f.id);
   if (FS.id !== r.f.id) return;
