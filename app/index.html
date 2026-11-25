@@ -1051,10 +1051,10 @@ function renderSimpelProject(m, p) {
       <button class="srij" id="nieuwS"><span class="t" style="color:var(--a2);font-weight:600">＋ Map toevoegen</span></button></div>`;
   const losKnop = groepen.length && !los.length ? `<button class="ghost" id="nieuwS" style="width:100%;margin-top:8px;color:var(--a2)">＋ Losse map (niet bij een straat)</button>` : '';
   const locatie = `${inmMapKeuzeHtml(p)}${losBlok}
-    ${groepen.length ? `<div class="label" style="margin-top:${losBlok ? 16 : 0}px">STRATEN</div>` : ''}${groepen.map(g => straatKaart(g, rijLoc, true)).join('')}${nieuweStraat}${losKnop}${adresRijHtml(p, true)}
+    ${groepen.length ? `<div class="label" style="margin-top:${losBlok ? 16 : 0}px">STRATEN</div>` : ''}${groepen.map(g => straatKaart(g, rijLoc, true)).join('')}${nieuweStraat}${losKnop}${gmSteenProjectHtml(p)}${adresRijHtml(p, true)}
     <button class="primary" id="klaarLoc" style="margin-top:16px">✓ Klaar op locatie</button>`;
   const kantoor = `<div class="label">MAPPEN${open ? ` · NOG ${open} UITWERKEN` : ' · ALLES UITGEWERKT ✓'}</div>${los.length || !groepen.length ? `<div class="card">${los.map(rijKan).join('')}</div>` : ''}
-    ${groepen.map(g => straatKaart(g, rijKan, false)).join('')}${adresRijHtml(p)}
+    ${groepen.map(g => straatKaart(g, rijKan, false)).join('')}${gmSteenProjectHtml(p)}${adresRijHtml(p)}
     ${nmAlle.length ? `<div class="label">CONTROLE</div>${nietMeeHtml(nmAlle, x => `data-foto-open="${x.s.id}:${x.fi}"`)}` : ''}
     <div class="label">KLAAR VOOR</div><div class="card">
       <button class="srij" id="sRapport"><span class="sico">${ic('pdf')}</span><span class="t"><b>Rapport</b><small>Met foto's en maten per map</small></span></button>
@@ -1068,6 +1068,7 @@ function renderSimpelProject(m, p) {
   m.querySelectorAll('img[data-foto]').forEach(async img => { const u = await fotoMini(img.dataset.foto); if (u) img.src = u; });
   $('#terug').onclick = () => { stapel = []; render(); };
   $('#pmenu').onclick = () => projectMenu(p);
+  gmSteenProjectKoppel(m, p);
   m.querySelectorAll('[data-modus]').forEach(b => b.onclick = () => { p.modus = b.dataset.modus; bewaar(); render(); });
   inmMapKeuzeKoppel(m, p);
   m.querySelectorAll('[data-sub]').forEach(b => b.onclick = () => { stapel = [p.id, b.dataset.sub]; render(); });
@@ -1584,7 +1585,24 @@ const gmFoutTekst = () => '';
 // Stenen tellen (optioneel, per sjabloon): hoogte = aantal lagen × laagmaat, breedte = aantal stenen × steenmaat (per gevelmap).
 // Telt maar één richting? Dan de andere richting met dezelfde schaal (verhouding van de referentie, anders van het kader zelf).
 // Eigen steenmaat per gevelmap (zelf opgemeten op de locatie). Niet ingevuld = niet met stenen rekenen.
-const gmSteen = s => { const st = s?.gm?.steen; return st?.zelf ? { h: st.h > 0 ? st.h : null, l: st.l > 0 ? st.l : null } : { h: null, l: null }; };
+// Steenmaat: één keer per project (p.steen). Een gevelmap mag een eigen, afwijkende steenmaat hebben (s.gm.steen met zelf).
+const gmProj = s => s && (typeof projecten !== 'undefined' ? projecten : []).find(p => p.submappen?.includes(s)) || null;
+const gmEigenSteen = s => !!s?.gm?.steen?.zelf;
+// Oude projecten: de steenmaat stond per gevelmap. De eerste ingevulde wordt de projectmaat; gelijke gevelmappen volgen het project.
+function gmSteenMigreer(p) {
+  if (!p || p.steen || !p.submappen) return;
+  const eerst = p.submappen.find(x => x.gm?.steen?.zelf && (x.gm.steen.h > 0 || x.gm.steen.l > 0)); if (!eerst) return;
+  const { h, l } = eerst.gm.steen; p.steen = { ...(h > 0 ? { h } : {}), ...(l > 0 ? { l } : {}) };
+  for (const x of p.submappen) if (x.gm?.steen && (x.gm.steen.h || null) === (h || null) && (x.gm.steen.l || null) === (l || null)) delete x.gm.steen;
+}
+const gmSteen = s => { const st = s?.gm?.steen, p = gmProj(s); gmSteenMigreer(p);
+  const b = st?.zelf ? st : p?.steen || {}; return { h: b.h > 0 ? b.h : null, l: b.l > 0 ? b.l : null }; };
+// Zet laag (h) of steen (l): in de eigen maat van de gevelmap als die er is, anders voor het hele project.
+function gmSteenZet(s, k, v) {
+  const p = gmProj(s), doel = gmEigenSteen(s) || !p ? (gmVan(s).steen ??= { zelf: true }) : (p.steen ??= {});
+  if (v) doel[k] = v; else delete doel[k]; gmSteenHerreken(p, s);
+}
+function gmSteenHerreken(p, s) { for (const x of p?.submappen || [s]) if (x?.gm?.sj) for (const sj of x.gm.sj) gmHerreken(x, sj); }
 function gmSteenMaat(s, sj, m) {
   const st = gmSteen(s), H = sj.lagen > 0 && st.h ? sj.lagen * st.h : null, B = sj.stenen > 0 && st.l ? sj.stenen * st.l : null;
   if (!H && !B) return null;
@@ -1864,8 +1882,8 @@ function gmPaneel() {
     const steenBlok = !sj ? '' : !steenOpen ? `<div class="gmrij"><button class="ghost" id="gmsteenopen" style="color:var(--gold);font-size:13px;padding:0">+ Stenen tellen (optioneel, vaak nauwkeuriger)</button></div>` :
       `<div class="gmsteen"><div class="gmrij"><label>Lagen</label>${gmInp('gmlagen', '3.6em', sj.lagen > 0 ? gmNl(sj.lagen) : '', 'hoog')}<label>Stenen</label>${gmInp('gmstenen', '3.6em', sj.stenen > 0 ? gmNl(sj.stenen) : '', 'breed')}
         <small style="color:var(--muted)">laag ${gmInp('gmlh', '3.4em', st.h ? gmNl(st.h) : '', 'cm')} steen+voeg ${gmInp('gmsl', '3.4em', st.l ? gmNl(st.l) : '', 'cm')} cm</small></div>
-        <div class="gmklein">Laag (steen + lintvoeg) en steen (lengte + stootvoeg) meet je zelf op deze locatie; ze gelden voor heel ${esc(s.naam)}.</div>
-        <div class="gmklein">Tel de lagen naast het kozijn van onderkant tot bovenkant (hoogte) en de stenen erboven of eronder van links naar rechts (breedte). Halve mag: 23,5. Eén van de twee is genoeg. Laag- en steenmaat gelden voor heel ${esc(s.naam)}.</div></div>`;
+        <div class="gmklein">Laag (steen + lintvoeg) en steen (lengte + stootvoeg) meet je zelf op. ${gmEigenSteen(s) ? `Eigen steenmaat voor ${esc(s.naam)}.` : 'Geldt voor het hele project.'}</div>
+        <div class="gmklein">Tel de lagen naast het kozijn van onderkant tot bovenkant (hoogte) en de stenen erboven of eronder van links naar rechts (breedte). Halve mag: 23,5. Eén van de twee is genoeg.</div></div>`;
     const zelfde = rij && rij.b === String(sj.B) && rij.h === String(sj.H) && rij.oms === (sj.naam || 'Sjabloon');
     const chips = `<div class="gmchips">${lijst.map(x => `<button class="ondchip${x.id === GM.sel ? ' on' : ''}" data-gmsj="${x.id}">${esc(x.naam || 'Sjabloon')} <b>${x.B ?? '?'}×${x.H ?? '?'}</b>${gmTcRij(s, x) ? ' ✓' : ''}</button>`).join('')}<button class="ondchip plus" id="gmnieuw">+ Sjabloon</button></div>`;
     // Bovenaan, altijd in beeld: breedte × hoogte (berekend, direct zelf aan te passen) en de knop naar Topcalc.
@@ -1956,8 +1974,7 @@ function gmPaneel() {
     const v = gmGetal(e.target.value); if (v) sj[k] = v; else delete sj[k];
     gmHerreken(s, sj); bewaar(); setTimeout(() => GM && gmTeken(), 250); }; } }
   for (const [id, k] of [['gmlh', 'h'], ['gmsl', 'l']]) { const i = $('#' + id, pn); if (i) { i.inputMode = 'decimal'; i.onchange = e => {
-    const v = gmGetal(e.target.value), g = gmVan(s); g.steen = { ...gmSteen(s), zelf: true }; if (v) g.steen[k] = v; else delete g.steen[k];
-    for (const x of g.sj) gmHerreken(s, x); bewaar(); setTimeout(() => GM && gmTeken(), 250); }; } }
+    gmSteenZet(s, k, gmGetal(e.target.value)); bewaar(); setTimeout(() => GM && gmTeken(), 250); }; } }
   knop('gmterug', () => { delete sj.handB; delete sj.handH; gmHerreken(s, sj); bewaar(); gmTeken(); });
   knop('gmtc', () => {
     const b = gmCm($('#gmb', pn).value), hh = gmCm($('#gmh', pn).value);
@@ -2032,18 +2049,34 @@ function gmLijnenVullen(f) {
 // ---------- Stenen automatisch tellen langs een lijn ----------
 // Eigen steenmaat invullen (per gevelmap): laag = steenhoogte + lintvoeg, steen = steenlengte + stootvoeg, in cm.
 const gmSteenTekst = s => { const st = gmSteen(s); return st.h || st.l ? `laag ${st.h ? gmNl(st.h) : '?'} cm, steen ${st.l ? gmNl(st.l) : '?'} cm` : 'nog niet ingevuld'; };
-function gmSteenInvullen(s, klaar) {
-  const st = gmSteen(s);
-  const d = dialoog(`<h2>Steenmaat ${esc(s.naam)}</h2><div style="color:var(--muted);font-size:13px">Zelf opgemeten op deze locatie. Laag = steenhoogte + lintvoeg. Steen = steenlengte + stootvoeg. In cm, bijv. 6,25 en 22.</div>
-    <div class="gmrij" style="margin-top:10px"><label>Laag</label><input id="gfh" inputmode="decimal" value="${st.h ? gmNl(st.h) : ''}" placeholder="cm" style="width:5em"><label>Steen</label><input id="gfl" inputmode="decimal" value="${st.l ? gmNl(st.l) : ''}" placeholder="cm" style="width:5em"><span>cm</span></div>
+function gmSteenInvullen(s, klaar, alleenProject) {
+  const p = gmProj(s), eigen = !alleenProject && (gmEigenSteen(s) || !p), st = eigen ? gmSteen(s) : { h: p.steen?.h || null, l: p.steen?.l || null };
+  const d = dialoog(`<h2>Steenmaat${p ? ' project' : ' ' + esc(s.naam)}</h2><div style="color:var(--muted);font-size:13px">Zelf opgemeten op deze locatie. Laag = steenhoogte + lintvoeg. Steen = steenlengte + stootvoeg. In cm, bijv. 6,25 en 22.</div>
+    <div class="gmrij" style="margin-top:10px"><label>Laag</label><input id="gfh" inputmode="decimal" value="${st.h ? gmNl(st.h) : ''}" placeholder="cm" style="width:5em"><label>Steen</label><input id="gfl" inputmode="decimal" value="${st.l ? gmNl(st.l) : ''}" placeholder="cm" style="width:5em"></div>
+    ${p && !alleenProject ? `<label style="display:flex;gap:8px;align-items:center;margin-top:12px;font-size:14px"><input type="checkbox" id="gfeigen"${gmEigenSteen(s) ? ' checked' : ''}> Alleen voor ${esc(s.naam)} (andere steen dan de rest van het project)</label>` : ''}
     <div class="actions"><button id="nee">Annuleren</button><button id="ja" class="primary">Opslaan</button></div>`);
+  const ei = $('#gfeigen', d);
+  if (ei) ei.onchange = () => { const b = ei.checked ? gmSteen(s) : { h: p.steen?.h, l: p.steen?.l }; $('#gfh', d).value = b.h ? gmNl(b.h) : ''; $('#gfl', d).value = b.l ? gmNl(b.l) : ''; };
   $('#nee', d).onclick = () => sluit(d);
   $('#ja', d).onclick = () => { const h = gmGetal($('#gfh', d).value), l = gmGetal($('#gfl', d).value);
     if (!h && !l) return toast('Vul de laag en/of de steen in (cm).'); sluit(d);
-    const g = gmVan(s); g.steen = { zelf: true, ...(h ? { h } : {}), ...(l ? { l } : {}) }; for (const x of g.sj) gmHerreken(s, x); bewaar(); klaar?.(); };
+    const nieuw = { ...(h ? { h } : {}), ...(l ? { l } : {}) };
+    if (!p || ei?.checked) gmVan(s).steen = { zelf: true, ...nieuw }; else { p.steen = nieuw; if (s.gm && !alleenProject) delete s.gm.steen; }
+    gmSteenHerreken(p, s); bewaar(); klaar?.(); };
 }
 // Regel onder een lijn: welke steenmaat geldt, met knop om hem in te vullen.
-const gmSteenRij = s => `<div style="font-size:12px;padding:2px 4px">Steenmaat ${esc(s.naam)}: <button class="ghost" id="gmsteenl" style="color:var(--gold);padding:0;font-size:12px;text-decoration:underline">${esc(gmSteenTekst(s))}</button>${gmSteen(s).h ? '' : ' <span style="color:var(--muted)">(vul in, dan rekent de app de maat uit de stenen)</span>'}</div>`;
+const gmSteenRij = s => `<div style="font-size:12px;padding:2px 4px">Steenmaat ${gmEigenSteen(s) || !gmProj(s) ? esc(s.naam) : 'project'}: <button class="ghost" id="gmsteenl" style="color:var(--gold);padding:0;font-size:12px;text-decoration:underline">${esc(gmSteenTekst(s))}</button>${gmSteen(s).h ? '' : ' <span style="color:var(--muted)">(vul in, dan rekent de app de maat uit de stenen)</span>'}</div>`;
+// Op het projectscherm: één regel met de steenmaat van het project, plus gevelmappen met een eigen maat.
+function gmSteenProjectHtml(p) {
+  gmSteenMigreer(p); const st = p.steen || {}, nl = v => v > 0 ? gmNl(v) : '?';
+  const eigen = (p.submappen || []).filter(x => x.gm?.steen?.zelf && (x.gm.steen.h > 0 || x.gm.steen.l > 0));
+  return `<div class="label" style="margin-top:16px">STEENMAAT</div><div class="card"><button class="srij" id="pSteen"><span class="sico">${ic('ruler')}</span><span class="t"><b>${st.h || st.l ? `Laag ${nl(st.h)} cm · steen ${nl(st.l)} cm` : 'Nog niet ingevuld'}</b><small>Voor alle gevels van dit project. Laag = steen + lintvoeg, steen = lengte + stootvoeg.</small></span></button>
+    ${eigen.map(x => `<button class="srij" data-psteen="${x.id}"><span class="t"><b>${esc(x.naam)}: eigen maat</b><small>laag ${nl(x.gm.steen.h)} cm · steen ${nl(x.gm.steen.l)} cm</small></span></button>`).join('')}</div>`;
+}
+function gmSteenProjectKoppel(m, p) {
+  const knop = m.querySelector('#pSteen'); if (knop) knop.onclick = () => { const s = p.submappen.find(x => !gmEigenSteen(x)) || p.submappen[0]; if (s) gmSteenInvullen(s, () => render(), true); };
+  m.querySelectorAll('[data-psteen]').forEach(b => b.onclick = () => { const s = p.submappen.find(x => x.id === b.dataset.psteen); if (s) gmSteenInvullen(s, () => render()); });
+}
 // Roodheid per pixel (steen hoog, voeg laag) van de foto in de viewer, op max. 1600 px.
 let GM_BEELD = null;
 function gmBeeld(f) {
@@ -4240,7 +4273,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.25-15';
+const APP_VERSIE = '2026.11.25-16';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
