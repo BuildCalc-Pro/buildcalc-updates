@@ -429,6 +429,9 @@ table.form td[data-ncode] { cursor: pointer; text-decoration: underline dotted v
 .gmrij label { font-size: 14px; color: var(--muted); }
 .gmknop { padding: 10px 14px; border-radius: 10px; border: 1px solid var(--gold-dark); background: var(--surface-high); color: var(--text); font: inherit; font-weight: 600; }
 .gmknop.hoofd { background: var(--gold); border-color: var(--gold); color: #000; flex: 1; }
+.gmmaat { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 4px; padding: 8px; border-radius: 10px; background: color-mix(in srgb, var(--gold) 12%, transparent); border: 1px solid var(--gold-dark); }
+.gmmaat label { font-size: 14px; color: var(--muted); } .gmmaat input { font-size: 20px !important; }
+.gmmaat .gmknop.hoofd { flex: 1 1 10em; }
 .gmchips { display: flex; gap: 6px; overflow-x: auto; margin-bottom: 8px; padding-bottom: 2px; }
 .gmfijn span { font-size: 13px; color: var(--muted); } .gmfijn small { font-size: 12px; color: var(--muted); }
 .gmfijn button:disabled { opacity: .35; }
@@ -1823,16 +1826,17 @@ function gmPaneel() {
   } else {
     const lijst = gmSjOp(s, f.id), sj = gmSjNu(), rij = sj && gmTcRij(s, sj);
     const zelfde = rij && rij.b === String(sj.B) && rij.h === String(sj.H) && rij.oms === (sj.naam || 'Sjabloon');
-    h = `<div class="gmchips">${lijst.map(x => `<button class="ondchip${x.id === GM.sel ? ' on' : ''}" data-gmsj="${x.id}">${esc(x.naam || 'Sjabloon')} <b>${x.B ?? '?'}×${x.H ?? '?'}</b>${gmTcRij(s, x) ? ' ✓' : ''}</button>`).join('')}<button class="ondchip plus" id="gmnieuw">+ Sjabloon</button></div>
-      ${!rf && !kp ? `<div class="gmuitleg">De referentie van ${esc(s.naam)} (${esc(r.naam || 'kozijn')}, ${r.B} × ${r.H} cm) staat op foto ${elders.join(', ') || '?'}. Leg het sjabloon hier op het kozijn en tik <b>Zelfde kozijn op foto ${elders[0] || '?'} aanwijzen</b>. Dat is één keer per foto nodig; daarna rekent elk sjabloon op deze foto direct.</div>` : ''}
-      ${kp ? `<div class="gmklein">Gekoppeld aan foto ${kpNr} (referentie ${r.B} × ${r.H} cm). <button class="ghost" id="gmkopnieuw" style="color:var(--gold);padding:0;font-size:13px">opnieuw koppelen</button></div>` : ''}
-      ${sj ? `<div class="gmuitleg">Sleep de 4 hoeken op de 4 hoeken van het kozijn of de deur. Binnen het vak slepen verschuift het hele sjabloon.</div>
-      <div class="gmrij"><input id="gmnaam" placeholder="Naam, bijv. Raam boven links" value="${esc(sj.naam || '')}" autocomplete="off" style="flex:1;min-width:0;padding:8px;font:inherit;color:var(--text);background:var(--surface-high);border:1px solid var(--surface-high);border-radius:8px"></div>
-      <div class="gmrij"><label>Breedte</label>${gmInp('gmb', '5.5em', sj.B)}<span>×</span><label>Hoogte</label>${gmInp('gmh', '5.5em', sj.H)}<span>cm</span></div>
-      ${!rf && !kp ? `<div class="gmrij"><button class="gmknop hoofd" id="gmkoppel">Zelfde kozijn op foto ${elders[0] || '?'} aanwijzen</button></div>` : ''}
-      <div class="gmklein">${!rf && !kp ? 'Nog geen berekende maat: koppel eerst, of typ breedte en hoogte zelf in.' : sj.calc ? `Berekend uit de referentie (${r.B} × ${r.H} cm): <b>${sj.calc.B} × ${sj.calc.H} cm</b> ${gmFoutTekst(sj.calc)}${sj.handB || sj.handH ? ' · <button class="ghost" id="gmterug" style="color:var(--gold);padding:0;font-size:13px">terug naar berekend</button>' : ''}` : 'Kan niet rekenen: kijk of de hoeken goed staan.'}</div>
-      <div class="gmrij"><button class="gmknop hoofd" id="gmtc">${!rij ? '+ Naar Topcalc' : zelfde ? '✓ In Topcalc' : '↻ Topcalc bijwerken'}</button><button class="gmknop" id="gmweg" style="color:var(--danger)">Verwijderen</button></div>`
-      : `${!rf && !kp ? '<div class="gmrij"><button class="ghost" id="gmnaarref" style="color:var(--muted);font-size:13px">Of: referentiekader op deze foto zetten</button></div>' : ''}<div class="gmuitleg">Tik op <b>+ Sjabloon</b> en sleep de 4 hoeken op een raam, deur of kozijn in hetzelfde gevelvlak als de referentie.</div>`}`;
+    const chips = `<div class="gmchips">${lijst.map(x => `<button class="ondchip${x.id === GM.sel ? ' on' : ''}" data-gmsj="${x.id}">${esc(x.naam || 'Sjabloon')} <b>${x.B ?? '?'}×${x.H ?? '?'}</b>${gmTcRij(s, x) ? ' ✓' : ''}</button>`).join('')}<button class="ondchip plus" id="gmnieuw">+ Sjabloon</button></div>`;
+    // Bovenaan, altijd in beeld: breedte × hoogte (berekend, direct zelf aan te passen) en de knop naar Topcalc.
+    h = sj ? `<div class="gmmaat"><label>Breedte</label>${gmInp('gmb', '4.6em', sj.B, 'cm')}<span>×</span><label>Hoogte</label>${gmInp('gmh', '4.6em', sj.H, 'cm')}<span>cm</span>
+        <button class="gmknop hoofd" id="gmtc">${!rij ? '+ Naar Topcalc' : zelfde ? '✓ In Topcalc' : '↻ Topcalc bijwerken'}</button></div>
+      <div class="gmklein">${!rf && !kp ? `Nog geen berekende maat: tik <b>Zelfde kozijn op foto ${elders[0] || '?'} aanwijzen</b>, of typ breedte en hoogte zelf in.` : sj.calc ? `Berekend uit de referentie ${esc(r.naam || '')} ${r.B} × ${r.H} cm: <b>${sj.calc.B} breed × ${sj.calc.H} hoog</b>${sj.handB || sj.handH ? ' · <button class="ghost" id="gmterug" style="color:var(--gold);padding:0;font-size:13px">terug naar berekend</button>' : ''}` : 'Kan niet rekenen: kijk of de hoeken goed staan.'}</div>
+      ${chips}
+      <div class="gmrij"><input id="gmnaam" placeholder="Naam, bijv. Raam boven links" value="${esc(sj.naam || '')}" autocomplete="off" style="flex:1;min-width:0;padding:8px;font:inherit;color:var(--text);background:var(--surface-high);border:1px solid var(--surface-high);border-radius:8px"><button class="gmknop" id="gmweg" style="color:var(--danger)">Verwijderen</button></div>
+      ${!rf && !kp ? `<div class="gmrij"><button class="gmknop" id="gmkoppel" style="flex:1">Zelfde kozijn op foto ${elders[0] || '?'} aanwijzen</button></div>` : ''}
+      ${kp ? `<div class="gmklein">Gekoppeld aan foto ${kpNr}. <button class="ghost" id="gmkopnieuw" style="color:var(--gold);padding:0;font-size:13px">opnieuw koppelen</button></div>` : ''}
+      <div class="gmklein">Sleep de 4 hoeken op de hoeken van het kozijn; binnen het vak slepen verschuift het hele sjabloon.</div>`
+      : `${chips}${!rf && !kp ? `<div class="gmuitleg">De referentie van ${esc(s.naam)} (${r.B} × ${r.H} cm) staat op foto ${elders.join(', ') || '?'}. Leg een sjabloon op het kozijn; daarna koppel je deze foto één keer.</div><div class="gmrij"><button class="ghost" id="gmnaarref" style="color:var(--muted);font-size:13px">Of: referentiekader op deze foto zetten</button></div>` : ''}<div class="gmuitleg">Tik op <b>+ Sjabloon</b> en sleep de 4 hoeken op een raam, deur of kozijn.</div>`;
   }
   pn.innerHTML = h;
   if (actief && $('#' + actief, pn)) { const i = $('#' + actief, pn); if (waarde != null) i.value = waarde; i.focus(); }
@@ -3985,7 +3989,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.25-5';
+const APP_VERSIE = '2026.11.25-6';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
