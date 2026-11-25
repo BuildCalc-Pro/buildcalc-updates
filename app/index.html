@@ -1765,6 +1765,7 @@ function gmVakken() {
 }
 function gmTeken() {
   if (!GM?.w) return;
+  if (V?.los && !GM.sleept) setTimeout(() => FS.teken?.(), 0);
   const W = GM.w, H = GM.h, zs = GM.z.s, svg = $('#gmsvg', GM.el);
   svg.setAttribute('viewBox', `0 0 ${W} ${H}`); svg.setAttribute('width', W); svg.setAttribute('height', H);
   const rh = 9 / zs, hit = 26 / zs, lw = 2.2 / zs, fs = 14 / zs;
@@ -2292,6 +2293,34 @@ function fsLoep(d, img, ev, aan) {
   const vw = d.defaultView.innerWidth, lx = ev.clientX + 30 + S > vw ? ev.clientX - 30 - S : ev.clientX + 30, ly = ev.clientY - 30 - S < 0 ? ev.clientY + 30 : ev.clientY - 30 - S;
   Object.assign(c.style, { left: lx + 'px', top: ly + 'px', display: 'block' });
 }
+
+// Fotoscherm (andere scherm) met Referentie/Sjabloon open: daar ook de hoeken en het vak verslepen, met vergrootglas.
+const fsGmAan = f => !!(GM?.w && GM.f === f && V?.los);
+function fsGmSvg(s, f, W, H) {
+  if (!fsGmAan(f)) return typeof gmSvg === 'function' ? gmSvg(s, f, W, H) : '';
+  return gmVakken().sort((a, b) => a.actief - b.actief).map(v => { const xy = v.p.map(([x, y]) => [x * W, y * H]);
+    const lx = Math.min(...xy.map(a => a[0])), ly = Math.min(...xy.map(a => a[1]));
+    return `<polygon points="${xy.map(a => a.join(',')).join(' ')}" fill="${v.actief ? 'rgba(212,175,55,.12)' : 'none'}" stroke="${v.kl}" stroke-width="${v.actief ? 2.4 : 1.6}"${v.actief ? '' : ' stroke-dasharray="6 4"'}/>
+      <text x="${lx + 4}" y="${ly - 6}" fill="${v.kl}" stroke="#000" stroke-width="3" paint-order="stroke" font-size="14" font-weight="700">${esc(v.tekst)}</text>
+      ${v.actief ? xy.map(([x, y]) => `<circle cx="${x}" cy="${y}" r="7" fill="rgba(0,0,0,.3)" stroke="${v.kl}" stroke-width="2"/>`).join('') : ''}`; }).join('');
+}
+function fsGmDown(f, nx, ny, img) {
+  if (!fsGmAan(f)) return null;
+  const b = img.getBoundingClientRect(), vakken = gmVakken().filter(v => v.actief);
+  for (const v of vakken) for (let i = 0; i < 4; i++) { const [x, y] = v.p[i];
+    if (Math.hypot((x - nx) * b.width, (y - ny) * b.height) < 16) { GM.hk = { id: v.id, i }; return { soort: 'hoek', v, i, start: [nx, ny], van: [...v.p[i]] }; } }
+  const binnen = (p, x, y) => { let c = false; for (let i = 0, j = 3; i < 4; j = i++) { const [xi, yi] = p[i], [xj, yj] = p[j]; if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) c = !c; } return c; };
+  const v = vakken.find(v => binnen(v.p, nx, ny)); if (v) return { soort: 'vak', v, start: [nx, ny], van: v.p.map(a => [...a]) };
+  if (GM.modus === 'sj') { const ander = gmVakken().find(x => !x.actief && x.id !== 'ref' && x.id !== 'kvan' && binnen(x.p, nx, ny)); if (ander) { GM.sel = ander.id; gmTeken(); FS.teken?.(); return { soort: 'niets' }; } }
+  return { soort: 'niets' };
+}
+function fsGmMove(g, nx, ny) {
+  if (!GM || g.soort === 'niets') return; const dx = nx - g.start[0], dy = ny - g.start[1];
+  if (g.soort === 'hoek') { g.v.p[g.i][0] = gmKlem(g.van[0] + dx); g.v.p[g.i][1] = gmKlem(g.van[1] + dy); }
+  else g.v.p.forEach((a, i) => { a[0] = gmKlem(g.van[i][0] + dx); a[1] = gmKlem(g.van[i][1] + dy); });
+  g.bewogen = true; GM.sleept = true; gmNaSlepen(false); FS.teken?.();
+}
+function fsGmUp(g) { if (!GM) return; GM.sleept = false; if (g.bewogen) gmNaSlepen(true); FS.teken?.(); }
 
 // ---------- full-screen foto met maatlijnen ----------
 let V = null; // { p, s, i, modus, sel, el, maat, nieuw, greep }
@@ -4378,7 +4407,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.25-25';
+const APP_VERSIE = '2026.11.25-26';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
@@ -7298,7 +7327,7 @@ async function toonFotoScherm() {
     const hier = FS.opGa && V?.los && V.w && foto() === f;
     svg.innerHTML = telLijnen(f).map(l => svgPijl(l.x1 * W, l.y1 * H, l.x2 * W, l.y2 * H, lijnLabel(l), hier && l.id === V.sel ? '#FF8A50' : l.maat == null ? '#FFA726' : '#FFFFFF')).join('')
       + (hier && V.nieuw ? svgPijl(V.nieuw[0] / V.w * W, V.nieuw[1] / V.h * H, V.nieuw[2] / V.w * W, V.nieuw[3] / V.h * H, '', '#FF8A50') : '')
-      + ballonnenSvg(f, W, H) + labelsSvg(f, W, H) + (typeof gmSvg === 'function' ? gmSvg(r.s, f, W, H) : '');
+      + ballonnenSvg(f, W, H) + labelsSvg(f, W, H) + fsGmSvg(r.s, f, W, H);
   };
   img.onload = teken; w.onresize = teken; FS.teken = teken;
   // Vanuit het fotoscherm: op de grote foto lijnen trekken, aanklikken en verslepen. De app doet het werk, dit venster stuurt de muis door.
@@ -7307,13 +7336,13 @@ async function toonFotoScherm() {
   lk.textContent = vanViewer && V.modus === 'lijn' ? '✏️ Trek nu een lijn op de foto' : '✏️ Lijn trekken';
   lk.onclick = () => { if (!V?.los) return; V.modus = V.modus === 'lijn' ? 'bekijken' : 'lijn'; V.sel = null; tekenUI(); };
   const nrm = ev => { const b = img.getBoundingClientRect(); return [(ev.clientX - b.left) / b.width, (ev.clientY - b.top) / b.height]; };
-  let neer = false;
+  let neer = false, gmG = null;
   img.ondragstart = ev => ev.preventDefault();
-  img.onpointerdown = ev => { if (!FS.opGa || !V?.los || foto() !== r.f) return; ev.preventDefault(); neer = true; try { img.setPointerCapture(ev.pointerId); } catch (x) {} losDoor('pointerdown', ...nrm(ev)); };
-  const fsLijn = () => !!FS.opGa && V?.los && foto() === r.f && V.modus === 'lijn';
-  img.onpointermove = ev => { fsLoep(d, img, ev, (neer && !!FS.opGa && V?.los) || fsLijn()); if (neer || fsLijn()) losDoor('pointermove', ...nrm(ev)); };
+  img.onpointerdown = ev => { if (fsGmAan(r.f)) { ev.preventDefault(); gmG = fsGmDown(r.f, ...nrm(ev), img); try { img.setPointerCapture(ev.pointerId); } catch (x) {} return; } if (!FS.opGa || !V?.los || foto() !== r.f) return; ev.preventDefault(); neer = true; try { img.setPointerCapture(ev.pointerId); } catch (x) {} losDoor('pointerdown', ...nrm(ev)); };
+  const fsLijn = () => !!FS.opGa && V?.los && foto() === r.f && V.modus === 'lijn' && !fsGmAan(r.f);
+  img.onpointermove = ev => { if (gmG) { fsGmMove(gmG, ...nrm(ev)); fsLoep(d, img, ev, gmG.soort !== 'niets'); return; } fsLoep(d, img, ev, (neer && !!FS.opGa && V?.los) || fsLijn()); if (neer || fsLijn()) losDoor('pointermove', ...nrm(ev)); };
   img.onpointerleave = ev => { if (!neer) fsLoep(d, img, ev, false); };
-  img.onpointerup = ev => { if (!neer) return; neer = false; losDoor('pointerup', ...nrm(ev)); fsLoep(d, img, ev, fsLijn()); };
+  img.onpointerup = ev => { if (gmG) { fsGmUp(gmG); gmG = null; fsLoep(d, img, ev, false); return; } if (!neer) return; neer = false; losDoor('pointerup', ...nrm(ev)); fsLoep(d, img, ev, fsLijn()); };
   svg.innerHTML = '';
   const u = await fotoUrl(r.f.id);
   if (FS.id !== r.f.id) return;
