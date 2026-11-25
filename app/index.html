@@ -2205,6 +2205,33 @@ function deelStandaardCode(soort, b, zelf) {
   const c = DEEL_CODES[mat][soort] || ''; return c && zoekCode(c) ? c : '';
 }
 
+// Topcalc-lijst: alles wat op de foto's is gemeten (kozijnen met hun delen, wanden) in één keer naar de lijst, per gevelmap.
+// Alleen op de knop. Nog eens drukken werkt de regels bij (maten, aantal); regels die je zelf typte blijven staan.
+function gmFotoOnderdelen(p) {
+  const uit = [];
+  for (const s of p.submappen || []) for (const f of s.fotos || []) for (const o of ondVan(f)) {
+    if (o.in) continue;
+    const letters = [o.letter, ...ondKinderen(f, o.letter).map(x => x.letter)];
+    const gemeten = f.lijnen.some(l => !l.ref && letters.includes(l.kozijn) && l.maat != null);
+    if (gemeten || (o.codes || []).some(c => c?.code)) uit.push({ s, f, o });
+  }
+  return uit;
+}
+function gmFotoKnopHtml(p) {
+  const alles = gmFotoOnderdelen(p); if (!alles.length) return '';
+  const nog = alles.filter(x => !ondInTopcalc(x.s, x.f, x.o)).length;
+  return `<button class="primary" id="tcFotos" style="margin-bottom:6px">📷 Alles van de foto's in de lijst (${alles.length} ${alles.length === 1 ? 'kozijn' : 'kozijnen'})</button>
+    <div style="color:var(--muted);font-size:13px;margin:0 4px 12px">${nog ? `${nog} nog niet in de lijst. ` : 'Alles staat in de lijst. Nog eens drukken werkt maten en aantallen bij. '}Kozijnen met hun delen en aantallen, per gevel. Regels zonder code kies je daarna hier.</div>`;
+}
+function gmFotoKnopKoppel(m, p) {
+  const k = m.querySelector('#tcFotos'); if (!k) return;
+  k.onclick = () => { let n = 0, zonder = 0;
+    for (const { s, f, o } of gmFotoOnderdelen(p)) { try { if (typeof stenenHerreken === 'function') stenenHerreken(f); } catch (e) {}
+      for (const r of ondNaarTopcalc(s, f, o)) { n++; if (!r.code) zonder++; } }
+    bewaar(); renderTopcalc(m);
+    toast(`${n} regel${n === 1 ? '' : 's'} van de foto's staan in de lijst.${zonder ? ` ${zonder} nog zonder code: klik op Code in die regel.` : ''} Daarna met "Script voor de pc" alles in één keer in Topcalc.`, 7000); };
+}
+
 // ---------- full-screen foto met maatlijnen ----------
 let V = null; // { p, s, i, modus, sel, el, maat, nieuw, greep }
 function openViewer(p, s, i) {
@@ -4289,7 +4316,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.25-19';
+const APP_VERSIE = '2026.11.25-20';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
@@ -7264,6 +7291,7 @@ function renderTopcalc(m) {
       <div style="color:var(--muted);font-size:13px">In Topcalc: Nieuw, kies het bestek, maak daarin de map met de straatnaam en daarin de mappen per gevel.</div>
       ${mp.map(b => `<div style="margin-top:6px"><b style="color:${bestekKleur(b.bestek)}">${b.bestek}</b> &gt; ${esc(b.straat)} &gt; ${b.mappen.map(esc).join(', ')}</div>`).join('')}</div>` : ''; })()}
     ${(p.adressen || []).length ? `<div class="card" style="margin:0 0 10px;padding:10px 12px"><div style="font-weight:700;margin-bottom:4px">Woningen in dit complex (voor je factor in Topcalc)</div>${adresTelling(p).map(t => `<div style="margin-top:4px"><b>${t.aantal} ×</b> ${esc(t.type)} <span style="color:var(--muted);font-size:13px">${[...t.straten.entries()].map(([st, nrs]) => `${esc(st)} ${nrs.length}`).join(', ')}</span></div>`).join('')}</div>` : ''}
+    ${gmFotoKnopHtml(p)}
     <button class="outline" id="tcScript">${ic('terugzet')} Script voor de pc</button>
     <button class="outline" id="tcPrint" style="margin-top:10px">${ic('pdf')} Printen / PDF (zonder foto's)</button>
     <div style="color:var(--muted);font-size:13px;margin:6px 4px 0">Het script typt de regels in Topcalc, map voor map. Open in Topcalc de meetstaat van de eerste map, klik in het eerste vakje en druk op F9. Bij elke F9 vraagt het eerst of de goede map openstaat.</div>
@@ -7292,6 +7320,7 @@ function renderTopcalc(m) {
     for (const s of p.submappen) { const fi = s.fotos.findIndex(f => f.id === img.dataset.tcopen); if (fi >= 0) return openViewer(p, s, fi); } });
   $('#tcScherm', m)?.addEventListener('click', () => { if (!fotos.length) return toast("Dit project heeft nog geen foto's."); if (!fotoScherm(p, fotos, Math.max(0, fotos.findIndex(x => x.f.id === FS.id)))) toast('Je browser blokkeert het venster. Sta pop-ups toe voor BuildCalc.'); });
   if (FS.id) markeerTcRij(FS.id);
+  gmFotoKnopKoppel(m, p);
   m.querySelectorAll('[data-tckeer]').forEach(b => b.onclick = () => keerSheet(p, p.submappen.find(s => s.id === b.dataset.tckeer)));
   m.querySelectorAll('[data-gevelond]').forEach(k => k.onclick = () => { const s = p.submappen.find(x => x.id === k.dataset.gevelond); if (s) gevelOnderdeel(s, () => renderTopcalc(m)); });
   m.querySelectorAll('[data-tcbestek]').forEach(k => k.onclick = () => { const s = p.submappen.find(x => x.id === k.dataset.tcbestek); if (!s) return;
