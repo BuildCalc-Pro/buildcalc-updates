@@ -1952,6 +1952,17 @@ function gmPaneel() {
   });
 }
 
+// "nog geen maten" in de lijst: direct de maten invullen (zelfde als Maten zelf typen), niet het menu.
+function ondMatenTypen(f, o) {
+  if (!V || !f || !o) return;
+  const L = o.letter, eigen = f.lijnen.filter(l => !l.ref && l.kozijn === L), lengte = isLengte(o);
+  const heeftB = eigen.some(l => l.richting === 'horizontaal'), heeftH = lengte || eigen.some(l => l.richting === 'verticaal'), nieuw = [];
+  if (!heeftB) nieuw.push({ id: nieuwId(), kozijn: L, richting: 'horizontaal', x1: .35, y1: .5, x2: .65, y2: .5, maat: null, ...(opKantoorNu() ? { kant: true } : {}) });
+  if (!heeftH) nieuw.push({ id: nieuwId(), kozijn: L, richting: 'verticaal', x1: .5, y1: .3, x2: .5, y2: .7, maat: null, ...(opKantoorNu() ? { kant: true } : {}) });
+  const open = nieuw[0] || eigen.find(l => l.maat == null) || eigen[0];
+  f.lijnen.push(...nieuw); V.ond = L; V.modus = 'bekijken'; V.sel = open?.id ?? null; bewaar(); tekenUI(); if (open) maatSheet(open);
+}
+
 // ---------- full-screen foto met maatlijnen ----------
 let V = null; // { p, s, i, modus, sel, el, maat, nieuw, greep }
 function openViewer(p, s, i) {
@@ -2249,7 +2260,7 @@ function tekenUI2() {
     let gezien = true; try { gezien = !!localStorage.getItem('bc_lijnUitleg'); } catch (e) {}
     if (!ln && !gezien) { st.className = 'status uitleg'; st.innerHTML = `<div class="vuitleg">Tik op Lijn en trek een lijn over het kozijn. ${V.p.simpel ? 'Tik daarna op de lijn om de maat in te vullen' : 'Spreek daarna de maat in'}.</div><div class="vst" hidden></div>`; }
     (st.querySelector('.vst') || st).textContent = `${ln} ${ln === 1 ? 'lijn' : 'lijnen'}${open ? ` (${open} open)` : ''} • ` + (Laser.status === 'verbonden' && open ? 'Druk op de lasermeter voor de volgende open lijn' : { bekijken: 'Tik op een lijn om de maat in te vullen',
-      lijn: 'Sleep over de foto: liggend = breedte, staand = hoogte', opmerking: 'Tik op de foto waar de opmerking moet komen' }[V.modus]);
+      lijn: 'Sleep over de foto, of klik begin- en eindpunt: liggend = breedte, staand = hoogte', opmerking: 'Tik op de foto waar de opmerking moet komen' }[V.modus]);
     // Net een onderdeel gekozen (bijv. Deur): eerst de breedte, dan de hoogte. Of de maten zelf typen.
     const oNu = V.modus === 'lijn' && V.ond ? ondVan(f).find(x => x.letter === V.ond) : null;
     if (oNu && !isWand(oNu)) {
@@ -2294,6 +2305,7 @@ function tekenUI2() {
     menu(SOORTEN.map(sn => ['plus', sn, () => zetSoort(f, o, sn)])); });
   vx.querySelectorAll('[data-wandok]').forEach(b => b.onclick = () => { const o = ondVan(f).find(x => x.letter === b.dataset.wandok); if (!o) return; o.hoogtesOk = true; bewaar(); tekenUI(); });
   vx.querySelectorAll('[data-lsel]').forEach(b => b.onclick = () => { const l = f.lijnen.find(x => x.id === b.dataset.lsel); if (!l) return; if (l.kozijn) V.ond = l.kozijn; V.sel = l.id; tekenUI(); });
+  vx.querySelectorAll('[data-ondmaat]').forEach(x => x.onclick = e => { e.stopPropagation(); e.preventDefault(); const o = ondVan(f).find(y => y.letter === x.dataset.ondmaat); if (o) ondMatenTypen(f, o); });
   vx.querySelectorAll('[data-ond]').forEach(b => b.onclick = () => {
     if (V.ond !== b.dataset.ond) { V.ond = b.dataset.ond; tekenUI(); return; }
     const o = ond.find(x => x.letter === V.ond);
@@ -3128,7 +3140,7 @@ function mapLijstHtml(f, metMaten = false, vTop = null) {
   const hier = alle.map(o => { const aan = o.in ? o.letter === V.ond : o.letter === vTop && !ondVan(f).some(x => x.letter === V.ond && x.in), delen = [o.letter];
     const codeKnop = o.in ? `<button class="ondchip" data-deelcode="${o.letter}" style="width:auto;padding:2px 10px;font-size:12px;margin-left:4px">${o.codes?.[0]?.code ? `${bestekVan(o, o.codes[0])} ${esc(o.codes[0].code)}` : '＋ Code'}</button>` : '';
     return `<button class="ghost lgit" data-ond="${o.letter}">${dot(o)}<span class="lgnaam"><b>${esc(ondKortNaam(o) || (isWand(o) ? 'Wand' : o.letter))}</b> <small>${o.in ? '' : code(o)}</small></span>
-      <small class="lgmaat">${aan && mo ? '' : kort(f, o)}${(o.aantal || 1) > 1 ? ` · ${o.aantal}×` : ''}</small>${codeKnop}<span class="lgchev">${aan ? '▾' : '›'}</span></button>
+      <small class="lgmaat">${aan && mo ? '' : kort(f, o) === 'nog geen maten' && !isWand(o) ? `<span data-ondmaat="${o.letter}" style="color:var(--gold);text-decoration:underline;cursor:pointer">nog geen maten: invullen</span>` : kort(f, o)}${(o.aantal || 1) > 1 ? ` · ${o.aantal}×` : ''}</small>${codeKnop}<span class="lgchev">${aan ? '▾' : '›'}</span></button>
       ${aan && mo ? `<div class="lgdet">${delen.filter(L => mo.groepen.includes(L)).map(mo.blok).join('') || '<small style="color:var(--muted)">Nog geen maten: tik op Lijn en trek een lijn.</small>'}${!o.in && !isWand(o) && ondBox(f, o) ? `<button class="ghost" data-deelin="${o.letter}" style="color:var(--gold);padding:6px 4px;font-size:13px">＋ Deel in ${o.letter}: vast raam, draairaam… (2 lijnen trekken)</button>` : ''}</div>` : ''}`; }).join('');
   const losHtml = los ? `<div class="lgit" style="cursor:default"><span class="lgdot" style="background:var(--muted)"></span><span class="lgnaam"><b>Losse maten</b></span></div><div class="lgdet">${mo.blok(null)}</div>` : '';
   const ander = rijen.map(({ g, gi, o }) => { const key = `${g.id}|${o.letter}`, n = (f.ookHier || []).filter(x => x.foto === g.id && x.letter === o.letter).length;
@@ -3395,6 +3407,10 @@ function koppelGebaren(surf) {
   surf.addEventListener('pointerdown', e => {
     if (!V?.w || V.knijp) { start = null; return; }
     const [x, y] = pos(e); start = [x, y]; bewogen = false; V.greep = null;
+    if (V.klikStart && V.modus === 'lijn' && e.pointerType === 'mouse') { start = V.klikStart; V.klikStart = null; bewogen = true; V.label = null; V.ballon = null; V.sel = null;
+      const h = Math.abs(x - start[0]) >= Math.abs(y - start[1]); V.nieuw = [start[0], start[1], ...volgRichting(h, start[0], start[1], x, y)];
+      try { surf.setPointerCapture(e.pointerId); } catch {} e.preventDefault(); return; }
+    if (V.modus !== 'lijn') V.klikStart = null;
     if (V.hoeken) { try { surf.setPointerCapture(e.pointerId); } catch {} e.preventDefault(); toonLoep(x, y, x, y, e, hoekNaam()); return; }
     // Tekstvak of pijlpunt van een opmerking vastpakken: verslepen, of tikken om te bewerken.
     // Een letter op het kozijn vastpakken om hem precies op het kozijn te schuiven.
@@ -3424,7 +3440,9 @@ function koppelGebaren(surf) {
   });
   surf.addEventListener('pointermove', e => {
     // Muis boven de foto bij Lijn trekken: het vergrootglas loopt al mee, zodat je het beginpunt precies ziet.
-    if (!start && V?.w && e.pointerType === 'mouse' && V.modus === 'lijn' && !V.knijp && !V.hoeken) { const [x, y] = pos(e); V.loepZweef = true; toonLoep(x, y, null, null, e); return; }
+    if (!start && V?.w && e.pointerType === 'mouse' && V.modus === 'lijn' && !V.knijp && !V.hoeken) { const [x, y] = pos(e); V.loepZweef = true;
+      if (V.klikStart) { const [a, b] = V.klikStart, h = Math.abs(x - a) >= Math.abs(y - b); V.nieuw = [a, b, ...volgRichting(h, a, b, x, y)]; toonLoep(V.nieuw[2], V.nieuw[3], a, b, e, ''); tekenLijnen(); return; }
+      toonLoep(x, y, null, null, e); return; }
     if (!start && V?.loepZweef) { V.loepZweef = false; verbergLoep(); }
     if (!start || !V) return;
     if (V.knijp) { start = null; return; }
@@ -3508,6 +3526,8 @@ function koppelGebaren(surf) {
         }
       }
       tekenUI();
+    } else if (!bewogen && V.modus === 'lijn' && e.pointerType === 'mouse') {
+      V.klikStart = [x, y]; V.nieuw = null; tekenLijnen();
     } else if (!bewogen && V.modus === 'opmerking') {
       const f = foto(); f.opmerkingen ??= [];
       const b = { id: nieuwId(), x: x / V.w, y: y / V.h, tekst: '' };
@@ -4019,7 +4039,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.25-8';
+const APP_VERSIE = '2026.11.25-9';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
