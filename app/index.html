@@ -1581,11 +1581,24 @@ function gmMaat(s, fid, p, iw, ih) {
   return isFinite(B) && isFinite(H) && B > 0 && H > 0 && B < 10000 && H < 10000 ? { B: Math.round(B), H: Math.round(H) } : null;
 }
 const gmFoutTekst = () => '';
+// Stenen tellen (optioneel, per sjabloon): hoogte = aantal lagen × laagmaat, breedte = aantal stenen × steenmaat (per gevelmap).
+// Telt maar één richting? Dan de andere richting met dezelfde schaal (verhouding van de referentie, anders van het kader zelf).
+const gmSteen = s => ({ h: s.gm?.steen?.h > 0 ? s.gm.steen.h : 6.25, l: s.gm?.steen?.l > 0 ? s.gm.steen.l : 22 });
+function gmSteenMaat(s, sj, m) {
+  const st = gmSteen(s), H = sj.lagen > 0 ? sj.lagen * st.h : null, B = sj.stenen > 0 ? sj.stenen * st.l : null;
+  if (!H && !B) return null;
+  const [w, h] = m ? [m.B, m.H] : gmZijden(gmPx(sj.p, sj.iw, sj.ih));
+  const b = B ?? H * w / h, hh = H ?? B * h / w;
+  return isFinite(b) && isFinite(hh) && b > 0 && hh > 0 && b < 10000 && hh < 10000 ? { B: Math.round(b), H: Math.round(hh), steen: true } : null;
+}
 // Een sjabloon volgt de berekening, behalve een maat die je zelf hebt aangepast.
 function gmHerreken(s, sj) {
-  const m = gmMaat(s, sj.fotoId, sj.p, sj.iw, sj.ih); sj.calc = m;
-  if (m) { if (!sj.handB) sj.B = m.B; if (!sj.handH) sj.H = m.H; }
+  const m = gmMaat(s, sj.fotoId, sj.p, sj.iw, sj.ih); sj.refCalc = m;
+  const c = gmSteenMaat(s, sj, m) || m; sj.calc = c;
+  if (c) { if (!sj.handB) sj.B = c.B; if (!sj.handH) sj.H = c.H; }
 }
+const gmGetal = v => { const n = getal(String(v ?? '').replace(/[^\d.,]/g, '')) ?? NaN; return n > 0 && n < 1000 ? n : null; };
+const gmNl = v => String(Math.round(v * 100) / 100).replace('.', ',');
 const gmSjOp = (s, fid) => (s.gm?.sj || []).filter(x => x.fotoId === fid);
 function gmTcRij(s, sj) { return sj.tc ? (s.tc || []).find(r => r.id === sj.tc) || null : null; }
 function gmNaarTopcalc(s, sj) {
@@ -1812,9 +1825,9 @@ function gmPaneel() {
       <div class="gmrij"><input id="gmrnaam" placeholder="Naam, bijv. Pui beneden" value="${esc(d.naam)}" autocomplete="off" style="flex:1;min-width:0;padding:8px;font:inherit;color:var(--text);background:var(--surface-high);border:1px solid var(--surface-high);border-radius:8px"></div>
       <div class="gmrij"><label>Breedte</label>${gmInp('gmrb', '5.5em', d.B, 'cm')}<span>×</span><label>Hoogte</label>${gmInp('gmrh', '5.5em', d.H, 'cm')}<span>cm</span></div>
       <div class="gmrij"><button class="gmknop hoofd" id="gmropslaan">Opslaan</button>${rf ? '<button class="gmknop" id="gmrweg" style="color:var(--danger)">Weghalen van deze foto</button>' : ''}${opKantoorNu() && rf ? '<button class="gmknop" id="gmnaarsj">Naar sjabloon</button>' : ''}</div>`;
-  } else if (!r || !(r.B > 0 && r.H > 0)) {
+  } else if ((!r || !(r.B > 0 && r.H > 0)) && !GM.alleenSteen) {
     h = `<div class="gmuitleg">${esc(s.naam)} heeft nog geen referentie. Zet eerst op een benedenfoto het referentiekader op een gelaserd kozijn of pui.</div>
-      <div class="gmrij"><button class="gmknop hoofd" id="gmnaarref">Referentie op deze foto zetten</button></div>`;
+      <div class="gmrij"><button class="gmknop hoofd" id="gmnaarref">Referentie op deze foto zetten</button><button class="gmknop" id="gmalleensteen">Of: alleen stenen tellen</button></div>`;
   } else if (modus === 'koppelA') {
     h = `<div class="gmuitleg"><b>Stap 1 van 2.</b> Zet de 4 blauwe koppelpunten op 4 punten van de gevel die je ook op foto ${elders[0] || '?'} goed ziet: bijvoorbeeld de buitenhoeken van dit kozijn, of nog beter hoeken die <b>ver uit elkaar</b> liggen (twee ramen, een lateibalk). Hoe groter het vak, hoe nauwkeuriger. Zoom in en zet ze precies.</div>
       <div class="gmrij"><button class="gmknop hoofd" id="gmkvolgende">Volgende: dezelfde 4 punten op foto ${elders[0] || '?'}</button><button class="gmknop" id="gmkastop">Annuleren</button></div>`;
@@ -1824,25 +1837,34 @@ function gmPaneel() {
       <div class="gmklein">${m ? `Dit vak volgens de referentie: <b>${m.B} × ${m.H} cm</b> ${gmFoutTekst(m)}` : ''}</div>
       <div class="gmrij"><button class="gmknop hoofd" id="gmkklaar">Klaar, terug naar foto ${GM.kd.terugFi + 1}</button><button class="gmknop" id="gmkstop">Annuleren</button></div>`;
   } else {
-    const lijst = gmSjOp(s, f.id), sj = gmSjNu(), rij = sj && gmTcRij(s, sj);
+    const lijst = gmSjOp(s, f.id), sj = gmSjNu(), rij = sj && gmTcRij(s, sj), geenRef = !gmRefKlaar(s), st = gmSteen(s);
+    const steenOpen = sj && (GM.steenOpen || sj.lagen > 0 || sj.stenen > 0 || geenRef);
+    const sc = sj?.calc?.steen ? sj.calc : null;
+    const steenTekst = sc ? `Met stenen: ${sj.lagen > 0 ? `${gmNl(sj.lagen)} lagen × ${gmNl(st.h)} = <b>${sc.H} hoog</b>` : `hoogte ${sc.H} (zelfde schaal)`}, ${sj.stenen > 0 ? `${gmNl(sj.stenen)} stenen × ${gmNl(st.l)} = <b>${sc.B} breed</b>` : `breedte ${sc.B} (zelfde schaal)`}${sj.refCalc ? ` · referentie gaf ${sj.refCalc.B} × ${sj.refCalc.H}` : ''}` : '';
+    const steenBlok = !sj ? '' : !steenOpen ? `<div class="gmrij"><button class="ghost" id="gmsteenopen" style="color:var(--gold);font-size:13px;padding:0">+ Stenen tellen (optioneel, vaak nauwkeuriger)</button></div>` :
+      `<div class="gmsteen"><div class="gmrij"><label>Lagen</label>${gmInp('gmlagen', '3.6em', sj.lagen > 0 ? gmNl(sj.lagen) : '', 'hoog')}<label>Stenen</label>${gmInp('gmstenen', '3.6em', sj.stenen > 0 ? gmNl(sj.stenen) : '', 'breed')}
+        <small style="color:var(--muted)">laag ${gmInp('gmlh', '3.4em', gmNl(st.h))} steen+voeg ${gmInp('gmsl', '3.4em', gmNl(st.l))} cm</small></div>
+        <div class="gmklein">Tel de lagen naast het kozijn van onderkant tot bovenkant (hoogte) en de stenen erboven of eronder van links naar rechts (breedte). Halve mag: 23,5. Eén van de twee is genoeg. Laag- en steenmaat gelden voor heel ${esc(s.naam)}.</div></div>`;
     const zelfde = rij && rij.b === String(sj.B) && rij.h === String(sj.H) && rij.oms === (sj.naam || 'Sjabloon');
     const chips = `<div class="gmchips">${lijst.map(x => `<button class="ondchip${x.id === GM.sel ? ' on' : ''}" data-gmsj="${x.id}">${esc(x.naam || 'Sjabloon')} <b>${x.B ?? '?'}×${x.H ?? '?'}</b>${gmTcRij(s, x) ? ' ✓' : ''}</button>`).join('')}<button class="ondchip plus" id="gmnieuw">+ Sjabloon</button></div>`;
     // Bovenaan, altijd in beeld: breedte × hoogte (berekend, direct zelf aan te passen) en de knop naar Topcalc.
     h = sj ? `<div class="gmmaat"><label>Breedte</label>${gmInp('gmb', '4.6em', sj.B, 'cm')}<span>×</span><label>Hoogte</label>${gmInp('gmh', '4.6em', sj.H, 'cm')}<span>cm</span>
         <button class="gmknop hoofd" id="gmtc">${!rij ? '+ Naar Topcalc' : zelfde ? '✓ In Topcalc' : '↻ Topcalc bijwerken'}</button></div>
-      <div class="gmklein">${!rf && !kp ? `Nog geen berekende maat: tik <b>Zelfde kozijn op foto ${elders[0] || '?'} aanwijzen</b>, of typ breedte en hoogte zelf in.` : sj.calc ? `Berekend uit de referentie ${esc(r.naam || '')} ${r.B} × ${r.H} cm: <b>${sj.calc.B} breed × ${sj.calc.H} hoog</b>${sj.handB || sj.handH ? ' · <button class="ghost" id="gmterug" style="color:var(--gold);padding:0;font-size:13px">terug naar berekend</button>' : ''}` : 'Kan niet rekenen: kijk of de hoeken goed staan.'}</div>
+      <div class="gmklein">${sc ? steenTekst + (sj.handB || sj.handH ? ' · <button class="ghost" id="gmterug" style="color:var(--gold);padding:0;font-size:13px">terug naar berekend</button>' : '') : geenRef ? 'Geen referentie: tel stenen hieronder, of typ breedte en hoogte zelf in.' : !rf && !kp ? `Nog geen berekende maat: tik <b>Zelfde kozijn op foto ${elders[0] || '?'} aanwijzen</b>, tel stenen, of typ breedte en hoogte zelf in.` : sj.calc ? `Berekend uit de referentie ${esc(r.naam || '')} ${r.B} × ${r.H} cm: <b>${sj.calc.B} breed × ${sj.calc.H} hoog</b>${sj.handB || sj.handH ? ' · <button class="ghost" id="gmterug" style="color:var(--gold);padding:0;font-size:13px">terug naar berekend</button>' : ''}` : 'Kan niet rekenen: kijk of de hoeken goed staan.'}</div>
+      ${steenBlok}
       ${chips}
       <div class="gmrij"><input id="gmnaam" placeholder="Naam, bijv. Raam boven links" value="${esc(sj.naam || '')}" autocomplete="off" style="flex:1;min-width:0;padding:8px;font:inherit;color:var(--text);background:var(--surface-high);border:1px solid var(--surface-high);border-radius:8px"><button class="gmknop" id="gmweg" style="color:var(--danger)">Verwijderen</button></div>
-      ${!rf && !kp ? `<div class="gmrij"><button class="gmknop" id="gmkoppel" style="flex:1">Zelfde kozijn op foto ${elders[0] || '?'} aanwijzen</button></div>` : ''}
+      ${!rf && !kp && !geenRef ? `<div class="gmrij"><button class="gmknop" id="gmkoppel" style="flex:1">Zelfde kozijn op foto ${elders[0] || '?'} aanwijzen</button></div>` : ''}
       ${kp ? `<div class="gmklein">Gekoppeld aan foto ${kpNr}. <button class="ghost" id="gmkopnieuw" style="color:var(--gold);padding:0;font-size:13px">opnieuw koppelen</button></div>` : ''}
       <div class="gmklein">Sleep de 4 hoeken op de hoeken van het kozijn; binnen het vak slepen verschuift het hele sjabloon.</div>`
-      : `${chips}${!rf && !kp ? `<div class="gmuitleg">De referentie van ${esc(s.naam)} (${r.B} × ${r.H} cm) staat op foto ${elders.join(', ') || '?'}. Leg een sjabloon op het kozijn; daarna koppel je deze foto één keer.</div><div class="gmrij"><button class="ghost" id="gmnaarref" style="color:var(--muted);font-size:13px">Of: referentiekader op deze foto zetten</button></div>` : ''}<div class="gmuitleg">Tik op <b>+ Sjabloon</b> en sleep de 4 hoeken op een raam, deur of kozijn.</div>`;
+      : `${chips}${geenRef ? `<div class="gmuitleg">Geen referentie in ${esc(s.naam)}: leg een sjabloon op en tel de stenen.</div>` : !rf && !kp ? `<div class="gmuitleg">De referentie van ${esc(s.naam)} (${r.B} × ${r.H} cm) staat op foto ${elders.join(', ') || '?'}. Leg een sjabloon op het kozijn; daarna koppel je deze foto één keer.</div><div class="gmrij"><button class="ghost" id="gmnaarref" style="color:var(--muted);font-size:13px">Of: referentiekader op deze foto zetten</button></div>` : ''}<div class="gmuitleg">Tik op <b>+ Sjabloon</b> en sleep de 4 hoeken op een raam, deur of kozijn.</div>`;
   }
   pn.innerHTML = h;
   if (actief && $('#' + actief, pn)) { const i = $('#' + actief, pn); if (waarde != null) i.value = waarde; i.focus(); }
   const knop = (id, fn) => { const b = $('#' + id, pn); if (b) b.onclick = fn; };
   knop('gmnaarref', () => { GM.modus = 'ref'; gmBegin(); gmTeken(); });
   knop('gmnaarsj', () => { GM.modus = 'sj'; gmBegin(); gmTeken(); });
+  knop('gmalleensteen', () => { GM.alleenSteen = true; GM.steenOpen = true; gmTeken(); });
   if (modus === 'koppel') {
     const kd = GM.kd, terug = sel => gmLaad(kd.terugFi, () => { GM.modus = 'sj'; gmBegin(); GM.sel = sel; });
     knop('gmkstop', () => terug(kd.sjId));
@@ -1907,6 +1929,14 @@ function gmPaneel() {
   for (const [id, k, hk] of [['gmb', 'B', 'handB'], ['gmh', 'H', 'handH']]) $('#' + id, pn).onchange = e => {
     const v = gmCm(e.target.value); if (!v) { e.target.value = sj[k] ?? ''; return; }
     sj[k] = v; sj[hk] = !sj.calc || v !== sj.calc[k]; bewaar(); setTimeout(() => GM && gmTeken(), 250); };
+  knop('gmsteenopen', () => { GM.steenOpen = true; gmTeken(); });
+  // Stenen tellen: aantallen per sjabloon, laag- en steenmaat per gevelmap. Leeg = niet gebruiken.
+  for (const [id, k] of [['gmlagen', 'lagen'], ['gmstenen', 'stenen']]) { const i = $('#' + id, pn); if (i) { i.inputMode = 'decimal'; i.onchange = e => {
+    const v = gmGetal(e.target.value); if (v) sj[k] = v; else delete sj[k];
+    gmHerreken(s, sj); bewaar(); setTimeout(() => GM && gmTeken(), 250); }; } }
+  for (const [id, k] of [['gmlh', 'h'], ['gmsl', 'l']]) { const i = $('#' + id, pn); if (i) { i.inputMode = 'decimal'; i.onchange = e => {
+    const v = gmGetal(e.target.value), g = gmVan(s); g.steen = { ...gmSteen(s) }; if (v) g.steen[k] = v;
+    for (const x of g.sj) gmHerreken(s, x); bewaar(); setTimeout(() => GM && gmTeken(), 250); }; } }
   knop('gmterug', () => { delete sj.handB; delete sj.handH; gmHerreken(s, sj); bewaar(); gmTeken(); });
   knop('gmtc', () => {
     const b = gmCm($('#gmb', pn).value), hh = gmCm($('#gmh', pn).value);
@@ -3989,7 +4019,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.25-6';
+const APP_VERSIE = '2026.11.25-7';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
