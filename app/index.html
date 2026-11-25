@@ -3847,7 +3847,7 @@ function lijnPaarVraag(f, a, b) {
       return; }
     // Kozijn: doorlopende stijlen en dorpels meteen tellen (met + en − aan te passen).
     let extra = '';
-    if (soort === 'Kozijn') try { const R = tikRecht(f), bx = R && tikKaderInR(R, kader);
+    if (false) try { const R = tikRecht(f), bx = R && tikKaderInR(R, kader);
       if (bx) { const [ci, cj] = [(bx.x0 + bx.x1) / 2, (bx.y0 + bx.y1) / 2], st = tikStijlen(R, bx, tikPpm(R, f, tikMeter(f), ci, cj));
         if (st.stijlen) v.aantal = st.stijlen; if (st.dorpels) h.aantal = st.dorpels;
         extra = [st.stijlen ? `${st.stijlen} ${st.stijlen === 1 ? 'stijl' : 'stijlen'}` : '', st.dorpels ? `${st.dorpels} ${st.dorpels === 1 ? 'dorpel' : 'dorpels'}` : ''].filter(Boolean).join(' en '); } } catch (e) { console.warn(e); }
@@ -4273,7 +4273,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.25-16';
+const APP_VERSIE = '2026.11.25-17';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
