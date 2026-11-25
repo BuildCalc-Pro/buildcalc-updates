@@ -3352,12 +3352,14 @@ function schaalRef(f, lijn) {
 const schaalMaat = (f, lijn) => { const r = schaalRef(f, lijn); return r ? Math.round(lijnPx(lijn) * r.maat / lijnPx(r) * 100) / 100 : null; };
 // Per onderdeel in het lijstje: hoe vaak het voorkomt (bijv. 9 verdiepingen), met − en +. Telt mee in de Topcalc-lijst.
 function aantalRij(o, som) {
+  const ouder = o.in && V ? ondVan(foto()).find(x => x.letter === o.in) : null, ka = ouder?.aantal > 1 ? ouder.aantal : 1;
   const n = o.aantal || 1, knop = 'width:26px;height:26px;border-radius:13px;border:1px solid var(--surface-high);background:none;color:var(--text);font:inherit;line-height:1;padding:0';
   return `<div style="display:flex;justify-content:flex-end;align-items:center;gap:6px;margin:4px 6px 0;font-size:13px">
     <span style="color:var(--muted)">Aantal</span><button data-amin="${o.letter}" aria-label="Minder" style="${knop}">−</button>
     <input data-anum="${o.letter}" type="number" inputmode="numeric" min="1" max="999" value="${n}" style="width:3.2em;text-align:center;padding:3px;font:inherit;color:var(--text);background:transparent;border:1px solid var(--surface-high);border-radius:6px">
     <button data-aplus="${o.letter}" aria-label="Meer" style="${knop}">+</button>
-    ${som && n > 1 ? `<b style="min-width:5em;text-align:right">= ${getalNL(som[0] * n)} ${som[1]}</b>` : ''}</div>`;
+    ${ka > 1 ? `<span style="color:var(--gold);white-space:nowrap" title="${esc(o.in)} staat er ${ka}×">× ${ka} (${esc(o.in)}) = <b>${n * ka}</b></span>` : ''}
+    ${som && n * ka > 1 ? `<b style="min-width:5em;text-align:right;white-space:nowrap">= ${getalNL(som[0] * n * ka)} ${som[1]}</b>` : ''}</div>`;
 }
 // Onder de maten: wat de code rekent. Een m2-code toont breedte × hoogte, een m1-code (of nog geen code) het strekkend, een stuks-code niets.
 function kozijnSomHtml(o, k) {
@@ -4287,7 +4289,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.25-18';
+const APP_VERSIE = '2026.11.25-19';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
