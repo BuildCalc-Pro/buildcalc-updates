@@ -2207,9 +2207,9 @@ function deelStandaardCode(soort, b, zelf) {
 
 // Topcalc-lijst: alles wat op de foto's is gemeten (kozijnen met hun delen, wanden) in één keer naar de lijst, per gevelmap.
 // Alleen op de knop. Nog eens drukken werkt de regels bij (maten, aantal); regels die je zelf typte blijven staan.
-function gmFotoOnderdelen(p) {
+function gmFotoOnderdelen(p, alleen = null) {
   const uit = [];
-  for (const s of p.submappen || []) for (const f of s.fotos || []) for (const o of ondVan(f)) {
+  for (const s of alleen ? [alleen] : p.submappen || []) for (const f of s.fotos || []) for (const o of ondVan(f)) {
     if (o.in) continue;
     const letters = [o.letter, ...ondKinderen(f, o.letter).map(x => x.letter)];
     const gemeten = f.lijnen.some(l => !l.ref && letters.includes(l.kozijn) && l.maat != null);
@@ -2220,16 +2220,26 @@ function gmFotoOnderdelen(p) {
 function gmFotoKnopHtml(p) {
   const alles = gmFotoOnderdelen(p); if (!alles.length) return '';
   const nog = alles.filter(x => !ondInTopcalc(x.s, x.f, x.o)).length;
-  return `<button class="primary" id="tcFotos" style="margin-bottom:6px">📷 Alles van de foto's in de lijst (${alles.length} ${alles.length === 1 ? 'kozijn' : 'kozijnen'})</button>
-    <div style="color:var(--muted);font-size:13px;margin:0 4px 12px">${nog ? `${nog} nog niet in de lijst. ` : 'Alles staat in de lijst. Nog eens drukken werkt maten en aantallen bij. '}Kozijnen met hun delen en aantallen, per gevel. Regels zonder code kies je daarna hier.</div>`;
+  return `<button class="primary" id="tcFotos" style="margin-bottom:6px">📷 Alle gevels: foto's in de lijsten (${alles.length} ${alles.length === 1 ? 'kozijn' : 'kozijnen'})</button>
+    <div style="color:var(--muted);font-size:13px;margin:0 4px 12px">${nog ? `${nog} nog niet in de lijst. ` : 'Alles staat in de lijst. Nog eens drukken werkt maten en aantallen bij. '}Elke gevel krijgt zijn eigen lijst. Per gevel kan ook, met de knop bij die gevel.</div>`;
+}
+// Per gevel in de Topcalc-lijst: alleen de foto's van die gevelmap.
+function gmFotoMapKnopHtml(p, s) {
+  const alles = gmFotoOnderdelen(p, s); if (!alles.length) return '';
+  const nog = alles.filter(x => !ondInTopcalc(x.s, x.f, x.o)).length;
+  return `<div style="margin:8px 0"><button class="outline" data-tcfotomap="${s.id}" style="width:auto;padding:6px 14px">📷 Foto's van ${esc(s.naam)} in deze lijst (${alles.length})</button>
+    <span style="color:${nog ? 'var(--gold)' : 'var(--muted)'};font-size:13px;margin-left:8px">${nog ? `${nog} nog niet in de lijst` : '✓ alles staat erin'}</span></div>`;
 }
 function gmFotoKnopKoppel(m, p) {
-  const k = m.querySelector('#tcFotos'); if (!k) return;
-  k.onclick = () => { let n = 0, zonder = 0;
-    for (const { s, f, o } of gmFotoOnderdelen(p)) { try { if (typeof stenenHerreken === 'function') stenenHerreken(f); } catch (e) {}
+  m.querySelectorAll('[data-tcfotomap]').forEach(b => b.onclick = () => gmFotosNaarLijst(m, p, p.submappen.find(s => s.id === b.dataset.tcfotomap)));
+  const k = m.querySelector('#tcFotos'); if (k) k.onclick = () => gmFotosNaarLijst(m, p, null);
+}
+function gmFotosNaarLijst(m, p, alleen) {
+  { let n = 0, zonder = 0;
+    for (const { s, f, o } of gmFotoOnderdelen(p, alleen)) { try { if (typeof stenenHerreken === 'function') stenenHerreken(f); } catch (e) {}
       for (const r of ondNaarTopcalc(s, f, o)) { n++; if (!r.code) zonder++; } }
     bewaar(); renderTopcalc(m);
-    toast(`${n} regel${n === 1 ? '' : 's'} van de foto's staan in de lijst.${zonder ? ` ${zonder} nog zonder code: klik op Code in die regel.` : ''} Daarna met "Script voor de pc" alles in één keer in Topcalc.`, 7000); };
+    toast(`${n} regel${n === 1 ? '' : 's'} van ${alleen ? alleen.naam : "alle gevels"} staan in de lijst.${zonder ? ` ${zonder} nog zonder code: klik op Code in die regel.` : ''} Daarna "Kopiëren voor Topcalc" of "Script voor de pc".`, 7000); }
 }
 
 // ---------- full-screen foto met maatlijnen ----------
@@ -4316,7 +4326,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.25-20';
+const APP_VERSIE = '2026.11.25-21';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
@@ -7310,6 +7320,7 @@ function renderTopcalc(m) {
       return `<div class="card meetstaat tcmap" data-map="${s.id}" style="margin-top:18px">
       <div class="gevel">${String(mi + 1).padStart(2, '0')}. ${esc(volNaam(p, s))}${isRdo(s) ? ' <span style="color:var(--gold);font-size:12px">reinigingswerk</span>' : ''}<button class="ghost tcknop" data-tckeer="${s.id}">${keerVan(p, s) > 1 ? `factor ${keerVan(p, s)}` : '＋ Factor'}</button></div>
       ${s.fotos.length ? `<div class="tcfotos">${s.fotos.map((f, fi) => `<img data-foto="${f.id}" data-tcopen="${f.id}" alt="" title="Foto ${fi + 1}">`).join('')}</div>` : ''}
+      ${gmFotoMapKnopHtml(p, s)}
       ${blokken.map(b => `${kopjes ? blokKop(b) : ''}${tabel(b)}<button class="ghost tcknop" data-tckopie="${s.id}" data-bestek="${b}" style="margin:6px 0 0">Kopiëren voor Topcalc${kopjes ? ` (${b})` : ''}</button>`).join('')}
       <div class="tcinfo" data-info>Klik in een regel om te zien welk onderdeel het is.</div>
       <button class="ghost tcknop" data-gevelond="${s.id}" style="margin:6px 8px 0 0">＋ Gevelonderdeel (dakgoot, daklijst…)</button>${nogTeKiezen.length ? `<button class="ghost tcknop" data-tcbestek="${s.id}" style="margin:6px 0 0">＋ Bestek (${nogTeKiezen.join(', ')})</button>` : ''}</div>`; }).join('')}
