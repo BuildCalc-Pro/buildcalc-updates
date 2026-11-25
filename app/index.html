@@ -1963,6 +1963,30 @@ function ondMatenTypen(f, o) {
   f.lijnen.push(...nieuw); V.ond = L; V.modus = 'bekijken'; V.sel = open?.id ?? null; bewaar(); tekenUI(); if (open) maatSheet(open);
 }
 
+// Lijnen (Lijn-modus) krijgen een maat uit de referentie van deze gevelmap, net als een sjabloon: simpele verhouding,
+// liggend met de breedte van de referentie, staand met de hoogte. Op een andere foto via de koppeling. Maat in meters.
+function gmLijnMaat(s, f, l) {
+  if (!s || !f || !l || !s.fotos?.includes(f) || !gmRefKlaar(s) || !['horizontaal', 'verticaal'].includes(l.richting)) return null;
+  const r = s.gm.ref; let rf = gmRefOp(s, f.id), iw, ih, sx = 1, sy = 1;
+  if (rf) { iw = rf.iw; ih = rf.ih; }
+  else { const k = gmKoppel(s, f.id); if (!k) return null; rf = gmRefOp(s, k.naar); iw = k.iw; ih = k.ih;
+    const [kw2, kh2] = gmZijden(gmPx(k.van, k.iw, k.ih)), [kw1, kh1] = gmZijden(gmPx(k.p, rf.iw, rf.ih)); sx = kw1 / kw2; sy = kh1 / kh2; }
+  if (!iw || !ih || !rf.iw || !rf.ih) return null;
+  const [rw, rh] = gmZijden(gmPx(rf.p, rf.iw, rf.ih));
+  const cm = l.richting === 'horizontaal' ? Math.abs(l.x2 - l.x1) * iw * sx / rw * r.B : Math.abs(l.y2 - l.y1) * ih * sy / rh * r.H;
+  return isFinite(cm) && cm > 0 && cm < 10000 ? Math.round(cm) / 100 : null;
+}
+// Lijnen zonder maat op deze foto: meteen de maat uit de referentie (≈). Kan dat niet, dan één keer zeggen hoe wel.
+function gmLijnenVullen(f) {
+  if (!V?.s || !f) return; let n = 0, open = 0;
+  for (const l of f.lijnen) { if (l.maat != null || l.ref || l.hoek || l.lagen10 || l.vlakRef || l.aftrek) continue;
+    const m = gmLijnMaat(V.s, f, l); if (m != null) { Object.assign(l, { maat: m, bron: 'foto', uitRef: true }); n++; } else open++; }
+  if (n) bewaar();
+  if (open && V.gmHint !== f.id) { V.gmHint = f.id; const r = V.s.gm?.ref, nr = r ? Object.keys(r.fotos || {}).map(id => V.s.fotos.findIndex(x => x.id === id) + 1).filter(x => x > 0)[0] : 0;
+    setTimeout(() => toast(!gmRefKlaar(V.s) ? `Nog geen maat: ${V.s.naam} heeft nog geen referentie. Tik onder de foto op Referentie, of tik op de lijn en typ de maat.`
+      : `Nog geen maat: deze foto is nog niet gekoppeld aan de referentie op foto ${nr || '?'}. Tik op Sjabloon en dan Zelfde kozijn op foto ${nr || '?'} aanwijzen, of tik op de lijn en typ de maat.`, 7000), 300); }
+}
+
 // ---------- full-screen foto met maatlijnen ----------
 let V = null; // { p, s, i, modus, sel, el, maat, nieuw, greep }
 function openViewer(p, s, i) {
@@ -2141,7 +2165,7 @@ function tekenUI() {
 }
 function tekenUI2() {
   const n = V.s.fotos.length, f = foto(), ln = f.lijnen.length;
-  lasermatenNaarRef(f);
+  lasermatenNaarRef(f); gmLijnenVullen(f);
   $('#vtitel', V.el).textContent = `${volNaam(V.p, V.s)} • ${V.i + 1} / ${n}`;
   $('#vprev', V.el).hidden = V.i === 0 || V.modus !== 'bekijken';
   $('#vnext', V.el).hidden = V.i === n - 1 || V.modus !== 'bekijken';
@@ -2193,7 +2217,7 @@ function tekenUI2() {
         ${stukAantal(lijn) !== 1 ? `<div class="teller"><span>Aantal van dit stuk <small style="color:var(--muted)">(zelfde lengte)</small></span><button data-kmin aria-label="Minder">−</button><input data-knum type="number" inputmode="numeric" min="0" max="20" value="${stukAantal(lijn)}"><button data-kplus aria-label="Meer">+</button></div>` : ''}`
         : `${extraRij('verticaal', 'Extra stijlen', 'verticaal')}${extraRij('horizontaal', 'Extra dorpels', 'horizontaal')}`}
       ${false ? `<button class="ghost" id="lschaal" style="color:var(--gold);font-weight:600;text-align:left;padding:2px 4px">Uitrekenen uit de foto (${refMaat(f, lijn) != null ? '≈ ' + maatLabel(refMaat(f, lijn)) + ', rechtgezet' : '± ' + maatLabel(schaalMaat(f, lijn))})</button>` : ''}
-      ${lijn?.uitRef && lijn.maat != null ? `<div style="font-size:12px;color:#57E0D2;padding:0 4px">≈ Uit de foto, ${fotoMeter(f)?.soort === 'ref' ? `rechtgezet met referentie ${f.ref?.L || ''}` : fotoMeter(f)?.soort === 'stenen' ? `vanzelf rechtgezet, met de stenen als schaal (${cmKort(fotoMeter(f).laag)} cm per laag, ${laagUitleg({ bron: fotoMeter(f).laagBron })})` : !fotoMeter(f) && lijn.tik ? 'grove schatting met standaard stenen (6,2 cm per laag). Meet op deze foto één lijn met de laser voor een goede maat' : 'vanzelf rechtgezet, met je gemeten maten als schaal'}. Meet je hem met de laser, dan telt de laser.</div>` : ''}
+      ${lijn?.uitRef && lijn.maat != null && gmLijnMaat(V.s, f, lijn) != null ? `<div style="font-size:12px;color:#57E0D2;padding:0 4px">≈ Berekend uit de referentie van ${esc(V.s.naam)} (${V.s.gm.ref.B} × ${V.s.gm.ref.H} cm). Typ of laser je eigen maat, dan telt die.</div>` : ''}${lijn?.uitRef && lijn.maat != null && gmLijnMaat(V.s, f, lijn) == null ? `<div style="font-size:12px;color:#57E0D2;padding:0 4px">≈ Uit de foto, ${fotoMeter(f)?.soort === 'ref' ? `rechtgezet met referentie ${f.ref?.L || ''}` : fotoMeter(f)?.soort === 'stenen' ? `vanzelf rechtgezet, met de stenen als schaal (${cmKort(fotoMeter(f).laag)} cm per laag, ${laagUitleg({ bron: fotoMeter(f).laagBron })})` : !fotoMeter(f) && lijn.tik ? 'grove schatting met standaard stenen (6,2 cm per laag). Meet op deze foto één lijn met de laser voor een goede maat' : 'vanzelf rechtgezet, met je gemeten maten als schaal'}. Meet je hem met de laser, dan telt de laser.</div>` : ''}
       ${lijn?.uitRef && lijn.maat != null && lijn.richting === 'horizontaal' && fotoMeter(f)?.breedteGok ? `<div style="font-size:12px;color:#FFA726;padding:0 4px">⚠ Op deze foto is geen breedte gemeten, dus deze breedte is onzeker (soms de helft te klein of te groot). Typ of laser op deze foto één breedte, bijvoorbeeld van het raam beneden, dan klopt hij.</div>` : ''}
       ${lijn && afwijking(f, lijn) != null ? `<div style="font-size:12px;color:#FFA726;padding:0 4px">⚠ Volgens de foto is dit ongeveer ${maatLabel(afwijking(f, lijn))}. Dat scheelt ${Math.round(Math.abs(afwijking(f, lijn) - lijn.maat) * 100)} cm met je maat. Klopt je maat? Zo ja, dan hoef je niks te doen.</div>` : ''}
       ${lijn && lijn !== richtingLijn(lijn.richting) && !isWand(ondVan(f).find(o => o.letter === lijn.kozijn)) ? '<div style="font-size:12px;color:var(--gold);padding:0 4px">Dit is een extra stuk: aantal × maat telt op bij het strekkend van dit onderdeel.</div>' : ''}
@@ -3064,6 +3088,7 @@ function afwijking(f, l) {
 }
 // Echte lengte (m) van een lijn uit de foto, in hele cm. null als dat (nog) niet kan.
 function refMaat(f, l, m = fotoMeter(f)) {
+  { const g = gmLijnMaat(V?.s, f, l); if (g != null) return g; }
   const v = m?.maat(l);
   return v != null && isFinite(v) && v > 0 && v < 100 ? Math.round(v * 100) / 100 : null;
 }
@@ -4039,7 +4064,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.25-9';
+const APP_VERSIE = '2026.11.25-10';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
