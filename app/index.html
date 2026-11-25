@@ -2000,7 +2000,7 @@ function gmLijnBron(s, f, l) {
   const ou = gmLijnOuder(f, l); if (ou) return ou;
   // Stenen zichtbaar naast de lijn? Dan automatisch tellen. Anders de gelaserde referentie van beneden.
   const sf = gmSteen(s), st = (l.richting === 'horizontaal' ? sf.h && sf.l : sf.h) ? gmLijnStenen(s, f, l) : null;
-  if (st && st.m > 0 && st.m < 100) return { m: st.m, stenen: true, tekst: `${st.liggend ? `${gmNl(Math.round(st.n * 10) / 10)} stenen × ${gmNl(sf.l)}` : `${gmNl(Math.round(st.n * 10) / 10)} lagen × ${gmNl(sf.h)}`} cm, automatisch geteld naast de lijn (jouw steenmaat: ${gmSteenTekst(s)})` };
+  if (st && st.m > 0 && st.m < 100) return { m: st.m, stenen: true, tekst: st.iso ? `${gmNl(Math.round(st.lagen * 10) / 10)} lagen breed × ${gmNl(sf.h)} cm (breedte uit de laaghoogte naast de lijn, stootvoegen niet duidelijk; jouw steenmaat: ${gmSteenTekst(s)})` : `${st.liggend ? `${gmNl(Math.round(st.n * 10) / 10)} stenen × ${gmNl(sf.l)}` : `${gmNl(Math.round(st.n * 10) / 10)} lagen × ${gmNl(sf.h)}`} cm, automatisch geteld naast de lijn (jouw steenmaat: ${gmSteenTekst(s)})` };
   const m = gmLijnRef(s, f, l); return m != null ? { m, tekst: `Berekend uit de referentie van ${s.naam} (${s.gm.ref.B} × ${s.gm.ref.H} cm)` } : null;
 }
 function gmLijnRef(s, f, l) {
@@ -2056,13 +2056,14 @@ function gmBeeldVan(img, id) {
   const k = Math.min(1, 1600 / Math.max(img.naturalWidth, img.naturalHeight)), w = Math.round(img.naturalWidth * k), h = Math.round(img.naturalHeight * k);
   try {
     const c = document.createElement('canvas'); c.width = w; c.height = h; const x = c.getContext('2d', { willReadFrequently: true }); x.drawImage(img, 0, 0, w, h);
-    const d = x.getImageData(0, 0, w, h).data, v = new Float32Array(w * h);
-    for (let i = 0, j = 0; i < v.length; i++, j += 4) v[i] = d[j] - (d[j + 1] + d[j + 2]) / 2;
-    return { id, w, h, v, per: new Map() };
+    const d = x.getImageData(0, 0, w, h).data, v = new Float32Array(w * h), y = new Float32Array(w * h);
+    for (let i = 0, j = 0; i < v.length; i++, j += 4) { v[i] = d[j] - (d[j + 1] + d[j + 2]) / 2; y[i] = .3 * d[j] + .59 * d[j + 1] + .11 * d[j + 2]; }
+    return { id, w, h, v, y, per: new Map() };
   } catch (e) { console.warn(e); return null; }
 }
 // Herhaling (periode in px) in een strook: 'rij' = voegen liggend (lagen), 'kol' = stootvoegen (stenen). Scheef zoeken tot ±12°.
-function gmPeriode(b, x0, x1, y0, y1, soort, minL, maxL) {
+function gmPeriode(b, x0, x1, y0, y1, soort, minL, maxL, kanaal = 'v') {
+  const V = b[kanaal];
   x0 = Math.max(0, Math.round(x0)); x1 = Math.min(b.w, Math.round(x1)); y0 = Math.max(0, Math.round(y0)); y1 = Math.min(b.h, Math.round(y1));
   const lang = soort === 'rij' ? y1 - y0 : x1 - x0, breed = soort === 'rij' ? x1 - x0 : y1 - y0;
   maxL = Math.min(Math.round(maxL), Math.floor(lang / 3)); minL = Math.max(4, Math.round(minL));
@@ -2073,8 +2074,10 @@ function gmPeriode(b, x0, x1, y0, y1, soort, minL, maxL) {
     for (let i = 0; i < lang; i++) { let s = 0, n = 0;
       for (let j = 0; j < breed; j += stap) {
         const xx = soort === 'rij' ? x0 + j : Math.round(x0 + i + (j - breed / 2) * t), yy = soort === 'rij' ? Math.round(y0 + i + (j - breed / 2) * t) : y0 + j;
-        if (xx >= 0 && xx < b.w && yy >= 0 && yy < b.h) { s += b.v[yy * b.w + xx]; n++; } }
+        if (xx >= 0 && xx < b.w && yy >= 0 && yy < b.h) { s += V[yy * b.w + xx]; n++; } }
       p[i] = n ? s / n : 0; }
+    // Licht gladstrijken: ruis en moiré eruit, de voegen blijven.
+    { const c = Float32Array.from(p); for (let i = 2; i < lang - 2; i++) p[i] = (c[i - 2] + 2 * c[i - 1] + 3 * c[i] + 2 * c[i + 1] + c[i + 2]) / 9; }
     // Trend eraf (licht/schaduw), dan autocorrelatie.
     const q = new Float32Array(lang), r = Math.max(2, Math.round(maxL / 2)); let gem = 0;
     for (let i = 0; i < lang; i++) { let s = 0, n = 0; for (let j = Math.max(0, i - r); j <= Math.min(lang - 1, i + r); j++) { s += p[j]; n++; } q[i] = p[i] - s / n; gem += q[i]; }
@@ -2092,11 +2095,26 @@ function gmPeriode(b, x0, x1, y0, y1, soort, minL, maxL) {
   return best;
 }
 // Aantal lagen langs een staande lijn (px in beeld b): beste strook links of rechts.
+// Laaghoogte (px) uit stroken: op roodheid en op helderheid (lichte voegen), over de hele strook en per stuk.
+// Een stuk zonder stenen (natuursteen band, raam) geeft geen duidelijke herhaling en telt niet mee; de schaal uit de stukken
+// met stenen geldt voor de hele lijn. Om-en-om verband (koppen/strekken) geeft ook 2 of 3 lagen tegelijk: de afstand waar de
+// meeste uitkomsten een veelvoud van zijn, wint.
+function gmRijPer(b, stroken) {
+  const uit = [];
+  for (const [x0, x1, y0, y1] of stroken) { const L = y1 - y0, stukken = [[y0, y1]]; if (L > b.h * .12) for (let i = 0; i < 3; i++) stukken.push([y0 + L * i / 3, y0 + L * (i + 1) / 3]);
+    for (const [a, z] of stukken) for (const k of ['v', 'y']) { const r = gmPeriode(b, x0, x1, a, z, 'rij', 8, Math.min(b.h / 8, 140), k); if (r && r.score >= .35) uit.push(r); } }
+  if (!uit.length) return null;
+  const veelvoud = (c, d) => { const k = Math.round(d.per / c.per); return k >= 1 && k <= 3 && Math.abs(d.per / c.per - k) < .08 * k; };
+  let best = null;
+  for (const c of uit) { const steun = uit.filter(d => veelvoud(c, d)).reduce((t, d) => t + d.score, 0);
+    if (!best || steun > best.steun + 1e-9 || (Math.abs(steun - best.steun) < 1e-9 && c.per < best.c.per)) best = { c, steun }; }
+  const groep = uit.filter(d => Math.abs(d.per / best.c.per - 1) < .08), w = groep.reduce((t, d) => t + d.score, 0);
+  return { per: groep.reduce((t, d) => t + d.per * d.score, 0) / w, score: Math.max(...groep.map(d => d.score)) };
+}
 function gmLagenLangs(b, X1, X2, Y1, Y2) {
-  const d = b.w * .012, ws = b.w * .05; let res = null;
-  for (const k of [1, 3]) for (const [x0, x1] of [[X1 - d * k - ws, X1 - d * k], [X2 + d * k, X2 + d * k + ws]]) {
-    const r = gmPeriode(b, x0, x1, Y1, Y2, 'rij', 5, Math.min(b.h / 8, 140)); if (r && r.score >= .35 && (!res || r.score > res.score)) res = { ...r, n: (Y2 - Y1) / r.per }; }
-  return res;
+  const d = b.w * .012, ws = b.w * .05;
+  const r = gmRijPer(b, [1, 3].flatMap(k => [[X1 - d * k - ws, X1 - d * k, Y1, Y2], [X2 + d * k, X2 + d * k + ws, Y1, Y2]]));
+  return r && { ...r, n: (Y2 - Y1) / r.per };
 }
 // Maat van een lijn uit de stenen ernaast: staand = lagen × laagmaat, liggend = stenen × steenmaat.
 function gmLijnStenen(s, f, l) {
@@ -2105,17 +2123,21 @@ function gmLijnStenen(s, f, l) {
   if (b.per.has(key)) { const r = b.per.get(key); return r && { ...r, m: Math.round((r.n * (r.liggend ? st.l : st.h))) / 100 }; }
   const X1 = Math.min(l.x1, l.x2) * b.w, X2 = Math.max(l.x1, l.x2) * b.w, Y1 = Math.min(l.y1, l.y2) * b.h, Y2 = Math.max(l.y1, l.y2) * b.h;
   const liggend = l.richting === 'horizontaal', d = b.w * .012, ws = b.w * .05, hs = b.h * .07;
-  // Stroken naast de lijn, op twee afstanden (een vensterbank of latei ertussen mag).
-  const vakken = [1, 3].flatMap(k => [[X1, X2, Y2 + d * k, Y2 + d * k + hs], [X1, X2, Y1 - d * k - hs, Y1 - d * k]]);
+  // Stroken boven en onder de lijn, steeds verder weg (een brede vensterbank of latei ertussen mag).
+  const vakken = [1, 3, 6, 10].flatMap(k => [[X1, X2, Y2 + d * k, Y2 + d * k + hs], [X1, X2, Y1 - d * k - hs, Y1 - d * k]]);
   let res = null;
   if (!liggend) { const r = gmLagenLangs(b, X1, X2, Y1, Y2); if (r) res = { score: r.score, per: r.per, n: r.n, liggend }; }
-  else for (const [x0, x1, y0, y1] of vakken) {
-    const rij = gmPeriode(b, x0, x1, y0, y1, 'rij', 5, Math.min(b.h / 8, 140)); if (!rij || rij.score < .35) continue;
-    if (!liggend) { if (!res || rij.score > res.score) res = { score: rij.score, per: rij.per, n: (Y2 - Y1) / rij.per, liggend }; continue; }
-    // Steenlengte: in de buurt van laag × (steen/laag); de halve steen (halfsteens verband) valt zo buiten het zoekgebied.
-    const verw = rij.per * st.l / st.h, kol = gmPeriode(b, x0, x1, y0, y1, 'kol', verw * .62, verw * 1.5);
-    if (!kol || kol.score < .4) continue;
-    const sc = Math.min(rij.score, kol.score + .15); if (!res || sc > res.score) res = { score: sc, per: kol.per, n: (X2 - X1) / kol.per, liggend };
+  // Laaghoogte voor een liggende lijn: uit alle stroken samen, ook naast de uiteinden van de lijn (daar zitten vaak hele lagen).
+  const rijG = liggend && gmRijPer(b, [...vakken, [X1 - ws, X1 - d, Y1 - hs, Y2 + hs], [X2 + d, X2 + ws, Y1 - hs, Y2 + hs]]);
+  if (liggend && rijG) for (const [x0, x1, y0, y1] of vakken) {
+    const rl = gmRijPer(b, [[x0, x1, y0, y1]]), rij = rl && Math.abs(rl.per / rijG.per - 1) < .12 ? rl : rijG;
+    // Eerst de breedte in lagen (zelfde schaal als de hoogte), dan de stootvoegen tellen. Koppen of halfsteens verband geven
+    // een halve steen: we nemen de uitleg (hele of halve steen) die het best past bij de schatting uit de lagen.
+    const iso = (X2 - X1) / rij.per * st.h / st.l, verw = rij.per * st.l / st.h;
+    const kol = ['v', 'y'].map(k => gmPeriode(b, x0, x1, y0, y1, 'kol', verw * .4, verw * 1.5, k)).filter(k => k && k.score >= .4).sort((a, c) => c.score - a.score)[0];
+    const keuze = kol && [(X2 - X1) / kol.per, (X2 - X1) / kol.per / 2].sort((a, c) => Math.abs(a / iso - 1) - Math.abs(c / iso - 1))[0];
+    const r = keuze && Math.abs(keuze / iso - 1) < .3 ? { score: Math.min(rij.score, kol.score + .15), n: keuze, liggend } : { score: rij.score - .1, n: iso, liggend, iso: true, lagen: (X2 - X1) / rij.per };
+    if (!res || r.score > res.score) res = r;
   }
   b.per.set(key, res);
   return res && { ...res, m: Math.round(res.n * (liggend ? st.l : st.h)) / 100 };
@@ -4200,7 +4222,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.25-13';
+const APP_VERSIE = '2026.11.25-14';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
