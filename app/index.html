@@ -2034,6 +2034,7 @@ function gmLijnRef(s, f, l) {
 // Lijnen zonder maat op deze foto: meteen de maat uit de referentie (≈). Kan dat niet, dan één keer zeggen hoe wel.
 function gmLijnenVullen(f) {
   if (!V?.s || !f) return; let n = 0, open = 0;
+  ondLegeWeg(f);
   // Eerst de kozijnen, dan de delen erin (die rekenen met het kozijn).
   const ond = ondVan(f), diep = l => ond.find(o => o.letter === l.kozijn)?.in ? 1 : 0;
   for (const l of [...f.lijnen].sort((a, b) => diep(a) - diep(b))) { if (l.ref || l.hoek || l.lagen10 || l.vlakRef || l.aftrek) continue;
@@ -2266,6 +2267,17 @@ function anderDelenHtml(g, o, key, kort) {
 const anderDelenTeller = (g, o, key) => { const n = ondKinderen(g, o.letter).length; return n ? ` · <span data-anderopen="${key}" style="color:var(--gold);cursor:pointer;text-decoration:underline">${V?.anderOpen === key ? '▾' : '▸'} ${n} ${n === 1 ? 'deel' : 'delen'}</span>` : ''; };
 function anderKoppel(vx) {
   vx.querySelectorAll('[data-anderopen]:not([data-anderopen=""])').forEach(x => x.onclick = e => { e.stopPropagation(); e.preventDefault(); V.anderOpen = V.anderOpen === x.dataset.anderopen ? null : x.dataset.anderopen; tekenUI(); });
+}
+
+// Lege onderdelen (geen lijnen, geen code, geen delen), bijv. oude "Kozijn begane grond" zonder maten: weg uit de lijst.
+// Wat je in deze sessie zelf aanmaakt blijft staan tot je er lijnen bij trekt. Een kopie blijft bewaard in f.legeOnd.
+const GM_NIEUW_OND = new Set();
+function ondLegeWeg(f) {
+  const ond = f.onderdelen; if (!ond?.length) return;
+  const leeg = o => !o.in && !GM_NIEUW_OND.has(`${f.id}|${o.letter}`) && o.letter !== V?.ond && !(o.codes || []).some(c => c?.code) && !o.tel && !o.wand
+    && !ond.some(x => x.in === o.letter) && !f.lijnen.some(l => l.kozijn === o.letter) && !(f.labels || []).some(l => l.tekst === o.letter);
+  const weg = ond.filter(leeg); if (!weg.length) return;
+  f.legeOnd = [...(f.legeOnd || []), ...weg.map(o => ({ ...o }))]; f.onderdelen = ond.filter(o => !weg.includes(o)); bewaar();
 }
 
 // ---------- full-screen foto met maatlijnen ----------
@@ -4353,7 +4365,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.25-23';
+const APP_VERSIE = '2026.11.25-24';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
@@ -6088,6 +6100,7 @@ function maakRef(f, L) {
   if (f.ref && (f.ref.L || null) === L) f.ref.L = null;
 }
 function nieuwOnderdeel(f, L, naam, behalve = []) {
+  GM_NIEUW_OND.add(`${f.id}|${L}`);
   f.onderdelen ??= [];
   // Een nieuw onderdeel krijgt nooit vanzelf lijnen: die trek je zelf. Losse lasermaten die al op de foto stonden
   // worden referentielijnen (tellen niet mee, geven de schaal). Het eerste onderdeel krijgt wel de code die al gekozen was.
