@@ -2191,6 +2191,20 @@ function ondNaarTopcalc(s, f, o) {
 }
 function ondInTopcalc(s, f, o) { return (s.tc || []).some(r => r.ond?.startsWith(`${f.id}|${o.letter}|`)); }
 
+// Voorstel in de codekiezer voor een deel in een kozijn: de meest logische code bij de soort (vast raam, draairaam…)
+// en het materiaal van het kozijn eromheen (hout 0xx, metaal 1xx, aluminium 103/106). Alleen voorgesteld, niet gekozen.
+const DEEL_CODES = {
+  hout: { 'Vast raam': '005 A', Draairaam: '005 D', Klepraam: '005 E', Valraam: '005 E', Paneel: '012 A', Deur: '007 N' },
+  metaal: { 'Vast raam': '105 A', Draairaam: '105 C', Klepraam: '105 E', Valraam: '105 E', Paneel: '112 A', Deur: '107 N' },
+  alu: { 'Vast raam': '106 A', Draairaam: '106 C', Paneel: '112 A', Deur: '107 N' } };
+function deelStandaardCode(soort, b, zelf) {
+  if (b !== 'ONB' || !zelf?.in) return '';
+  let ouder = null; for (const f of V?.s?.fotos || []) if (ondVan(f).includes(zelf)) ouder = ondVan(f).find(x => x.letter === zelf.in);
+  const oc = String(ouder?.codes?.[0]?.code || '').trim().split(/\s+/)[0];
+  const mat = /^10[36]$/.test(oc) ? 'alu' : /^1\d\d$/.test(oc) ? 'metaal' : 'hout';
+  const c = DEEL_CODES[mat][soort] || ''; return c && zoekCode(c) ? c : '';
+}
+
 // ---------- full-screen foto met maatlijnen ----------
 let V = null; // { p, s, i, modus, sel, el, maat, nieuw, greep }
 function openViewer(p, s, i) {
@@ -4273,7 +4287,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.25-17';
+const APP_VERSIE = '2026.11.25-18';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
@@ -5313,7 +5327,7 @@ function codeKiezer(titel, huidig = '', metStandaard = false, bestek = null) {
       const nieuw = !z && /^([0-9A-Z]{3})[\s\-./]+([0-9A-Z]{1,3})$/i.exec(q);
       info.innerHTML = z ? `<span style="color:var(--gold)">${esc(z[0].naam)}, ${esc(z[1].naam)} (${z[1].eenheid.toLowerCase()})</span>`
         : nieuw ? `<span style="color:var(--muted)">${esc(q.toUpperCase())} staat niet in je lijst.</span> <button class="ghost" id="ckNieuw" style="color:var(--gold);padding:0">Toevoegen</button>` : '';
-      ok.disabled = !z;
+      ok.disabled = !z && !(huidigCode && !q);
       if (nieuw) $('#ckNieuw', d).onclick = () => nieuweCode(nieuw[1].toUpperCase(), nieuw[2].toUpperCase());
       if (q) {
         const r = zoekCodes(q).filter(x => !filter || codePastBij(x.o.code, bestek));
@@ -5341,7 +5355,7 @@ function codeKiezer(titel, huidig = '', metStandaard = false, bestek = null) {
       lijst.querySelectorAll('[data-terug]').forEach(b => b.onclick = () => { blad = b.dataset.terug === 'groep' ? TC_GROEPEN.find(g => blad >= g[0] && blad <= g[1]) : null; toon(); lijst.scrollTop = 0; });
     };
     toon(); inp.oninput = () => { blad = null; toon(); }; inp.focus(); inp.select();
-    ok.onclick = () => kies(inp.value);
+    ok.onclick = () => kies(inp.value.trim() || huidigCode);
     inp.onkeydown = e => { if (e.key === 'Enter') kies(inp.value); };
     $('#ckX', d).onclick = () => { sluit(d); klaar(null); };
     if (metStandaard) $('#ckSt', d).onclick = () => { sluit(d); klaar(''); };
@@ -6633,7 +6647,7 @@ function deelLijnStart(L) {
 function vorigeDeelCode(soort, b, zelf = null) {
   let c = '';
   for (const f of V?.s?.fotos || []) for (const o of ondVan(f)) if (o !== zelf && o.in && o.codes?.[0]?.code && soortDeel(o) === soort && bestekVan(o, o.codes[0]) === b) c = o.codes[0].code;
-  return c;
+  return c || deelStandaardCode(soort, b, zelf);
 }
 const soortDeel = o => String(o.naam || '').replace(/ in [A-Z]+\b.*$/, '') || 'Deel';
 const telStart = (deel = null) => { V.telDeel = deel; V.hoeken = { soort: 'tel', p: [] }; V.telNu = null; V.sel = null; V.modus = 'bekijken'; V.alles = true; tekenUI(); };
