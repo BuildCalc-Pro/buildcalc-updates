@@ -2143,6 +2143,21 @@ function gmLijnStenen(s, f, l) {
   return res && { ...res, m: Math.round(res.n * (liggend ? st.l : st.h)) / 100 };
 }
 
+// Onderdeel (kozijn) met zijn delen naar de Topcalc-lijst, alleen op de knop "+ Naar Topcalc".
+// Eén regel per deel (vast raam, draairaam…), aantal = aantal kozijnen × aantal van dat deel. Opnieuw drukken werkt de regels bij.
+function ondNaarTopcalc(s, f, o) {
+  const lijst = tcLijst(s), delen = [o, ...ondKinderen(f, o.letter)], uit = [];
+  for (const d of delen) ((d.codes || []).some(c => c?.code) ? d.codes.filter(c => c?.code) : [{ code: '' }]).forEach((c, ci) => {
+    const sleutel = `${f.id}|${d.letter}|${ci}`, rij = tcVanOnderdeel(f, d, c);
+    if (d === o && delen.length > 1 && !rij.b && !rij.h && !c.code) return;   // kozijn zonder maten en code: alleen de delen
+    let r = lijst.find(x => x.ond === sleutel);
+    if (!r) { r = { id: nieuwId(), n: '1', ond: sleutel, foto: f.id }; lijst.push(r); }
+    Object.assign(r, rij); if (rij.n == null) r.n = String(d.aantal || 1); uit.push(r);
+  });
+  bewaar(); return uit;
+}
+function ondInTopcalc(s, f, o) { return (s.tc || []).some(r => r.ond?.startsWith(`${f.id}|${o.letter}|`)); }
+
 // ---------- full-screen foto met maatlijnen ----------
 let V = null; // { p, s, i, modus, sel, el, maat, nieuw, greep }
 function openViewer(p, s, i) {
@@ -2496,9 +2511,12 @@ function tekenUI2() {
       const c = await kiesBestekCode(b, `${b}-code voor ${naam}`, oud); if (!c) return;
       o.codes ??= []; o.codes[i] = { code: c, bestek: b }; if (!i) sjCodeOnthoud(o);
       const ook = !i && !oud ? codeNaarGelijke(f, o, c, b) : []; bewaar(); tekenUI();
-      toast(`${naam} ${c} staat nu in de Topcalc-lijst van ${V.s.naam}, bij ${b} (${BESTEKKEN[b][0].toLowerCase()}).${gelijkeTekst(ook)}`, ook.length ? 6000 : undefined); };
+      toast(`${naam}: code ${c} gekozen (${b}). Naar de lijst met "+ Naar Topcalc" in dit menu.`, 5000); };
     const anders = BESTEK_KNOPPEN.filter(b => !(o.codes || []).some(c => bestekVan(o, c) === b) && (o.codes?.length || b !== ob)), n0 = o.codes?.length || 0;
-    menu([['ruler', o.codes?.length ? `Code wijzigen (${bestekVan(o, o.codes[0])} ${o.codes[0].code})` : `${ob}-code kiezen`, () => kiesCode(0)],
+    const naarTc = () => { const ko = o.in ? ond.find(x => x.letter === o.in) || o : o, al = ondInTopcalc(V.s, f, ko), rr = ondNaarTopcalc(V.s, f, ko); tekenUI();
+      const zonder = rr.filter(r => !r.b || !r.h).length;
+      toast(`${rr.length} regel${rr.length === 1 ? '' : 's'} van ${ko.letter}${ko.naam ? ' ' + ko.naam : ''} ${al ? 'bijgewerkt in' : 'staan nu in'} de Topcalc-lijst van ${V.s.naam}${(ko.aantal || 1) > 1 ? ` (× ${ko.aantal})` : ''}.${zonder ? ` ${zonder} zonder breedte of hoogte: vul die aan.` : ''}`, 6000); };
+    menu([['plus', `${ondInTopcalc(V.s, f, o.in ? ond.find(x => x.letter === o.in) || o : o) ? 'Topcalc bijwerken' : 'Naar Topcalc'} (${o.in || o.letter}${ondKinderen(f, o.in || o.letter).length ? ' met delen' : ''})`, naarTc], ['ruler', o.codes?.length ? `Code wijzigen (${bestekVan(o, o.codes[0])} ${o.codes[0].code})` : `${ob}-code kiezen`, () => kiesCode(0)],
       ...(o.codes?.length ? [['plus', `Nog een ${ob}-code (zelfde maten)`, () => kiesCode(n0, ob)]] : []),
       ...(anders.includes('RDO') ? [['plus', 'Ook RDO reinigen (zelfde maten)', () => kiesCode(n0, 'RDO')]] : []),
       ...(anders.filter(b => b !== 'RDO').length ? [['plus', 'Ook ander bestek (zelfde maten)', () => menu(anders.filter(b => b !== 'RDO').map(b => ['plus', `${b} · ${BESTEKKEN[b][0]}`, () => kiesCode(n0, b)]))]] : []),
@@ -2516,7 +2534,7 @@ function tekenUI2() {
         maakRef(f, o.letter); V.ond = null; bewaar(); tekenUI();
         ongedaanToast(`De lijnen van ${o.letter} zijn nu referentielijnen. Tonen met de knop "Lasermaten".`, () => { f.lijnen = oud.lijnen; f.onderdelen = oud.ond; V.ond = o.letter; bewaar(); tekenUI(); }); }],
       ['plus', `Aantal keer (nu ${o.aantal || 1}×)`, async () => { const v = await vraagTekst(`Hoe vaak komt ${o.letter}${o.naam ? ' ' + esc(o.naam) : ''} voor?`, 'Aantal', 'Bijv. 9 (zelfde op elke verdieping)', String(o.aantal || 1)); if (v == null) return;
-        const n = Math.max(1, Math.min(999, Math.round(+String(v).replace(',', '.') || 1))); o.aantal = n; bewaar(); tekenUI(); toast(`${o.letter}${o.naam ? ' ' + o.naam : ''} telt nu ${n}× in de Topcalc-lijst.`); }],
+        const n = Math.max(1, Math.min(999, Math.round(+String(v).replace(',', '.') || 1))); o.aantal = n; bewaar(); tekenUI(); toast(`${o.letter}${o.naam ? ' ' + o.naam : ''} telt nu ${n}×. Druk op "+ Naar Topcalc" (of bijwerken) om de lijst aan te passen.`, 5000); }],
       ['plus', 'Soort wijzigen (kozijn, deur…)', () => menu(SOORTEN.map(sn => ['plus', sn, () => zetSoort(f, o, sn)]))],
       ...(!isWand(o) && ['ONB', 'ONI'].includes(ob) ? [['ruler', ob === 'ONI' ? 'Omzetten naar buiten (ONB)' : 'Omzetten naar binnen (ONI)', async () => { const nb = ob === 'ONI' ? 'ONB' : 'ONI';
         for (const x of [o, ...ondKinderen(f, o.letter)]) { const sd = String(x.naam || '').replace(/ in [A-Z]+\b.*$/, '').replace(/ \d+$/, '');
@@ -4222,7 +4240,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.25-14';
+const APP_VERSIE = '2026.11.25-15';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
