@@ -1614,12 +1614,24 @@ function gmSluit() {
 }
 // Startstand: in Referentie het bestaande kader (of een rechthoek midden-onder), in Sjabloon het eerste sjabloon.
 function gmBegin() {
-  const { s, f } = GM, r = s.gm.ref, rf = gmRefOp(s, f.id);
-  GM.draft = { p: rf ? rf.p.map(a => [...a]) : gmStartVak(.3, .55, .7, .9), B: r?.B ?? '', H: r?.H ?? '', naam: r?.naam || '', nieuw: !rf };
+  const { s, f } = GM, r = s.gm.ref, rf = gmRefOp(s, f.id), vs = gmFotoVoorstel(f);
+  const cm = l => l ? Math.round(l.maat * 100) : '';
+  // Nog geen referentie in deze map: de maten die al op de foto staan (bijv. 331 en 248) staan meteen in de vakjes,
+  // en het vak begint op de plek van die maatpijlen. Je sleept de hoeken daarna precies goed.
+  let start = gmStartVak(.3, .55, .7, .9);
+  if (!rf && vs.b && vs.h) start = gmStartVak(Math.min(vs.b.x1, vs.b.x2), Math.min(vs.h.y1, vs.h.y2), Math.max(vs.b.x1, vs.b.x2), Math.max(vs.h.y1, vs.h.y2));
+  GM.draft = { p: rf ? rf.p.map(a => [...a]) : start, B: r?.B ?? cm(vs.b), H: r?.H ?? cm(vs.h), naam: r?.naam || '', nieuw: !rf, uitFoto: !r && !!(vs.b || vs.h) };
   for (const sj of gmSjOp(s, f.id)) gmHerreken(s, sj);
   GM.sel = gmSjOp(s, f.id).at(-1)?.id || null;
 }
 const gmStartVak = (x1, y1, x2, y2) => [[x1, y1], [x2, y1], [x2, y2], [x1, y2]];
+// Maten die al op deze foto staan (gelaserd of getypt, niet uit de foto berekend). Die blijven altijd staan.
+const gmFotoMaten = f => (f.lijnen || []).filter(l => l.maat > 0 && !l.uitRef && !['foto', 'stenen', 'deel'].includes(l.bron) && ['horizontaal', 'verticaal'].includes(l.richting));
+// De langste liggende en staande maat op de foto: voorstel voor breedte en hoogte van het referentievak.
+function gmFotoVoorstel(f) {
+  const m = gmFotoMaten(f), grootst = r => m.filter(l => l.richting === r).sort((a, b) => b.maat - a.maat)[0] || null;
+  return { b: grootst('horizontaal'), h: grootst('verticaal') };
+}
 function gmSchik() {
   if (!GM?.iw) return;
   const st = $('#gmstage', GM.el).getBoundingClientRect(), rand = 14;
@@ -1661,7 +1673,9 @@ function gmTeken() {
   const W = GM.w, H = GM.h, zs = GM.z.s, svg = $('#gmsvg', GM.el);
   svg.setAttribute('viewBox', `0 0 ${W} ${H}`); svg.setAttribute('width', W); svg.setAttribute('height', H);
   const rh = 9 / zs, hit = 26 / zs, lw = 2.2 / zs, fs = 14 / zs;
-  svg.innerHTML = gmVakken().sort((a, b) => a.actief - b.actief).map(v => {
+  const maten = gmFotoMaten(GM.f).map(l => { const x1 = l.x1 * W, y1 = l.y1 * H, x2 = l.x2 * W, y2 = l.y2 * H;
+    return `<g pointer-events="none" opacity=".85"><line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#fff" stroke-width="${1.6 / zs}"/><text x="${(x1 + x2) / 2 + 4 / zs}" y="${(y1 + y2) / 2 - 4 / zs}" fill="#fff" stroke="#000" stroke-width="${3 / zs}" paint-order="stroke" font-size="${13 / zs}" font-weight="700">${Math.round(l.maat * 100)} cm</text></g>`; }).join('');
+  svg.innerHTML = maten + gmVakken().sort((a, b) => a.actief - b.actief).map(v => {
     const xy = v.p.map(([x, y]) => [x * W, y * H]), pts = xy.map(a => a.join(',')).join(' ');
     const lx = Math.min(...xy.map(a => a[0])), ly = Math.min(...xy.map(a => a[1]));
     return `<g data-vak="${v.id}"><polygon points="${pts}" fill="${v.actief ? (v.kl === '#57E0D2' ? 'rgba(87,224,210,.12)' : 'rgba(212,175,55,.14)') : 'rgba(0,0,0,0)'}" stroke="${v.kl}" stroke-width="${v.actief ? lw * 1.2 : lw * .8}" ${v.actief ? '' : `stroke-dasharray="${6 / zs} ${4 / zs}"`} data-romp="${v.id}"/>
@@ -1744,7 +1758,7 @@ function gmPaneel() {
   let h = '';
   if (modus === 'ref') {
     const d = GM.draft;
-    h = `<div class="gmuitleg">Sleep de 4 hoeken precies op de 4 <b>buitenhoeken</b> van het kozijn of de pui die je gelaserd hebt (ook als de foto scheef staat). Vul de gelaserde maat in en tik Opslaan.${elders.length ? ` <br><small>Deze referentie van ${esc(s.naam)} staat ook op foto ${elders.join(', ')}.</small>` : ''}</div>
+    h = `<div class="gmuitleg">Sleep de 4 hoeken precies op de 4 <b>buitenhoeken</b> van het kozijn of de pui die je gelaserd hebt (ook als de foto scheef staat). ${d.uitFoto ? ' De maten die al op deze foto stonden zijn ingevuld; pas ze aan als het een ander kozijn is.' : ' Vul de gelaserde maat in.'} Tik Opslaan.${gmFotoMaten(f).length > 2 ? `<br><small>Op deze foto: ${gmFotoMaten(f).map(l => `<button class="ghost" data-gmmaat="${l.richting === 'horizontaal' ? 'B' : 'H'}:${Math.round(l.maat * 100)}" style="color:var(--gold);padding:0 3px;font-size:13px">${l.richting === 'horizontaal' ? '↔' : '↕'} ${Math.round(l.maat * 100)}</button>`).join('')}</small>` : ''}${elders.length ? ` <br><small>Deze referentie van ${esc(s.naam)} staat ook op foto ${elders.join(', ')}.</small>` : ''}</div>
       <div class="gmrij"><input id="gmrnaam" placeholder="Naam, bijv. Pui beneden" value="${esc(d.naam)}" autocomplete="off" style="flex:1;min-width:0;padding:8px;font:inherit;color:var(--text);background:var(--surface-high);border:1px solid var(--surface-high);border-radius:8px"></div>
       <div class="gmrij"><label>Breedte</label>${gmInp('gmrb', '5.5em', d.B, 'cm')}<span>×</span><label>Hoogte</label>${gmInp('gmrh', '5.5em', d.H, 'cm')}<span>cm</span></div>
       <div class="gmrij"><button class="gmknop hoofd" id="gmropslaan">Opslaan</button>${rf ? '<button class="gmknop" id="gmrweg" style="color:var(--danger)">Weghalen van deze foto</button>' : ''}${opKantoorNu() && rf ? '<button class="gmknop" id="gmnaarsj">Naar sjabloon</button>' : ''}</div>`;
@@ -1774,6 +1788,7 @@ function gmPaneel() {
     const d = GM.draft;
     $('#gmrnaam', pn).oninput = e => d.naam = e.target.value;
     $('#gmrb', pn).oninput = e => d.B = e.target.value; $('#gmrh', pn).oninput = e => d.H = e.target.value;
+    pn.querySelectorAll('[data-gmmaat]').forEach(b => b.onclick = () => { const [k, v] = b.dataset.gmmaat.split(':'); d[k] = v; gmTeken(); });
     knop('gmropslaan', () => {
       const B = gmCm(d.B), H = gmCm(d.H);
       if (!B || !H) return toast('Vul de gelaserde breedte en hoogte in (cm).');
@@ -1840,7 +1855,7 @@ function openViewer(p, s, i) {
     <div class="vbottom"><div class="status" id="vstatus"></div><div id="vextra"></div><div class="modes" id="vmodes">
       <button data-m="bekijken">${ic('hand')}Bekijken</button><button data-m="lijn">${ic('ruler')}Lijn</button><button data-m="opmerking">${ic('ballon')}Opmerking</button><button id="vgref">${ic('doel')}Referentie</button><button id="vgsj">${ic('ruler')}Sjabloon</button></div></div>`;
   document.body.appendChild(el);
-  V = { p, s, i, modus: 'bekijken', sel: null, el, zoom: { s: 1, tx: 0, ty: 0 } };
+  V = { p, s, i, modus: 'bekijken', sel: null, el, zoom: { s: 1, tx: 0, ty: 0 }, refTonen: true };
   if (p.simpel) $('#vmic', el).hidden = true; // simpele projecten: geen spraak
   Laser.opMeting = laserOpLijn;
   $('#vsluit', el).onclick = sluitViewer;
@@ -3890,7 +3905,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.24-16';
+const APP_VERSIE = '2026.11.25-1';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
