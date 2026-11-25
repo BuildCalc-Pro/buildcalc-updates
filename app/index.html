@@ -1583,9 +1583,10 @@ function gmMaat(s, fid, p, iw, ih) {
 const gmFoutTekst = () => '';
 // Stenen tellen (optioneel, per sjabloon): hoogte = aantal lagen × laagmaat, breedte = aantal stenen × steenmaat (per gevelmap).
 // Telt maar één richting? Dan de andere richting met dezelfde schaal (verhouding van de referentie, anders van het kader zelf).
-const gmSteen = s => ({ h: s.gm?.steen?.h > 0 ? s.gm.steen.h : 6.25, l: s.gm?.steen?.l > 0 ? s.gm.steen.l : 22 });
+// Eigen steenmaat per gevelmap (zelf opgemeten op de locatie). Niet ingevuld = niet met stenen rekenen.
+const gmSteen = s => { const st = s?.gm?.steen; return st?.zelf ? { h: st.h > 0 ? st.h : null, l: st.l > 0 ? st.l : null } : { h: null, l: null }; };
 function gmSteenMaat(s, sj, m) {
-  const st = gmSteen(s), H = sj.lagen > 0 ? sj.lagen * st.h : null, B = sj.stenen > 0 ? sj.stenen * st.l : null;
+  const st = gmSteen(s), H = sj.lagen > 0 && st.h ? sj.lagen * st.h : null, B = sj.stenen > 0 && st.l ? sj.stenen * st.l : null;
   if (!H && !B) return null;
   const [w, h] = m ? [m.B, m.H] : gmZijden(gmPx(sj.p, sj.iw, sj.ih));
   const b = B ?? H * w / h, hh = H ?? B * h / w;
@@ -1862,8 +1863,8 @@ function gmPaneel() {
     const steenTekst = sc ? `Met stenen: ${sj.lagen > 0 ? `${gmNl(sj.lagen)} lagen × ${gmNl(st.h)} = <b>${sc.H} hoog</b>` : `hoogte ${sc.H} (zelfde schaal)`}, ${sj.stenen > 0 ? `${gmNl(sj.stenen)} stenen × ${gmNl(st.l)} = <b>${sc.B} breed</b>` : `breedte ${sc.B} (zelfde schaal)`}${sj.refCalc ? ` · ${sj.refCalc.ouder ? 'kozijn eromheen' : 'referentie'} gaf ${sj.refCalc.B} × ${sj.refCalc.H}` : ''}` : '';
     const steenBlok = !sj ? '' : !steenOpen ? `<div class="gmrij"><button class="ghost" id="gmsteenopen" style="color:var(--gold);font-size:13px;padding:0">+ Stenen tellen (optioneel, vaak nauwkeuriger)</button></div>` :
       `<div class="gmsteen"><div class="gmrij"><label>Lagen</label>${gmInp('gmlagen', '3.6em', sj.lagen > 0 ? gmNl(sj.lagen) : '', 'hoog')}<label>Stenen</label>${gmInp('gmstenen', '3.6em', sj.stenen > 0 ? gmNl(sj.stenen) : '', 'breed')}
-        <small style="color:var(--muted)">laag ${gmInp('gmlh', '3.4em', gmNl(st.h))} steen+voeg ${gmInp('gmsl', '3.4em', gmNl(st.l))} cm</small></div>
-        <div class="gmklein">Steenformaat ${esc(s.naam)}: <button class="ghost" id="gmformaat" style="color:var(--gold);padding:0;font-size:13px;text-decoration:underline">${esc(gmFormaatNaam(s))}</button></div>
+        <small style="color:var(--muted)">laag ${gmInp('gmlh', '3.4em', st.h ? gmNl(st.h) : '', 'cm')} steen+voeg ${gmInp('gmsl', '3.4em', st.l ? gmNl(st.l) : '', 'cm')} cm</small></div>
+        <div class="gmklein">Laag (steen + lintvoeg) en steen (lengte + stootvoeg) meet je zelf op deze locatie; ze gelden voor heel ${esc(s.naam)}.</div>
         <div class="gmklein">Tel de lagen naast het kozijn van onderkant tot bovenkant (hoogte) en de stenen erboven of eronder van links naar rechts (breedte). Halve mag: 23,5. Eén van de twee is genoeg. Laag- en steenmaat gelden voor heel ${esc(s.naam)}.</div></div>`;
     const zelfde = rij && rij.b === String(sj.B) && rij.h === String(sj.H) && rij.oms === (sj.naam || 'Sjabloon');
     const chips = `<div class="gmchips">${lijst.map(x => `<button class="ondchip${x.id === GM.sel ? ' on' : ''}" data-gmsj="${x.id}">${esc(x.naam || 'Sjabloon')} <b>${x.B ?? '?'}×${x.H ?? '?'}</b>${gmTcRij(s, x) ? ' ✓' : ''}</button>`).join('')}<button class="ondchip plus" id="gmnieuw">+ Sjabloon</button></div>`;
@@ -1950,13 +1951,12 @@ function gmPaneel() {
     const v = gmCm(e.target.value); if (!v) { e.target.value = sj[k] ?? ''; return; }
     sj[k] = v; sj[hk] = !sj.calc || v !== sj.calc[k]; bewaar(); setTimeout(() => GM && gmTeken(), 250); };
   knop('gmsteenopen', () => { GM.steenOpen = true; gmTeken(); });
-  knop('gmformaat', () => gmFormaatKiezen(s, () => GM && gmTeken()));
   // Stenen tellen: aantallen per sjabloon, laag- en steenmaat per gevelmap. Leeg = niet gebruiken.
   for (const [id, k] of [['gmlagen', 'lagen'], ['gmstenen', 'stenen']]) { const i = $('#' + id, pn); if (i) { i.inputMode = 'decimal'; i.onchange = e => {
     const v = gmGetal(e.target.value); if (v) sj[k] = v; else delete sj[k];
     gmHerreken(s, sj); bewaar(); setTimeout(() => GM && gmTeken(), 250); }; } }
   for (const [id, k] of [['gmlh', 'h'], ['gmsl', 'l']]) { const i = $('#' + id, pn); if (i) { i.inputMode = 'decimal'; i.onchange = e => {
-    const v = gmGetal(e.target.value), g = gmVan(s); g.steen = { ...gmSteen(s), zelf: true }; if (v) g.steen[k] = v;
+    const v = gmGetal(e.target.value), g = gmVan(s); g.steen = { ...gmSteen(s), zelf: true }; if (v) g.steen[k] = v; else delete g.steen[k];
     for (const x of g.sj) gmHerreken(s, x); bewaar(); setTimeout(() => GM && gmTeken(), 250); }; } }
   knop('gmterug', () => { delete sj.handB; delete sj.handH; gmHerreken(s, sj); bewaar(); gmTeken(); });
   knop('gmtc', () => {
@@ -1999,8 +1999,8 @@ function gmLijnBron(s, f, l) {
   if (!s || !f || !l || !s.fotos?.includes(f) || !['horizontaal', 'verticaal'].includes(l.richting)) return null;
   const ou = gmLijnOuder(f, l); if (ou) return ou;
   // Stenen zichtbaar naast de lijn? Dan automatisch tellen. Anders de gelaserde referentie van beneden.
-  const st = gmLijnStenen(s, f, l), sf = gmSteen(s);
-  if (st && st.m > 0 && st.m < 100) return { m: st.m, stenen: true, tekst: `${st.liggend ? `${gmNl(Math.round(st.n * 10) / 10)} stenen × ${gmNl(sf.l)}` : `${gmNl(Math.round(st.n * 10) / 10)} lagen × ${gmNl(sf.h)}`} cm, automatisch geteld naast de lijn (${gmFormaatNaam(s)})` };
+  const sf = gmSteen(s), st = (l.richting === 'horizontaal' ? sf.h && sf.l : sf.h) ? gmLijnStenen(s, f, l) : null;
+  if (st && st.m > 0 && st.m < 100) return { m: st.m, stenen: true, tekst: `${st.liggend ? `${gmNl(Math.round(st.n * 10) / 10)} stenen × ${gmNl(sf.l)}` : `${gmNl(Math.round(st.n * 10) / 10)} lagen × ${gmNl(sf.h)}`} cm, automatisch geteld naast de lijn (jouw steenmaat: ${gmSteenTekst(s)})` };
   const m = gmLijnRef(s, f, l); return m != null ? { m, tekst: `Berekend uit de referentie van ${s.naam} (${s.gm.ref.B} × ${s.gm.ref.H} cm)` } : null;
 }
 function gmLijnRef(s, f, l) {
@@ -2016,7 +2016,7 @@ function gmLijnRef(s, f, l) {
 }
 // Lijnen zonder maat op deze foto: meteen de maat uit de referentie (≈). Kan dat niet, dan één keer zeggen hoe wel.
 function gmLijnenVullen(f) {
-  if (!V?.s || !f) return; let n = 0, open = 0; gmIjk(V.s);
+  if (!V?.s || !f) return; let n = 0, open = 0;
   // Eerst de kozijnen, dan de delen erin (die rekenen met het kozijn).
   const ond = ondVan(f), diep = l => ond.find(o => o.letter === l.kozijn)?.in ? 1 : 0;
   for (const l of [...f.lijnen].sort((a, b) => diep(a) - diep(b))) { if (l.ref || l.hoek || l.lagen10 || l.vlakRef || l.aftrek) continue;
@@ -2030,23 +2030,20 @@ function gmLijnenVullen(f) {
 }
 
 // ---------- Stenen automatisch tellen langs een lijn ----------
-// Steenformaat per gevelmap: laag = steenhoogte + lintvoeg (12,5 mm), steen = steenlengte + stootvoeg (10 mm).
-const GM_FORMATEN = [
-  ['Waalformaat', '210 × 100 × 50', 6.25, 22], ['Waaldikformaat', '210 × 100 × 65', 7.75, 22], ['Dikformaat', '210 × 100 × 54', 6.65, 22],
-  ['Vechtformaat', '210 × 100 × 40', 5.25, 22], ['Hilversums formaat', '240 × 90 × 40', 5.25, 25]];
-const gmFormaatNaam = s => { const st = gmSteen(s), f = GM_FORMATEN.find(x => Math.abs(x[2] - st.h) < .01 && Math.abs(x[3] - st.l) < .01);
-  const ijk = s.gm?.steen?.ijk && !s.gm.steen.zelf && !s.gm.steen.ijk.mislukt ? `, geijkt: ${gmNl(s.gm.steen.ijk.n)} lagen naast de referentie = ${s.gm.ref?.H} cm` : '';
-  return (f ? `${f[0]} (${f[1]})` : `eigen formaat (laag ${gmNl(st.h)}, steen ${gmNl(st.l)} cm)`) + ijk; };
-function gmFormaatKiezen(s, klaar) {
-  const zet = (h, l) => { const g = gmVan(s); g.steen = { h, l, zelf: true }; for (const x of g.sj) gmHerreken(s, x); bewaar(); klaar?.(); };
-  menu([...GM_FORMATEN.map(([n, m, h, l]) => ['plus', `${n} <small style="color:var(--muted)">${m} · laag ${gmNl(h)} cm</small>`, () => zet(h, l)]),
-    ['edit', 'Eigen maat…', () => { const st = gmSteen(s);
-      const d = dialoog(`<h2>Eigen steenformaat</h2><div style="color:var(--muted);font-size:13px">Laag = steenhoogte + lintvoeg. Steen = steenlengte + stootvoeg. In cm.</div>
-        <div class="gmrij" style="margin-top:10px"><label>Laag</label><input id="gfh" inputmode="decimal" value="${gmNl(st.h)}" style="width:5em"><label>Steen</label><input id="gfl" inputmode="decimal" value="${gmNl(st.l)}" style="width:5em"><span>cm</span></div>
-        <div class="actions"><button id="nee">Annuleren</button><button id="ja" class="primary">Opslaan</button></div>`);
-      $('#nee', d).onclick = () => sluit(d);
-      $('#ja', d).onclick = () => { const h = gmGetal($('#gfh', d).value), l = gmGetal($('#gfl', d).value); if (!h || !l) return toast('Vul laag en steen in (cm).'); sluit(d); zet(h, l); }; }]]);
+// Eigen steenmaat invullen (per gevelmap): laag = steenhoogte + lintvoeg, steen = steenlengte + stootvoeg, in cm.
+const gmSteenTekst = s => { const st = gmSteen(s); return st.h || st.l ? `laag ${st.h ? gmNl(st.h) : '?'} cm, steen ${st.l ? gmNl(st.l) : '?'} cm` : 'nog niet ingevuld'; };
+function gmSteenInvullen(s, klaar) {
+  const st = gmSteen(s);
+  const d = dialoog(`<h2>Steenmaat ${esc(s.naam)}</h2><div style="color:var(--muted);font-size:13px">Zelf opgemeten op deze locatie. Laag = steenhoogte + lintvoeg. Steen = steenlengte + stootvoeg. In cm, bijv. 6,25 en 22.</div>
+    <div class="gmrij" style="margin-top:10px"><label>Laag</label><input id="gfh" inputmode="decimal" value="${st.h ? gmNl(st.h) : ''}" placeholder="cm" style="width:5em"><label>Steen</label><input id="gfl" inputmode="decimal" value="${st.l ? gmNl(st.l) : ''}" placeholder="cm" style="width:5em"><span>cm</span></div>
+    <div class="actions"><button id="nee">Annuleren</button><button id="ja" class="primary">Opslaan</button></div>`);
+  $('#nee', d).onclick = () => sluit(d);
+  $('#ja', d).onclick = () => { const h = gmGetal($('#gfh', d).value), l = gmGetal($('#gfl', d).value);
+    if (!h && !l) return toast('Vul de laag en/of de steen in (cm).'); sluit(d);
+    const g = gmVan(s); g.steen = { zelf: true, ...(h ? { h } : {}), ...(l ? { l } : {}) }; for (const x of g.sj) gmHerreken(s, x); bewaar(); klaar?.(); };
 }
+// Regel onder een lijn: welke steenmaat geldt, met knop om hem in te vullen.
+const gmSteenRij = s => `<div style="font-size:12px;padding:2px 4px">Steenmaat ${esc(s.naam)}: <button class="ghost" id="gmsteenl" style="color:var(--gold);padding:0;font-size:12px;text-decoration:underline">${esc(gmSteenTekst(s))}</button>${gmSteen(s).h ? '' : ' <span style="color:var(--muted)">(vul in, dan rekent de app de maat uit de stenen)</span>'}</div>`;
 // Roodheid per pixel (steen hoog, voeg laag) van de foto in de viewer, op max. 1600 px.
 let GM_BEELD = null;
 function gmBeeld(f) {
@@ -2100,27 +2097,6 @@ function gmLagenLangs(b, X1, X2, Y1, Y2) {
   for (const k of [1, 3]) for (const [x0, x1] of [[X1 - d * k - ws, X1 - d * k], [X2 + d * k, X2 + d * k + ws]]) {
     const r = gmPeriode(b, x0, x1, Y1, Y2, 'rij', 5, Math.min(b.h / 8, 140)); if (r && r.score >= .35 && (!res || r.score > res.score)) res = { ...r, n: (Y2 - Y1) / r.per }; }
   return res;
-}
-// Steenformaat ijken met de gelaserde referentie: lagen naast het referentiekader tellen, laag = gelaserde hoogte / lagen.
-// Daarna het dichtstbijzijnde standaardformaat. Alleen zolang je zelf geen formaat hebt gekozen.
-let GM_IJK = null;
-async function gmIjk(s) {
-  const r = s?.gm?.ref, st = s?.gm?.steen; if (!gmRefKlaar(s) || st?.zelf) return;
-  const fid = Object.keys(r.fotos).find(id => s.fotos.some(x => x.id === id)), rf = r.fotos[fid], sleutel = JSON.stringify([fid, rf.p, r.B, r.H]);
-  if (st?.ijk?.sleutel === sleutel || GM_IJK === sleutel) return; GM_IJK = sleutel;
-  try {
-    const url = await fotoUrl(fid); if (!url) return;
-    const img = new Image(); img.src = url; await img.decode();
-    const b = gmBeeldVan(img, fid); if (!b) return;
-    const q = hoekVolgorde(rf.p, rf.iw, rf.ih), x = (q[0][0] + q[3][0]) / 2 * b.w, x2 = (q[1][0] + q[2][0]) / 2 * b.w;
-    const kant = [gmLagenLangs(b, x, x, q[0][1] * b.h, q[3][1] * b.h), gmLagenLangs(b, x2, x2, q[1][1] * b.h, q[2][1] * b.h)].filter(Boolean).sort((a, c) => c.score - a.score)[0];
-    const g = gmVan(s); if (g.steen?.zelf) return;
-    if (!kant) { g.steen = { ...gmSteen(s), ijk: { sleutel, mislukt: true } }; bewaar(); return; }
-    const laag = r.H / kant.n, f = GM_FORMATEN.map(x => [Math.abs(x[2] - laag) / x[2], x]).sort((a, c) => a[0] - c[0])[0];
-    g.steen = f[0] < .06 ? { h: f[1][2], l: f[1][3] } : { h: Math.round(laag * 20) / 20, l: 22 };
-    g.steen.ijk = { sleutel, n: Math.round(kant.n * 10) / 10, laag: Math.round(laag * 100) / 100 };
-    for (const x of g.sj) gmHerreken(s, x); bewaar(); if (V?.s === s) tekenUI();
-  } catch (e) { console.warn(e); } finally { if (GM_IJK === sleutel) GM_IJK = null; }
 }
 // Maat van een lijn uit de stenen ernaast: staand = lagen × laagmaat, liggend = stenen × steenmaat.
 function gmLijnStenen(s, f, l) {
@@ -2375,10 +2351,11 @@ function tekenUI2() {
         ${stukAantal(lijn) !== 1 ? `<div class="teller"><span>Aantal van dit stuk <small style="color:var(--muted)">(zelfde lengte)</small></span><button data-kmin aria-label="Minder">−</button><input data-knum type="number" inputmode="numeric" min="0" max="20" value="${stukAantal(lijn)}"><button data-kplus aria-label="Meer">+</button></div>` : ''}`
         : `${extraRij('verticaal', 'Extra stijlen', 'verticaal')}${extraRij('horizontaal', 'Extra dorpels', 'horizontaal')}`}
       ${false ? `<button class="ghost" id="lschaal" style="color:var(--gold);font-weight:600;text-align:left;padding:2px 4px">Uitrekenen uit de foto (${refMaat(f, lijn) != null ? '≈ ' + maatLabel(refMaat(f, lijn)) + ', rechtgezet' : '± ' + maatLabel(schaalMaat(f, lijn))})</button>` : ''}
-      ${lijn?.uitRef && lijn.maat != null && gmLijnMaat(V.s, f, lijn) != null ? `<div style="font-size:12px;color:#57E0D2;padding:0 4px">≈ ${esc(gmLijnBron(V.s, f, lijn).tekst)}. Klopt het niet? Typ, laser of tel zelf (Lagen hoog / Stenen plat), dan telt die.</div><div style="font-size:12px;padding:2px 4px">Steenformaat: <button class="ghost" id="gmformaatl" style="color:var(--gold);padding:0;font-size:12px;text-decoration:underline">${esc(gmFormaatNaam(V.s))}</button></div>` : ''}${lijn?.uitRef && lijn.maat != null && gmLijnMaat(V.s, f, lijn) == null ? `<div style="font-size:12px;color:#57E0D2;padding:0 4px">≈ Uit de foto, ${fotoMeter(f)?.soort === 'ref' ? `rechtgezet met referentie ${f.ref?.L || ''}` : fotoMeter(f)?.soort === 'stenen' ? `vanzelf rechtgezet, met de stenen als schaal (${cmKort(fotoMeter(f).laag)} cm per laag, ${laagUitleg({ bron: fotoMeter(f).laagBron })})` : !fotoMeter(f) && lijn.tik ? 'grove schatting met standaard stenen (6,2 cm per laag). Meet op deze foto één lijn met de laser voor een goede maat' : 'vanzelf rechtgezet, met je gemeten maten als schaal'}. Meet je hem met de laser, dan telt de laser.</div>` : ''}
+      ${lijn?.uitRef && lijn.maat != null && gmLijnMaat(V.s, f, lijn) != null ? `<div style="font-size:12px;color:#57E0D2;padding:0 4px">≈ ${esc(gmLijnBron(V.s, f, lijn).tekst)}. Klopt het niet? Typ, laser of tel zelf (Lagen hoog / Stenen plat), dan telt die.</div>` : ''}${lijn?.uitRef && lijn.maat != null && gmLijnMaat(V.s, f, lijn) == null ? `<div style="font-size:12px;color:#57E0D2;padding:0 4px">≈ Uit de foto, ${fotoMeter(f)?.soort === 'ref' ? `rechtgezet met referentie ${f.ref?.L || ''}` : fotoMeter(f)?.soort === 'stenen' ? `vanzelf rechtgezet, met de stenen als schaal (${cmKort(fotoMeter(f).laag)} cm per laag, ${laagUitleg({ bron: fotoMeter(f).laagBron })})` : !fotoMeter(f) && lijn.tik ? 'grove schatting met standaard stenen (6,2 cm per laag). Meet op deze foto één lijn met de laser voor een goede maat' : 'vanzelf rechtgezet, met je gemeten maten als schaal'}. Meet je hem met de laser, dan telt de laser.</div>` : ''}
       ${lijn?.uitRef && lijn.maat != null && lijn.richting === 'horizontaal' && fotoMeter(f)?.breedteGok ? `<div style="font-size:12px;color:#FFA726;padding:0 4px">⚠ Op deze foto is geen breedte gemeten, dus deze breedte is onzeker (soms de helft te klein of te groot). Typ of laser op deze foto één breedte, bijvoorbeeld van het raam beneden, dan klopt hij.</div>` : ''}
       ${lijn && afwijking(f, lijn) != null ? `<div style="font-size:12px;color:#FFA726;padding:0 4px">⚠ Volgens de foto is dit ongeveer ${maatLabel(afwijking(f, lijn))}. Dat scheelt ${Math.round(Math.abs(afwijking(f, lijn) - lijn.maat) * 100)} cm met je maat. Klopt je maat? Zo ja, dan hoef je niks te doen.</div>` : ''}
       ${lijn && lijn !== richtingLijn(lijn.richting) && !isWand(ondVan(f).find(o => o.letter === lijn.kozijn)) ? '<div style="font-size:12px;color:var(--gold);padding:0 4px">Dit is een extra stuk: aantal × maat telt op bij het strekkend van dit onderdeel.</div>' : ''}
+      ${lijn && ['horizontaal', 'verticaal'].includes(lijn.richting) && !lijn.ref ? gmSteenRij(V.s) : ''}
       ${lijn?.maat != null ? '<div style="text-align:right"><button class="ghost" id="lwis" style="color:var(--open)">Wis maat</button></div>' : ''}`;
     // Extra stijlen tellen op de verticale lijn van dit kozijn (× hoogte), extra dorpels op de horizontale (× breedte).
     const zetAantal = (l, n) => { l.aantal = Math.max(-1, Math.min(20, Math.round(+n || 0))); bewaar(); tekenUI(); };
@@ -2403,7 +2380,7 @@ function tekenUI2() {
       if (rm != null) { Object.assign(lijn, { maat: rm, bron: 'foto', uitRef: true }); bewaar(); tekenUI(); return; }
       lijn.maat = schaalMaat(f, lijn); lijn.bron = 'foto'; bewaar(); tekenUI();
       toast(`Uitgerekend naar verhouding van ${maatLabel(schaalRef(f, lijn).maat)}. Klopt het niet? Tik op Maat en pas het aan.`); };
-    if ($('#gmformaatl', st)) $('#gmformaatl', st).onclick = () => gmFormaatKiezen(V.s, () => { GM_BEELD && GM_BEELD.per.clear(); tekenUI(); });
+    if ($('#gmsteenl', st)) $('#gmsteenl', st).onclick = () => gmSteenInvullen(V.s, () => tekenUI());
     if ($('#lwis', st)) $('#lwis', st).onclick = () => { delete lijn.uitRef; lijn.maat = null; lijn.bron = null; delete lijn.stenen; bewaar(); tekenUI(); };
     // Stenen tellen: het aantal verdeelt de lijn in gelijke stukken (streepjes). Schuif het aantal of het eind van de lijn
     // tot de streepjes op de voegen vallen; de maat is aantal × 22 cm (stenen) of × 6,2 cm (lagen), in hele cm.
@@ -4223,7 +4200,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.25-12';
+const APP_VERSIE = '2026.11.25-13';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
