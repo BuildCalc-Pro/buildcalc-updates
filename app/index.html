@@ -2014,12 +2014,57 @@ function gmLijnOuder(f, l) {
   if (!k) return null; const m = as(l) / as(k) * k.maat;
   return isFinite(m) && m > 0 && m < 100 ? { m: Math.round(m * 100) / 100, tekst: `Berekend uit kozijn ${o.in} (${Math.round(k.maat * 100)} cm ${k.uitRef ? '≈' : k.bron === 'stenen' ? 'uit stenen' : 'gemeten'})` } : null;
 }
+// Maat in verhouding tot een gemeten lijn op dezelfde foto in dezelfde richting (laser, getypt of ingesproken).
+// Liefst een lijn van hetzelfde kozijn, anders de langste gemeten lijn op de foto.
+function gmLijnGemeten(f, l) {
+  const as = x => l.richting === 'horizontaal' ? Math.abs(x.x2 - x.x1) : Math.abs(x.y2 - x.y1);
+  const gem = f.lijnen.filter(x => x !== l && x.richting === l.richting && x.maat > 0 && !x.uitRef && !x.hoek && !x.aftrek && !x.lagen10 && !x.vlakRef && !['foto', 'stenen', 'deel', 'geen'].includes(x.bron) && as(x) > 0);
+  const k = gem.filter(x => l.kozijn && x.kozijn === l.kozijn).sort((a, b) => as(b) - as(a))[0] || gem.sort((a, b) => as(b) - as(a))[0];
+  if (!k || !(as(l) > 0)) return null; const m = as(l) / as(k) * k.maat;
+  return isFinite(m) && m > 0 && m < 100 ? { m: Math.round(m * 100) / 100, tekst: `In verhouding tot je gemeten lijn${k.kozijn ? ' van ' + k.kozijn : ''} (${Math.round(k.maat * 100)} cm)` } : null;
+}
+// Stenen tellen recht onder een liggende lijn: per laag de stootvoegen (om de steenlengte), in stroken steeds verder naar
+// beneden. De eerste strook waar minstens 4 lagen hetzelfde zeggen (binnen 4%) telt. Onzeker? Dan null (geen maat).
+// Laat zien waar geteld is: twee hulpstrepen recht omlaag vanaf de uiteinden van de gekozen lijn, de getelde strook
+// metselwerk, streepjes om de steen en het aantal. Zo kun je de telling zelf nalopen.
+function gmOnderSvg(s, f, W, H) {
+  const l = typeof V !== 'undefined' && V?.sel && f?.lijnen?.find(x => x.id === V.sel);
+  if (!l || !l.uitRef || l.richting !== 'horizontaal') return '';
+  const br = gmLijnBron(s, f, l), on = br?.onder; if (!on) return '';
+  const x1 = Math.min(l.x1, l.x2) * W, x2 = Math.max(l.x1, l.x2) * W, y = Math.max(l.y1, l.y2) * H, y0 = on.y * H, y1 = (on.y + on.h) * H, st = on.per * W;
+  let streep = ''; for (let x = x1 + st; x < x2 - st * .3; x += st) streep += `<line x1="${x}" y1="${y0}" x2="${x}" y2="${y1}" stroke="#57E0D2" stroke-width="1.5"/>`;
+  return `<g pointer-events="none"><line x1="${x1}" y1="${y}" x2="${x1}" y2="${y1}" stroke="#57E0D2" stroke-width="1.5" stroke-dasharray="5 4"/>` +
+    `<line x1="${x2}" y1="${y}" x2="${x2}" y2="${y1}" stroke="#57E0D2" stroke-width="1.5" stroke-dasharray="5 4"/>` +
+    `<rect x="${x1}" y="${y0}" width="${x2 - x1}" height="${y1 - y0}" fill="rgba(87,224,210,.15)" stroke="#57E0D2" stroke-width="1.5"/>${streep}` +
+    `<text x="${(x1 + x2) / 2}" y="${y1 + 15}" text-anchor="middle" fill="#57E0D2" stroke="#000" stroke-width="3" paint-order="stroke" font-size="13" font-weight="700">${gmNl(Math.round(on.n * 10) / 10)} stenen geteld</text></g>`;
+}
+function gmLijnOnder(f, l) {
+  const b = gmBeeld(f); if (!b) return null;
+  const X1 = Math.min(l.x1, l.x2) * b.w, X2 = Math.max(l.x1, l.x2) * b.w, Y = Math.max(l.y1, l.y2) * b.h, hs = b.h * .07;
+  if (X2 - X1 < b.w * .05) return null;
+  for (let y0 = Y + b.h * .01; y0 + hs <= Math.min(b.h, Y + b.h * .45); y0 += hs * .5) {
+    const rij = gmRijPer(b, [[X1, X2, y0, y0 + hs]]); if (!rij || rij.score < .4) continue;
+    const per = [];
+    for (let yy = y0; yy + rij.per * .5 <= y0 + hs; yy += rij.per * .25) {
+      const k = ['v', 'y'].map(c => gmPeriode(b, X1, X2, yy, yy + rij.per * .5, 'kol', rij.per * 2.4, rij.per * 5.5, c)).filter(k => k && k.score >= .4).sort((a, c) => c.score - a.score)[0];
+      if (k) per.push(k.per); }
+    if (per.length < 4) continue;
+    per.sort((a, c) => a - c); const med = per[per.length >> 1], q1 = per[Math.floor(per.length * .25)], q3 = per[Math.floor(per.length * .75)];
+    if ((q3 - q1) / med > .04) continue;
+    return { n: (X2 - X1) / med, y: y0 / b.h, h: hs / b.h, per: med / b.w };
+  }
+  return null;
+}
 function gmLijnBron(s, f, l) {
   if (!s || !f || !l || !s.fotos?.includes(f) || !['horizontaal', 'verticaal'].includes(l.richting)) return null;
   const ou = gmLijnOuder(f, l); if (ou) return ou;
-  // Stenen zichtbaar naast de lijn? Dan automatisch tellen. Anders de gelaserde referentie van beneden.
-  const sf = gmSteen(s), st = (l.richting === 'horizontaal' ? sf.h && sf.l : sf.h) ? gmLijnStenen(s, f, l) : null;
-  if (st && st.m > 0 && st.m < 100) return { m: st.m, stenen: true, tekst: st.laag ? `${gmNl(Math.round(st.n * 10) / 10)} stenen × ${gmNl(sf.l)} cm, geteld per laag naast de lijn (jouw steenmaat: ${gmSteenTekst(s)})` : st.iso ? `${gmNl(Math.round(st.lagen * 10) / 10)} lagen breed × ${gmNl(sf.h)} cm (breedte uit de laaghoogte naast de lijn, stootvoegen niet duidelijk; jouw steenmaat: ${gmSteenTekst(s)})` : `${st.liggend ? `${gmNl(Math.round(st.n * 10) / 10)} stenen × ${gmNl(sf.l)}` : `${gmNl(Math.round(st.n * 10) / 10)} lagen × ${gmNl(sf.h)}`} cm, automatisch geteld naast de lijn (jouw steenmaat: ${gmSteenTekst(s)})` };
+  // 2026-11-26: geen automatische stenentelling meer (gaf uitschieters, bijv. 584 cm over glas). Alleen nog in verhouding
+  // tot een maat die je zelf gemeten of getypt hebt op deze foto (zelfde richting), anders de referentie van de gevelmap.
+  const gm = gmLijnGemeten(f, l); if (gm) return gm;
+  // Liggende lijn zonder gemeten maat: tel de stenen in het metselwerk recht eronder (zelfde begin en eind), zoals je zelf
+  // naar beneden kijkt en telt. Alleen als het tellen zeker is; de referentie van de gevelmap gaat hierna.
+  if (l.richting === 'horizontaal') { const sf = gmSteen(s), on = sf.l ? gmLijnOnder(f, l) : null;
+    if (on) { const m = Math.round(on.n * sf.l) / 100; if (m > 0 && m < 100) return { m, stenen: true, tekst: `${gmNl(Math.round(on.n * 10) / 10)} stenen × ${gmNl(sf.l)} cm, geteld in het metselwerk onder de lijn (jouw steenmaat: ${gmSteenTekst(s)})`, onder: on }; } }
   const m = gmLijnRef(s, f, l); return m != null ? { m, tekst: `Berekend uit de referentie van ${s.naam} (${s.gm.ref.B} × ${s.gm.ref.H} cm)` } : null;
 }
 function gmLijnRef(s, f, l) {
@@ -2042,7 +2087,9 @@ function gmLijnenVullen(f) {
   for (const l of [...f.lijnen].sort((a, b) => diep(a) - diep(b))) { if (l.ref || l.hoek || l.lagen10 || l.vlakRef || l.aftrek) continue;
     if (l.maat != null && !l.uitRef) continue;
     const m = gmLijnMaat(V.s, f, l);
-    if (m != null) { if (l.maat !== m) { Object.assign(l, { maat: m, bron: 'foto', uitRef: true }); n++; } } else if (l.maat == null) open++; }
+    if (m != null) { if (l.maat !== m) { Object.assign(l, { maat: m, bron: 'foto', uitRef: true }); n++; } }
+    else if (l.uitRef && l.maat != null) { l.maat = null; n++; open++; }   // oude gok (bijv. stenentelling) zonder referentie: weg
+    else if (l.maat == null) open++; }
   if (n) bewaar();
   if (open && V.gmHint !== f.id && gmBeeld(f)) { V.gmHint = f.id; const r = V.s.gm?.ref, nr = r ? Object.keys(r.fotos || {}).map(id => V.s.fotos.findIndex(x => x.id === id) + 1).filter(x => x > 0)[0] : 0;
     setTimeout(() => toast(!gmRefKlaar(V.s) ? `Nog geen maat: ${V.s.naam} heeft nog geen referentie. Tik onder de foto op Referentie, of tik op de lijn en typ de maat.`
@@ -2812,7 +2859,7 @@ const ligtLijn = l => { const w = V?.w || 1, h = V?.h || 1; return Math.abs((l.x
 const STEEN_CM = l => ligtLijn(l) ? STEEN_LANG : laagVoor(V && foto()).cm;
 const stenenTekst = l => ligtLijn(l)
   ? `${String(Math.floor(l.stenen)).replace(/^0$/, '')}${l.stenen % 1 ? '½' : ''} ${l.stenen === 1 ? 'steen' : 'stenen'}` : `${l.stenen} ${l.stenen === 1 ? 'laag' : 'lagen'}`;
-const lijnLabel = (l, fo = V && foto()) => l.lagen10 ? `10 lagen ${maatLabel(l.maat)}` : l.vlakRef ? `vlak ${maatLabel(l.maat)}` : l.hoek ? `◣ ${l.hoekB ? `≈${Math.round(l.hoekB * 100)}×${Math.round(l.hoekD * 100)}` : 'hoek'}` : (V && afwijking(foto(), l) != null ? '⚠ ' : '') + (l.aftrek ? '− ' : '') + (l.kozijn ? fotoLetter(l.kozijn) + ' ' : '') + (l.uitRef && l.maat != null ? (l.richting === 'horizontaal' && fo && fotoMeter(fo)?.breedteGok ? '⚠≈' : '≈') : '') + (l.uitRef && l.maat == null ? 'foto' : l.maat === 0 && l.bron === 'geen' ? 'geen' : maatLabel(l.maat)) + (lijnAantal(l) >= 1 ? ` (x${lijnAantal(l)})` : '');
+const lijnLabel = (l, fo = V && foto()) => l.lagen10 ? `10 lagen ${maatLabel(l.maat)}` : l.vlakRef ? `vlak ${maatLabel(l.maat)}` : l.hoek ? `◣ ${l.hoekB ? `≈${Math.round(l.hoekB * 100)}×${Math.round(l.hoekD * 100)}` : 'hoek'}` : (V && afwijking(foto(), l) != null ? '⚠ ' : '') + (l.aftrek ? '− ' : '') + (l.kozijn ? fotoLetter(l.kozijn) + ' ' : '') + (l.uitRef && l.maat == null ? 'foto' : l.maat === 0 && l.bron === 'geen' ? 'geen' : maatLabel(l.maat)) + (lijnAantal(l) >= 1 ? ` (x${lijnAantal(l)})` : '');
 // "4 stijlen", "vier stijlen", "2 tussendorpels" uit een ingesproken of getypte tekst.
 function splitsAantal(tekst) {
   const woorden = { een: 1, 'één': 1, twee: 2, drie: 3, vier: 4, vijf: 5, zes: 6, zeven: 7, acht: 8, negen: 9, tien: 10 };
@@ -3606,7 +3653,7 @@ function tekenLijnen2() {
     const kl = sel ? '#D4AF37' : uitFoto ? '#9FE7FF' : maat == null ? '#FFA726' : nareken ? '#FF9800' : ref ? '#81D4FA' : af ? '#FF8A50' : geschat ? '#FFB74D' : '#FFFFFF';   // geschat (≈ uit de foto): oranje stippellijn
     return (dim ? `<g opacity="${heelVaag ? .2 : .45}">${svgPijl(x1, y1, x2, y2, label, kl, sp, geschat && !sel)}</g>` : svgPijl(x1, y1, x2, y2, label, kl, sp, geschat && !sel)) +
       (sel ? [[x1, y1], [x2, y2]].map(([x, y]) => `<circle cx="${x}" cy="${y}" r="${rh}" fill="rgba(212,175,55,.2)" stroke="${kl}" stroke-width="${1.6 * rh / 9}"/>`).join('') : '');
-  }).join('') + sjNummers(foto(), W, H, nuId, rh) + refSvg(foto(), W, H) + tikSvg(foto(), W, H) + stenenStreepjes(W, H) + typeChip(foto(), W, H) + ballonnenSvg(foto(), W, H) + labelsSvg(foto(), W, H) + gmSvg(V.s, foto(), W, H);
+  }).join('') + sjNummers(foto(), W, H, nuId, rh) + refSvg(foto(), W, H) + tikSvg(foto(), W, H) + stenenStreepjes(W, H) + typeChip(foto(), W, H) + ballonnenSvg(foto(), W, H) + labelsSvg(foto(), W, H) + gmSvg(V.s, foto(), W, H) + gmOnderSvg(V.s, foto(), W, H);
   // Alleen bij tekenen of een geselecteerde lijn vangen we het slepen af.
   const vrij = V.modus === 'bekijken' && !V.sel;
   // Knijpen en schuiven doet de app zelf (inzoomen op de foto), dus de browser mag hier niets.
@@ -4418,7 +4465,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.26-8';
+const APP_VERSIE = '2026.11.26-11';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
