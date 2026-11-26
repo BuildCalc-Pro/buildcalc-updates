@@ -2019,7 +2019,7 @@ function gmLijnBron(s, f, l) {
   const ou = gmLijnOuder(f, l); if (ou) return ou;
   // Stenen zichtbaar naast de lijn? Dan automatisch tellen. Anders de gelaserde referentie van beneden.
   const sf = gmSteen(s), st = (l.richting === 'horizontaal' ? sf.h && sf.l : sf.h) ? gmLijnStenen(s, f, l) : null;
-  if (st && st.m > 0 && st.m < 100) return { m: st.m, stenen: true, tekst: st.halve ? `${gmNl(Math.round(st.n * 20) / 10)} halve stenen × ${gmNl(sf.l / 2)} cm, automatisch geteld naast de lijn (jouw steenmaat: ${gmSteenTekst(s)})` : st.iso ? `${gmNl(Math.round(st.lagen * 10) / 10)} lagen breed × ${gmNl(sf.h)} cm (breedte uit de laaghoogte naast de lijn, stootvoegen niet duidelijk; jouw steenmaat: ${gmSteenTekst(s)})` : `${st.liggend ? `${gmNl(Math.round(st.n * 10) / 10)} stenen × ${gmNl(sf.l)}` : `${gmNl(Math.round(st.n * 10) / 10)} lagen × ${gmNl(sf.h)}`} cm, automatisch geteld naast de lijn (jouw steenmaat: ${gmSteenTekst(s)})` };
+  if (st && st.m > 0 && st.m < 100) return { m: st.m, stenen: true, tekst: st.laag ? `${gmNl(Math.round(st.n * 10) / 10)} stenen × ${gmNl(sf.l)} cm, geteld per laag naast de lijn (jouw steenmaat: ${gmSteenTekst(s)})` : st.iso ? `${gmNl(Math.round(st.lagen * 10) / 10)} lagen breed × ${gmNl(sf.h)} cm (breedte uit de laaghoogte naast de lijn, stootvoegen niet duidelijk; jouw steenmaat: ${gmSteenTekst(s)})` : `${st.liggend ? `${gmNl(Math.round(st.n * 10) / 10)} stenen × ${gmNl(sf.l)}` : `${gmNl(Math.round(st.n * 10) / 10)} lagen × ${gmNl(sf.h)}`} cm, automatisch geteld naast de lijn (jouw steenmaat: ${gmSteenTekst(s)})` };
   const m = gmLijnRef(s, f, l); return m != null ? { m, tekst: `Berekend uit de referentie van ${s.naam} (${s.gm.ref.B} × ${s.gm.ref.H} cm)` } : null;
 }
 function gmLijnRef(s, f, l) {
@@ -2165,13 +2165,15 @@ function gmLijnStenen(s, f, l) {
   if (!liggend) { const r = gmLagenLangs(b, X1, X2, Y1, Y2); if (r) res = { score: r.score, per: r.per, n: r.n, liggend }; }
   // Laaghoogte voor een liggende lijn: uit alle stroken samen, ook naast de uiteinden van de lijn (daar zitten vaak hele lagen).
   const rijG = liggend && gmRijPer(b, [...vakken, [X1 - ws, X1 - d, Y1 - hs, Y2 + hs], [X2 + d, X2 + ws, Y1 - hs, Y2 + hs]]);
-  // Liggend: eerst de halve stenen tellen (stootvoegen in halfsteens verband, om de laag verspringend). Een halve steen is
-  // altijd de halve steenlengte (bij 22 cm: 11 halve stenen = 121 cm), dus de laaghoogte doet hier niet mee.
-  // We ronden af op hele halve stenen: een kozijnopening in metselwerk valt op de stootvoegen. We zoeken de
-  // herhaling tussen 1,3 en 2,8 laaghoogtes in de foto: daar valt een halve steen altijd in, een hele steen niet.
-  if (liggend && rijG) for (const [x0, x1, y0, y1] of vakken) {
-    const hk = ['v', 'y'].map(k => gmPeriode(b, x0, x1, y0, y1, 'kol', rijG.per * 1.3, rijG.per * 2.8, k)).filter(k => k && k.score >= .4).sort((a, c) => c.score - a.score)[0];
-    if (hk && (!res || hk.score > res.score)) res = { score: hk.score, n: Math.max(1, Math.round((X2 - X1) / hk.per)) / 2, liggend, halve: true };
+  // Liggend: de stenen tellen binnen één laag. In elke laag (halfsteens of wildverband) zit om de steenlengte een stootvoeg,
+  // dus de herhaling in een dun strookje van één laag is precies één steen (met voeg). Breedte = aantal stenen × steenlengte;
+  // de laaghoogte doet hier niet mee. We nemen de middelste uitkomst van alle strookjes boven en onder de lijn.
+  if (liggend && rijG) { const per = [];
+    for (const [x0, x1, y0, y1] of vakken) for (let yy = y0; yy + rijG.per * .5 <= y1; yy += rijG.per * .25) {
+      const k = ['v', 'y'].map(c => gmPeriode(b, x0, x1, yy, yy + rijG.per * .5, 'kol', rijG.per * 2.4, rijG.per * 5.5, c)).filter(k => k && k.score >= .4).sort((a, c) => c.score - a.score)[0];
+      if (k) per.push(k); }
+    if (per.length >= 3) { per.sort((a, c) => a.per - c.per); const m = per[per.length >> 1];
+      res = { score: m.score, n: (X2 - X1) / m.per, liggend, laag: true }; }
   }
   if (liggend && rijG && !res) for (const [x0, x1, y0, y1] of vakken) {
     const rl = gmRijPer(b, [[x0, x1, y0, y1]]), rij = rl && Math.abs(rl.per / rijG.per - 1) < .12 ? rl : rijG;
@@ -4416,7 +4418,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.26-7';
+const APP_VERSIE = '2026.11.26-8';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
