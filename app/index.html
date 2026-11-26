@@ -2014,12 +2014,21 @@ function gmLijnOuder(f, l) {
   if (!k) return null; const m = as(l) / as(k) * k.maat;
   return isFinite(m) && m > 0 && m < 100 ? { m: Math.round(m * 100) / 100, tekst: `Berekend uit kozijn ${o.in} (${Math.round(k.maat * 100)} cm ${k.uitRef ? '≈' : k.bron === 'stenen' ? 'uit stenen' : 'gemeten'})` } : null;
 }
+// Maat in verhouding tot een gemeten lijn op dezelfde foto in dezelfde richting (laser, getypt of ingesproken).
+// Liefst een lijn van hetzelfde kozijn, anders de langste gemeten lijn op de foto.
+function gmLijnGemeten(f, l) {
+  const as = x => l.richting === 'horizontaal' ? Math.abs(x.x2 - x.x1) : Math.abs(x.y2 - x.y1);
+  const gem = f.lijnen.filter(x => x !== l && x.richting === l.richting && x.maat > 0 && !x.uitRef && !x.hoek && !x.aftrek && !x.lagen10 && !x.vlakRef && !['foto', 'stenen', 'deel', 'geen'].includes(x.bron) && as(x) > 0);
+  const k = gem.filter(x => l.kozijn && x.kozijn === l.kozijn).sort((a, b) => as(b) - as(a))[0] || gem.sort((a, b) => as(b) - as(a))[0];
+  if (!k || !(as(l) > 0)) return null; const m = as(l) / as(k) * k.maat;
+  return isFinite(m) && m > 0 && m < 100 ? { m: Math.round(m * 100) / 100, tekst: `In verhouding tot je gemeten lijn${k.kozijn ? ' van ' + k.kozijn : ''} (${Math.round(k.maat * 100)} cm)` } : null;
+}
 function gmLijnBron(s, f, l) {
   if (!s || !f || !l || !s.fotos?.includes(f) || !['horizontaal', 'verticaal'].includes(l.richting)) return null;
   const ou = gmLijnOuder(f, l); if (ou) return ou;
-  // Stenen zichtbaar naast de lijn? Dan automatisch tellen. Anders de gelaserde referentie van beneden.
-  const sf = gmSteen(s), st = (l.richting === 'horizontaal' ? sf.h && sf.l : sf.h) ? gmLijnStenen(s, f, l) : null;
-  if (st && st.m > 0 && st.m < 100) return { m: st.m, stenen: true, tekst: st.laag ? `${gmNl(Math.round(st.n * 10) / 10)} stenen × ${gmNl(sf.l)} cm, geteld per laag naast de lijn (jouw steenmaat: ${gmSteenTekst(s)})` : st.iso ? `${gmNl(Math.round(st.lagen * 10) / 10)} lagen breed × ${gmNl(sf.h)} cm (breedte uit de laaghoogte naast de lijn, stootvoegen niet duidelijk; jouw steenmaat: ${gmSteenTekst(s)})` : `${st.liggend ? `${gmNl(Math.round(st.n * 10) / 10)} stenen × ${gmNl(sf.l)}` : `${gmNl(Math.round(st.n * 10) / 10)} lagen × ${gmNl(sf.h)}`} cm, automatisch geteld naast de lijn (jouw steenmaat: ${gmSteenTekst(s)})` };
+  // 2026-11-26: geen automatische stenentelling meer (gaf uitschieters, bijv. 584 cm over glas). Alleen nog in verhouding
+  // tot een maat die je zelf gemeten of getypt hebt op deze foto (zelfde richting), anders de referentie van de gevelmap.
+  const gm = gmLijnGemeten(f, l); if (gm) return gm;
   const m = gmLijnRef(s, f, l); return m != null ? { m, tekst: `Berekend uit de referentie van ${s.naam} (${s.gm.ref.B} × ${s.gm.ref.H} cm)` } : null;
 }
 function gmLijnRef(s, f, l) {
@@ -2042,7 +2051,9 @@ function gmLijnenVullen(f) {
   for (const l of [...f.lijnen].sort((a, b) => diep(a) - diep(b))) { if (l.ref || l.hoek || l.lagen10 || l.vlakRef || l.aftrek) continue;
     if (l.maat != null && !l.uitRef) continue;
     const m = gmLijnMaat(V.s, f, l);
-    if (m != null) { if (l.maat !== m) { Object.assign(l, { maat: m, bron: 'foto', uitRef: true }); n++; } } else if (l.maat == null) open++; }
+    if (m != null) { if (l.maat !== m) { Object.assign(l, { maat: m, bron: 'foto', uitRef: true }); n++; } }
+    else if (l.uitRef && l.maat != null) { l.maat = null; n++; open++; }   // oude gok (bijv. stenentelling) zonder referentie: weg
+    else if (l.maat == null) open++; }
   if (n) bewaar();
   if (open && V.gmHint !== f.id && gmBeeld(f)) { V.gmHint = f.id; const r = V.s.gm?.ref, nr = r ? Object.keys(r.fotos || {}).map(id => V.s.fotos.findIndex(x => x.id === id) + 1).filter(x => x > 0)[0] : 0;
     setTimeout(() => toast(!gmRefKlaar(V.s) ? `Nog geen maat: ${V.s.naam} heeft nog geen referentie. Tik onder de foto op Referentie, of tik op de lijn en typ de maat.`
@@ -2812,7 +2823,7 @@ const ligtLijn = l => { const w = V?.w || 1, h = V?.h || 1; return Math.abs((l.x
 const STEEN_CM = l => ligtLijn(l) ? STEEN_LANG : laagVoor(V && foto()).cm;
 const stenenTekst = l => ligtLijn(l)
   ? `${String(Math.floor(l.stenen)).replace(/^0$/, '')}${l.stenen % 1 ? '½' : ''} ${l.stenen === 1 ? 'steen' : 'stenen'}` : `${l.stenen} ${l.stenen === 1 ? 'laag' : 'lagen'}`;
-const lijnLabel = (l, fo = V && foto()) => l.lagen10 ? `10 lagen ${maatLabel(l.maat)}` : l.vlakRef ? `vlak ${maatLabel(l.maat)}` : l.hoek ? `◣ ${l.hoekB ? `≈${Math.round(l.hoekB * 100)}×${Math.round(l.hoekD * 100)}` : 'hoek'}` : (V && afwijking(foto(), l) != null ? '⚠ ' : '') + (l.aftrek ? '− ' : '') + (l.kozijn ? fotoLetter(l.kozijn) + ' ' : '') + (l.uitRef && l.maat != null ? (l.richting === 'horizontaal' && fo && fotoMeter(fo)?.breedteGok ? '⚠≈' : '≈') : '') + (l.uitRef && l.maat == null ? 'foto' : l.maat === 0 && l.bron === 'geen' ? 'geen' : maatLabel(l.maat)) + (lijnAantal(l) >= 1 ? ` (x${lijnAantal(l)})` : '');
+const lijnLabel = (l, fo = V && foto()) => l.lagen10 ? `10 lagen ${maatLabel(l.maat)}` : l.vlakRef ? `vlak ${maatLabel(l.maat)}` : l.hoek ? `◣ ${l.hoekB ? `≈${Math.round(l.hoekB * 100)}×${Math.round(l.hoekD * 100)}` : 'hoek'}` : (V && afwijking(foto(), l) != null ? '⚠ ' : '') + (l.aftrek ? '− ' : '') + (l.kozijn ? fotoLetter(l.kozijn) + ' ' : '') + (l.uitRef && l.maat == null ? 'foto' : l.maat === 0 && l.bron === 'geen' ? 'geen' : maatLabel(l.maat)) + (lijnAantal(l) >= 1 ? ` (x${lijnAantal(l)})` : '');
 // "4 stijlen", "vier stijlen", "2 tussendorpels" uit een ingesproken of getypte tekst.
 function splitsAantal(tekst) {
   const woorden = { een: 1, 'één': 1, twee: 2, drie: 3, vier: 4, vijf: 5, zes: 6, zeven: 7, acht: 8, negen: 9, tien: 10 };
@@ -4418,7 +4429,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.26-8';
+const APP_VERSIE = '2026.11.26-9';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
