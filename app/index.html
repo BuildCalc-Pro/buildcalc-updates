@@ -2029,8 +2029,17 @@ function gmLijnGemeten(f, l) {
 // metselwerk, streepjes om de steen en het aantal. Zo kun je de telling zelf nalopen.
 function gmOnderSvg(s, f, W, H) {
   const l = typeof V !== 'undefined' && V?.sel && f?.lijnen?.find(x => x.id === V.sel);
-  if (!l || !l.uitRef || l.richting !== 'horizontaal') return '';
-  const br = gmLijnBron(s, f, l), on = br?.onder; if (!on) return '';
+  if (!l || !l.uitRef) return '';
+  const br = gmLijnBron(s, f, l), na = br?.naast;
+  if (l.richting === 'verticaal' && na) {   // staand: de strook metselwerk waar de lagen geteld zijn, met een streepje per laag
+    const x0 = na.x * W, x1 = (na.x + na.w) * W, y0 = na.y1 * H, y1 = na.y2 * H, st = (y1 - y0) / na.n; let streep = '';
+    for (let y = y0 + st; y < y1 - st * .3; y += st) streep += `<line x1="${x0}" y1="${y}" x2="${x1}" y2="${y}" stroke="#57E0D2" stroke-width="1.2"/>`;
+    return `<g pointer-events="none"><rect x="${x0}" y="${y0}" width="${x1 - x0}" height="${y1 - y0}" fill="rgba(87,224,210,.15)" stroke="#57E0D2" stroke-width="1.5"/>${streep}` +
+      `<line x1="${l.x1 * W}" y1="${y0}" x2="${x0 < l.x1 * W ? x1 : x0}" y2="${y0}" stroke="#57E0D2" stroke-width="1.5" stroke-dasharray="5 4"/><line x1="${l.x1 * W}" y1="${y1}" x2="${x0 < l.x1 * W ? x1 : x0}" y2="${y1}" stroke="#57E0D2" stroke-width="1.5" stroke-dasharray="5 4"/>` +
+      `<text x="${(x0 + x1) / 2}" y="${y0 - 8}" text-anchor="middle" fill="#57E0D2" stroke="#000" stroke-width="3" paint-order="stroke" font-size="13" font-weight="700">${na.n} lagen geteld</text></g>`;
+  }
+  if (l.richting !== 'horizontaal') return '';
+  const on = br?.onder; if (!on) return '';
   const x1 = Math.min(l.x1, l.x2) * W, x2 = Math.max(l.x1, l.x2) * W, y = Math.max(l.y1, l.y2) * H, y0 = on.y * H, y1 = (on.y + on.h) * H, st = (x2 - x1) / on.n;
   let streep = ''; for (let x = x1 + st; x < x2 - st * .3; x += st) streep += `<line x1="${x}" y1="${y0}" x2="${x}" y2="${y1}" stroke="#57E0D2" stroke-width="1.5"/>`;
   return `<g pointer-events="none"><line x1="${x1}" y1="${y}" x2="${x1}" y2="${y1}" stroke="#57E0D2" stroke-width="1.5" stroke-dasharray="5 4"/>` +
@@ -2038,7 +2047,24 @@ function gmOnderSvg(s, f, W, H) {
     `<rect x="${x1}" y="${y0}" width="${x2 - x1}" height="${y1 - y0}" fill="rgba(87,224,210,.15)" stroke="#57E0D2" stroke-width="1.5"/>${streep}` +
     `<text x="${(x1 + x2) / 2}" y="${y1 + 15}" text-anchor="middle" fill="#57E0D2" stroke="#000" stroke-width="3" paint-order="stroke" font-size="13" font-weight="700">${gmNl(Math.round(on.n * 10) / 10)} stenen geteld</text></g>`;
 }
-function gmLijnOnder(f, l) {
+// Staande lijn (bijv. over glas): tel de lagen in het metselwerk naast het kozijn over dezelfde hoogte als de lijn.
+// We kijken in smalle stroken over de hele foto. Glas en kozijn geven geen of een veel grotere herhaling; het metselwerk links
+// en rechts geeft allemaal (bijna) dezelfde laaghoogte. Die groep nemen we (minstens 4 stroken), het midden ervan. Hele lagen.
+function gmLijnNaast(f, l) {
+  const b = gmBeeld(f); if (!b) return null;
+  const X = (l.x1 + l.x2) / 2, Y1 = Math.min(l.y1, l.y2) * b.h, Y2 = Math.max(l.y1, l.y2) * b.h, ws = .06;
+  if (Y2 - Y1 < b.h * .04) return null;
+  const st = [];
+  for (let x = 0; x + ws <= 1.0001; x += .03) { const p = gmRijPer(b, [[x * b.w, (x + ws) * b.w, Y1, Y2]]); if (p && p.score >= .6) st.push({ x, per: p.per, sc: p.score }); }
+  const ps = st.map(s => s.per).sort((a, c) => a - c);
+  const kern = ps.find(p => ps.filter(q => Math.abs(q / p - 1) <= .1).length >= 4); if (!kern) return null;
+  let per = kern, groep = [];
+  for (let i = 0; i < 3; i++) { groep = st.filter(s => Math.abs(s.per / per - 1) <= .12); const gp = groep.map(s => s.per).sort((a, c) => a - c); per = gp[gp.length >> 1]; }   // midden van de groep
+  const ruw = (Y2 - Y1) / per, n = Math.max(1, Math.round(ruw));
+  const dicht = groep.sort((a, c) => c.sc - a.sc)[0];   // de duidelijkste strook laten zien
+  return { n, ruw, per: per / b.h, x: dicht.x, w: ws, y1: Y1 / b.h, y2: Y2 / b.h, stroken: groep.length };
+}
+function gmLijnOnder(f, l, yLaag) {
   const b = gmBeeld(f); if (!b) return null;
   const X1 = Math.min(l.x1, l.x2) * b.w, X2 = Math.max(l.x1, l.x2) * b.w, Y = Math.max(l.y1, l.y2) * b.h, hs = b.h * .07;
   if (X2 - X1 < b.w * .05) return null;
@@ -2054,7 +2080,7 @@ function gmLijnOnder(f, l) {
     if (per.length < 4) continue;
     per.sort((a, c) => a - c); const med = per[per.length >> 1], q1 = per[Math.floor(per.length * .25)], q3 = per[Math.floor(per.length * .75)];
     if ((q3 - q1) / med > .04) continue;
-    goed.push({ y0, yc: y0 + hs / 2, med });
+    goed.push({ y0, yc: y0 + hs / 2, med, rp: rij.per });
   }
   if (!goed.length) return null;
   const eerste = goed[0]; let perL = eerste.med;
@@ -2065,7 +2091,14 @@ function gmLijnOnder(f, l) {
     if (v > 0 && Math.abs(v / eerste.med - 1) < .12) perL = v;
   }
   const ruw = (X2 - X1) / perL, n = Math.max(.5, Math.round(ruw * 2) / 2);   // zoals je zelf telt: hele en halve stenen
-  return { n, ruw, y: eerste.y0 / b.h, h: hs / b.h, per: perL / b.w, stroken: goed.length };
+  // Laaghoogte (voor staande lijnen) op hoogte yLaag, op dezelfde manier doorgetrokken.
+  let laag = eerste.rp;
+  if (yLaag != null && goed.length >= 3 && goed[goed.length - 1].yc - eerste.yc >= hs) {
+    const k = goed.length, my = goed.reduce((t, g) => t + g.yc, 0) / k, mp = goed.reduce((t, g) => t + g.rp, 0) / k;
+    const sxy = goed.reduce((t, g) => t + (g.yc - my) * (g.rp - mp), 0), sxx = goed.reduce((t, g) => t + (g.yc - my) ** 2, 0);
+    const v = mp + (sxx ? sxy / sxx : 0) * (yLaag - my); if (v > 0 && Math.abs(v / eerste.rp - 1) < .2) laag = v;
+  }
+  return { n, ruw, y: eerste.y0 / b.h, h: hs / b.h, per: perL / b.w, stroken: goed.length, laag };
 }
 function gmLijnBron(s, f, l) {
   if (!s || !f || !l || !s.fotos?.includes(f) || !['horizontaal', 'verticaal'].includes(l.richting)) return null;
@@ -2077,6 +2110,8 @@ function gmLijnBron(s, f, l) {
   // naar beneden kijkt en telt. Alleen als het tellen zeker is; de referentie van de gevelmap gaat hierna.
   if (l.richting === 'horizontaal') { const sf = gmSteen(s), on = sf.l ? gmLijnOnder(f, l) : null;
     if (on) { const m = Math.round(on.n * sf.l) / 100; if (m > 0 && m < 100) return { m, stenen: true, tekst: `${gmNl(Math.round(on.n * 10) / 10)} stenen × ${gmNl(sf.l)} cm, geteld in het metselwerk onder de lijn (jouw steenmaat: ${gmSteenTekst(s)})`, onder: on }; } }
+  if (l.richting === 'verticaal') { const sf = gmSteen(s), na = sf.h ? gmLijnNaast(f, l) : null;
+    if (na) { const m = Math.round(na.n * sf.h) / 100; if (m > 0 && m < 100) return { m, stenen: true, tekst: `${na.n} lagen × ${gmNl(sf.h)} cm, geteld in het metselwerk naast de lijn (jouw steenmaat: ${gmSteenTekst(s)})`, naast: na }; } }
   const m = gmLijnRef(s, f, l); return m != null ? { m, tekst: `Berekend uit de referentie van ${s.naam} (${s.gm.ref.B} × ${s.gm.ref.H} cm)` } : null;
 }
 function gmLijnRef(s, f, l) {
@@ -4477,7 +4512,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.26-12';
+const APP_VERSIE = '2026.11.26-13';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
