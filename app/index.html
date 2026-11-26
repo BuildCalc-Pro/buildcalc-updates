@@ -2242,7 +2242,7 @@ function gmFotosNaarLijst(m, p, alleen) {
     for (const { s, f, o } of gmFotoOnderdelen(p, alleen)) { try { if (typeof stenenHerreken === 'function') stenenHerreken(f); } catch (e) {}
       for (const r of ondNaarTopcalc(s, f, o)) { n++; if (!r.code) zonder++; } }
     bewaar(); renderTopcalc(m);
-    toast(`${n} regel${n === 1 ? '' : 's'} van ${alleen ? alleen.naam : "alle gevels"} staan in de lijst.${zonder ? ` ${zonder} nog zonder code: klik op Code in die regel.` : ''} Daarna "Kopiëren voor Topcalc" of "Script voor de pc".`, 7000); }
+    toast(`${n} regel${n === 1 ? '' : 's'} van ${alleen ? alleen.naam : "alle gevels"} staan in de lijst.${zonder ? ` ${zonder} nog zonder code: klik op Code in die regel.` : ''} Daarna "CSV voor Topcalc".`, 7000); }
 }
 
 // "Losse maten" (lijnen zonder onderdeel, vaak lasermaten): met één tik referentie maken (telt niet mee in Topcalc),
@@ -4408,7 +4408,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.26-2';
+const APP_VERSIE = '2026.11.26-3';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
@@ -7204,7 +7204,7 @@ function tcReken(r) {
   else if (eenheid) { const per = St || (B && H ? 2 * B + 2 * H : B || H); hoeveel = per ? per / 100 * n : null; }
   return { z, eenheid: eenheid || 'M1', hoeveel, n };
 }
-// Regels voor het rapport en het script. Regels na elkaar met dezelfde omschrijving vormen één onderdeel in het rapport.
+// Regels voor het rapport en de PDF. Regels na elkaar met dezelfde omschrijving vormen één onderdeel in het rapport.
 // splits = true: per map een groep per bestek (GOB, GOI, ONB, ONI, RDO), elk met bestek en (voor RDO) rdo: true.
 function topcalcRegels(p, ookLeeg = false, splits = false) {
   return p.submappen.flatMap((s, mi) => {
@@ -7404,9 +7404,7 @@ function renderTopcalc(m) {
     ${gmFotoKnopHtml(p)}
     <button class="outline" id="tcCsv">${ic('table')} CSV voor Topcalc (importeren)</button>
     <div style="color:var(--muted);font-size:13px;margin:6px 4px 10px">Precies het formaat dat Topcalc inleest. Zet het bestand via de Verkenner op U:. Niet openen in Excel: dat verandert de scheidingstekens en haalt de nullen voor de codes weg.</div>
-    <button class="outline" id="tcScript">${ic('terugzet')} Script voor de pc</button>
     <button class="outline" id="tcPrint" style="margin-top:10px">${ic('pdf')} Printen / PDF (zonder foto's)</button>
-    <div style="color:var(--muted);font-size:13px;margin:6px 4px 0">Het script typt de regels in Topcalc, map voor map. Open in Topcalc de meetstaat van de eerste map, klik in het eerste vakje en druk op F9. Bij elke F9 vraagt het eerst of de goede map openstaat.</div>
     ${Native ? '' : `<button class="outline" id="tcScherm" style="margin-top:10px">🖥️ Foto's op ander scherm</button>
     <div style="color:var(--muted);font-size:13px;margin:6px 4px 0">Opent een apart venster met de foto en de maten. Sleep dat naar je andere scherm. Klik daarna op een fotootje, dan komt die foto in dat venster.</div>`}
     ${p.submappen.map((s, mi) => { const standaard = isRdo(s) ? 'RDO' : 'ONB', rijen = tcLijst(s).filter(r => !tcLeeg(r));
@@ -7514,7 +7512,7 @@ function renderTopcalc(m) {
     const g = topcalcRegels(p, false, true).find(x => x.s.id === b.dataset.tckopie && x.bestek === b.dataset.bestek), rijen = g ? g.regels.map(r => r.vakken) : [];
     if (!rijen.length) return toast('Deze map heeft nog geen regels.');
     try { await navigator.clipboard.writeText(rijen.map(r => r.join('\t')).join('\r\n')); toast(`${rijen.length} ${rijen.length === 1 ? 'regel' : 'regels'} gekopieerd`); }
-    catch { toast('Kopiëren lukte niet. Gebruik het script voor de pc.'); }
+    catch { toast('Kopiëren lukte niet. Gebruik de CSV voor Topcalc.'); }
   });
   $('#tcPrint', m).onclick = async () => {
     bewaar(); const b = $('#tcPrint', m); b.disabled = true;
@@ -7530,29 +7528,6 @@ function renderTopcalc(m) {
     const naam = `Topcalc_${(p.werknummer || p.adres || 'project').replace(/[^\w-]+/g, '_')}.csv`;
     await download(new Blob([csv], { type: 'application/octet-stream' }), naam);
     if (!Native) toast(`${naam} staat in je Downloads (${n} regels). Kopieer het via de Verkenner naar U:, niet via Excel.`, 6000);
-  };
-  $('#tcScript', m).onclick = async () => {
-    bewaar();
-    // Per bestek op alfabet (GOB, GOI, ONB, ONI, RDO), net als in Topcalc. Binnen een bestek de gevels op alfabet
-    // (Achtergevel voor Voorgevel), net als Topcalc zelf.
-    const { groepen } = topcalcMappen(p);
-    // De factor typt het script niet: die zet je zelf in Topcalc op de map. Het script noemt hem wel bij die map.
-    const kaarten = groepen.map(g => [tcMapNaam(g, p) + (keerVan(p, g.s) > 1 ? ` (factor ${keerVan(p, g.s)}: zelf in Topcalc op de map zetten)` : ''),
-      // Voor het script: lege vakjes blijven leeg (geen 0), anders loopt Topcalc vast bij bijv. een latei met alleen een lengte.
-      // Het laatste vakje is de bestekcode van die regel (ONB = OHD03).
-      g.regels.map(x => [x.r.code || '', x.r.type || '', x.vakken[2], x.r.b || '', x.r.h || '', String(x.r.st || '').replace(/^0$/, ''), x.r.n || '1', rijVariant(x.r, g.bestek)].map(v => String(v).trim()))]);
-    if (!kaarten.length) return toast('Er staan nog geen regels in de lijst.');
-    // Veiligheid: regels zonder code (bijv. een raam waar je de code oversloeg) eerst noemen. Het script typt blind.
-    const zonder = kaarten.flatMap(([kn, rijen]) => rijen.filter(r => !r[0]).map(r => `${r[2] || 'Regel zonder naam'} (${kn.replace(/ \(factor.*$/, '')})`));
-    if (zonder.length && !await bevestig(`${zonder.length} ${zonder.length === 1 ? 'regel' : 'regels'} zonder code`,
-      `Nog zonder Topcalc-code: ${zonder.slice(0, 8).join(', ')}${zonder.length > 8 ? ` en nog ${zonder.length - 8}` : ''}. Kies eerst een code (bijv. 001 N), of maak het script toch: dan blijft het Code-vakje leeg en vraagt het script na F9 nog een keer.`,
-      { ja: 'Toch script maken', nee: 'Eerst codes kiezen', klasse: 'primary' })) return;
-    const naam = `Topcalc_${(p.werknummer || p.adres).replace(/[^\w-]+/g, '_')}.ahk`;
-    const blob = new Blob([topcalcScript(p, kaarten, mappenTekst(p))], { type: 'text/plain' });
-    // Op de pc gewoon downloaden (geen deelvenster); in de app via het deelmenu naar de pc sturen.
-    if (!Native) { await download(blob, naam); return toast(`${naam} staat in je Downloads. Dubbelklik het, klik in TopCalc in het eerste Code-vakje en druk op F9.`); }
-    try { if (!await deelPdf(blob, naam, `Topcalc-script ${p.adres}`, 'Open dit bestand op de pc met AutoHotkey.')) return; }
-    catch (e) { download(blob, naam); }
   };
 }
 // Een som uitrekenen: "590+125", "2*125", "12 x 6,2" of "12 keer 6.2". Stenen tellen kan ook kort:
@@ -7579,7 +7554,6 @@ const rijVariant = r => String(r.bv || '').trim(); // wat je zelf in het vakje B
 const kaalMap = n => n.replace(/\b(RDO|ONB|ONI|GOB|GOI|RCB)\b|reiniging/gi, '').replace(/\s+/g, ' ').trim();
 // Zoals in Topcalc: bestek > straatnaam > gevel (bijv. ONB > Dorpsstraat 12 > Voorgevel).
 const tcStraat = (p, s) => groepVan(p, s)?.naam || String(p.adres || p.naam || '').split(',')[0].trim();
-const tcMapNaam = (g, p) => `${g.bestek} > ${tcStraat(p, g.s)} > ${kaalMap(g.s.naam) || g.s.naam}`;
 function topcalcMappen(p) {
   const nl = (a, b) => a.localeCompare(b, 'nl', { numeric: true, sensitivity: 'base' });
   // Per bestek, dan per straat (zoals de mappen in Topcalc staan), dan de gevels op alfabet.
@@ -7617,7 +7591,6 @@ function topcalcCsv(p) {
   }
   return { csv: naarAnsi([TC_CSV_KOP, ...rijen].map(l => l + '\r\n').join('')), zonder, n: rijen.length };
 }
-const mappenTekst = p => topcalcMappen(p).bestekken.map(b => `${b.bestek} > ${b.straat} > ${b.mappen.join(', ')}`).join('\n');
 const BESTEK_KNOPPEN = ['ONB', 'ONI', 'RCB', 'RDO', 'GOB', 'GOI'];
 const oudBestek = v => v === 'reinigen' ? 'RDO' : v === 'hout' ? 'ONB' : BESTEKKEN[v] ? v : null;
 // Zonder gekozen bestek: raden uit de code (G = glas, binnengroepen = ONI, anders ONB).
@@ -7660,89 +7633,6 @@ function autoStrekkend(r, tr) {
   const inp = $('[data-v=st]', tr); if (inp && inp.value !== nieuw) inp.value = nieuw;
 }
 const TC_VELDEN = [['code', 'Code', '4.2em'], ['type', 'Type', '3.4em'], ['oms', 'Omschrijving', '100%'], ['b', 'Breedte', '4.6em'], ['h', 'Hoogte', '4.6em'], ['st', 'Strekkend', '5em'], ['n', 'Aantal', '3.8em'], ['bv', 'Bestek', '5em']];
-// AutoHotkey-script (v2) voor de pc: typt de regels in Topcalc, met Tab tussen de vakken en Enter na elke regel.
-// Zo voer je in Topcalc één regel in (getest op kantoor): Code (3 tekens, springt zelf door, dus geen Tab),
-// Type (2 tekens springt zelf door, 1 teken: Tab), Omschrijving Tab, Breedte Tab, Hoogte Tab, Strekkend Tab, Aantal Tab,
-// Bestek Enter. Een leeg vakje blijft leeg: alleen Tab.
-function topcalcScript(p, kaarten, mappen = '') {
-  // In AutoHotkey v2 is "" geen escape: een aanhalingsteken in tekst wordt `" en een nieuwe regel `n.
-  const q = v => '"' + String(v).replace(/`/g, '``').replace(/"/g, '`"').replace(/\r?\n/g, '`n') + '"';
-  const totaal = kaarten.reduce((a, k) => a + k[1].length, 0);
-  return `; BuildCalc -> Topcalc, ${p.adres}${p.werknummer ? ' (' + p.werknummer + ')' : ''}
-; 1. Installeer AutoHotkey v2 (gratis): https://www.autohotkey.com
-; 2. Dubbelklik dit bestand.
-; 3. Maak in Topcalc eerst deze mappen aan (Nieuw > bestek > straatnaam > gevel) (het script laat dit lijstje ook zien):
-${mappen.split('\n').map(r => ';    ' + r).join('\n')}
-; 4. Open in Topcalc de meetstaat van ${kaarten[0][0]} en klik in het eerste vakje (Code).
-; 5. Druk op F9. Het script vraagt eerst of de goede map openstaat; pas na OK typt het de regels.
-;    Daarna zegt het welke map de volgende is.
-;    ${kaarten.length} ${kaarten.length === 1 ? 'map' : 'mappen'}, ${totaal} regels. Esc stopt het script.
-#Requires AutoHotkey v2.0
-VAK := "{Tab}"     ; toets naar het volgende vakje
-REGEL := "{Enter}" ; na Bestek: regel opslaan
-WACHT := 150       ; wachttijd in ms tussen de vakjes (hoger als Topcalc letters mist)
-CODE_LENGTE := 3   ; na zoveel tekens springt Topcalc zelf van Code naar Type
-TYPE_LENGTE := 2   ; na zoveel tekens springt Topcalc zelf van Type naar Omschrijving
-; Per map: naam (bestek > map) en regels (Code, Type, Omschrijving, Breedte, Hoogte, Strekkend, Aantal, Bestek).
-kaarten := [
-${kaarten.map(([naam, rijen]) => { const zc = rijen.filter(r => !r[0]).map(r => r[2] || 'Regel zonder naam');
-  const let_op = zc.length ? `\n\nLET OP: ${zc.length} ${zc.length === 1 ? 'regel' : 'regels'} zonder code: ${zc.slice(0, 8).join(', ')}${zc.length > 8 ? ` en nog ${zc.length - 8}` : ''}.\nHet Code-vakje blijft dan leeg. Geeft Topcalc daar een melding, druk dan meteen op Esc.` : '';
-  return `  [${q(naam)}, [\n${rijen.map(r => '    [' + r.map(q).join(', ') + ']').join(',\n')}\n  ], ${q(let_op)}]`; }).join(',\n')}
-]
-MAPPEN := ${q(mappen)}
-nr := 1
-MsgBox("Maak in Topcalc eerst deze mappen aan:\`n\`n" MAPPEN "\`n\`nOpen daarna de meetstaat van " kaarten[1][1] ", klik in het eerste vakje (Code) en druk op F9.", "BuildCalc")
-F9:: {
-  global nr
-  if (nr > kaarten.Length) {
-    MsgBox("Alle mappen zijn al ingevoerd.", "BuildCalc")
-    return
-  }
-  k := kaarten[nr]
-  ; Controle: eerst zeggen welke map nu gevuld wordt. Pas na OK typt het script, in het venster waar je was.
-  venster := WinExist("A")
-  if (MsgBox("Map " nr " van " kaarten.Length ":\`n\`n" k[1] " (" k[2].Length " regels)" k[3] "\`n\`nStaat de meetstaat van deze map open en staat de cursor in het eerste Code-vakje?", "BuildCalc", "OKCancel Icon?") != "OK")
-    return
-  if (venster) {
-    WinActivate(venster)
-    WinWaitActive(venster, , 2)
-  }
-  Sleep(300)
-  for r in k[2] {
-    ; Code: Topcalc springt na CODE_LENGTE tekens zelf naar Type; is de code korter, dan zelf een Tab.
-    SendText(r[1])
-    Sleep(WACHT)
-    if (StrLen(r[1]) < CODE_LENGTE)
-      Send(VAK)
-    Sleep(WACHT)
-    ; Type: bij 2 tekens springt Topcalc zelf door, anders zelf een Tab.
-    SendText(r[2])
-    Sleep(WACHT)
-    if (StrLen(r[2]) < TYPE_LENGTE)
-      Send(VAK)
-    Sleep(WACHT)
-    ; Omschrijving, Breedte, Hoogte, Strekkend, Aantal: elk gevolgd door Tab (leeg = alleen Tab).
-    Loop 5 {
-      SendText(r[A_Index + 2])
-      Sleep(WACHT)
-      Send(VAK)
-      Sleep(WACHT)
-    }
-    ; Bestek (bijv. OHD03) en Enter: de regel staat erin.
-    SendText(r[8])
-    Sleep(WACHT)
-    Send(REGEL)
-    Sleep(WACHT * 4)
-  }
-  nr += 1
-  if (nr <= kaarten.Length)
-    MsgBox(k[1] " is klaar (" k[2].Length " regels).\`nOpen in Topcalc nu de meetstaat van " kaarten[nr][1] ", klik in het eerste vakje en druk weer op F9.", "BuildCalc")
-  else
-    MsgBox("Klaar: alle mappen zijn ingevoerd.", "BuildCalc")
-}
-Esc::ExitApp
-`;
-}
 
 // ---------- Rapport-tabblad ----------
 const RP = { projectId: null, bezig: null };
