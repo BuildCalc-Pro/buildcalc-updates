@@ -1280,7 +1280,7 @@ function vraagTekst(titel, label, hint, waarde = '', voorstellen = null) {
 }
 // Meetypen: bij "dra" vult hij "Draairaam" alvast aan (de rest staat geselecteerd, dus doortypen overschrijft het)
 // en eronder staan knopjes met wat past. Eerst namen die je zelf al gebruikt hebt, dan een vaste lijst.
-const ONDERDEEL_NAMEN = ['Kozijn', 'Draairaam', 'Valraam', 'Klepraam', 'Schuifpui', 'Voordeur', 'Achterdeur', 'Garagedeur', 'Deur', 'Betonnen latei', 'Latei',
+const ONDERDEEL_NAMEN = ['Kozijn 1e verdieping', 'Kozijn', 'Kozijn 2e verdieping', 'Draairaam', 'Valraam', 'Klepraam', 'Schuifpui', 'Voordeur', 'Achterdeur', 'Garagedeur', 'Deur', 'Betonnen latei', 'Latei',
   'Boeideel', 'Windveer', 'Dakkapel', 'Dakgoot', 'Onderdorpel', 'Raamdorpel', 'Waterslag', 'Luik', 'Hekwerk', 'Balkon', 'Gevelbetimmering', 'Overstek',
   'Rolluikkast', 'Regenpijp', 'Vensterbank', 'Schoorsteen', 'Bergingdeur', 'Erker', 'Gevel', 'Plint', 'Dakrand'];
 function onderdeelNamen() {
@@ -4408,7 +4408,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.26-3';
+const APP_VERSIE = '2026.11.26-4';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
