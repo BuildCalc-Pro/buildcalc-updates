@@ -354,6 +354,7 @@ table.tcgrid input:focus { outline: none; border-color: var(--gold); background:
 table.tcgrid input[data-v=b], table.tcgrid input[data-v=h], table.tcgrid input[data-v=st], table.tcgrid input[data-v=n] { text-align: right; }
 table.tcgrid input[data-v=code], table.tcgrid input[data-v=type] { font-weight: 700; }
 .tcweg { border: 0; background: none; color: var(--muted); cursor: pointer; padding: 4px 6px; } .tcweg:hover { color: var(--danger); }
+.tckz { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 10px 0 0; font-size: 14px; } .tckz .tcknop { margin-left: 0; }
 .tcinfo { font-size: 13px; color: var(--muted); padding: 8px 2px 0; min-height: 1.4em; }
 .tclos { display: block; width: 60px; font-size: 10px; color: var(--muted); text-align: center; } .tcnieuw { margin: 8px 0 14px; padding: 8px !important; font-size: 14px; }
 .tcknop { padding: 2px 8px !important; font-size: 13px; color: var(--a2); margin-left: 6px; } .tcsoort { display: block; color: var(--muted); font-size: 11px; font-weight: 400; }
@@ -4407,7 +4408,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.26-1';
+const APP_VERSIE = '2026.11.26-2';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
@@ -7190,7 +7191,8 @@ function tcLijstBasis(s) {
     return { id: nieuwId(), code, type, oms: h.naam || '', b: h.B != null ? cmGetal(h.B) : '', h: h.H != null ? cmGetal(h.H) : '', st: c.m != null ? cmGetal(c.m) : '', n: String(c.aantal ?? 1) }; }));
   return s.tc;
 }
-const tcLeeg = r => !['code', 'type', 'oms', 'b', 'h', 'st'].some(k => String(r[k] || '').trim()) && (!r.n || r.n === '1');
+// Alleen "Kozijn A" (vanzelf ingevuld) en verder niets: telt als leeg.
+const tcLeeg = r => !['code', 'type', 'oms', 'b', 'h', 'st'].some(k => String(r[k] || '').trim() && !(k === 'oms' && KZ_OMS.test(String(r.oms).trim()))) && (!r.n || r.n === '1');
 // Hoeveel een regel is: m2 = breedte × hoogte, m1 = strekkend (of rondom als strekkend 0 is, of alleen de breedte/hoogte), st = aantal.
 function tcReken(r) {
   const z = zoekCode(`${r.code || ''} ${r.type || ''}`), B = getal(r.b) || 0, H = getal(r.h) || 0, St = getal(r.st) || 0, n = getal(r.n) ?? 1;
@@ -7371,14 +7373,28 @@ async function gevelOnderdeel(s, klaar) {
   tcLijst(s).push(r); bewaar(); klaar();
   toast(`${naam} staat bij ${s.naam}: ${bt} ${code}${eenheid === 'M2' ? ` (m²)` : eenheid === 'ST' ? ' (stuks)' : ' (m1)'}.`);
 }
+// Kozijn A, B, C per gevel: nieuwe regels in de Topcalc-lijst krijgen als omschrijving het kozijn waar je mee bezig bent.
+// Met "Volgend kozijn" ga je naar de volgende letter; elke gevel (map) begint bij A. Regels na elkaar met dezelfde
+// omschrijving vormen in het rapport één onderdeel (KOZIJN A), en in de CSV staat "Kozijn A" in de kolom omschrijving.
+const KZ_OMS = /^kozijn ([a-z]{1,2})$/i;
+const kzVolgend = L => { const n = [...L].reduce((a, c) => a * 26 + c.charCodeAt(0) - 64, 0) + 1; let s = '', x = n; while (x > 0) { x--; s = String.fromCharCode(65 + x % 26) + s; x = Math.floor(x / 26); } return s; };
+const kzVorig = L => { let n = [...L].reduce((a, c) => a * 26 + c.charCodeAt(0) - 64, 0) - 1, s = ''; while (n > 0) { n--; s = String.fromCharCode(65 + n % 26) + s; n = Math.floor(n / 26); } return s || 'A'; };
+function tcKozijn(s) {
+  if (s.tcKz) return s.tcKz;
+  const laatste = [...(s.tc || [])].reverse().map(r => KZ_OMS.exec(String(r.oms || '').trim())).find(Boolean);
+  return laatste ? laatste[1].toUpperCase() : 'A';
+}
+const tcKzGebruikt = (s, L) => (s.tc || []).some(r => String(r.oms || '').trim().toLowerCase() === `kozijn ${L}`.toLowerCase());
+const tcKzHtml = s => { const L = tcKozijn(s);
+  return `<div class="tckz" data-tckzbalk="${s.id}"><span>Nu bezig: <b>Kozijn ${L}</b></span>${L !== 'A' && !tcKzGebruikt(s, L) ? `<button class="ghost tcknop" data-tckzterug="${s.id}" title="Terug naar Kozijn ${kzVorig(L)}">◀ ${kzVorig(L)}</button>` : ''}<button class="outline tcknop" data-tckz="${s.id}" style="width:auto;padding:6px 14px !important">Volgend kozijn (${kzVolgend(L)}) ▶</button></div>`; };
 function renderTopcalc(m) {
   const p = vind(RP.projectId); if (!p) return;
   const fotos = tcFotos(p);
   // Regels van een foto: alleen het aantal is hier aan te passen; de rest komt van de foto (📷 opent die foto).
-  const rijHtml = (r, b) => `<tr data-id="${r ? r.id : ''}"${r?.bron ? ' class="tcvanfoto"' : ''}>${TC_VELDEN.map(([k, , w]) => `<td${k === 'b' && r?.dikte ? ' style="position:relative"' : ''}><input data-v="${k}" value="${esc(r?.[k] ?? '')}" style="width:${w}" autocomplete="off" spellcheck="false"${r?.bron && k !== 'n' && k !== 'bv' ? ' readonly tabindex="-1"' : ''}${k === 'b' && r?.dikte ? ` title="Inclusief ${r.dikte} cm diktekant"` : ''}>${k === 'b' && r?.dikte ? `<small class="dkbadge">+${r.dikte}</small>` : ''}</td>`).join('')}<td class="tcuit" style="text-align:right;white-space:nowrap;font-weight:700;font-size:13px;padding-left:8px">${tcUitkomstHtml(r)}</td><td>${r?.bron
+  const rijHtml = (r, b, kz) => `<tr data-id="${r ? r.id : ''}"${r?.bron ? ' class="tcvanfoto"' : ''}>${TC_VELDEN.map(([k, , w]) => `<td${k === 'b' && r?.dikte ? ' style="position:relative"' : ''}><input data-v="${k}" value="${esc(r?.[k] ?? '')}" style="width:${w}" autocomplete="off" spellcheck="false"${!r && k === 'oms' && kz ? ` placeholder="Kozijn ${kz}"` : ''}${r?.bron && k !== 'n' && k !== 'bv' ? ' readonly tabindex="-1"' : ''}${k === 'b' && r?.dikte ? ` title="Inclusief ${r.dikte} cm diktekant"` : ''}>${k === 'b' && r?.dikte ? `<small class="dkbadge">+${r.dikte}</small>` : ''}</td>`).join('')}<td class="tcuit" style="text-align:right;white-space:nowrap;font-weight:700;font-size:13px;padding-left:8px">${tcUitkomstHtml(r)}</td><td>${r?.bron
     ? `<button class="tcweg" data-tcfoto="${esc(r.foto || '')}" title="Van de foto: maten pas je aan op de foto" tabindex="-1">📷</button>` : '<button class="tcweg" data-weg title="Regel verwijderen" tabindex="-1">✕</button>'}</td></tr>`;
   m.innerHTML = `<div class="pad" style="padding-bottom:40px">
-    <div style="color:var(--muted);font-size:14px;margin:0 2px 12px">Vul per map de regels in, net als in Topcalc. Kijk ondertussen naar je foto's en Google Maps. <b>Tab</b> = volgend vakje, <b>Enter</b> = volgende regel. Strekkend rekent zichzelf uit bij een m1-code; pas het aan als er stijlen bij of af moeten. Weet je de code niet? Klik op Code of Type om een code te kiezen. Bij een maat of aantal komt er een cijferblok bij, bij Omschrijving knopjes met namen.</div>
+    <div style="color:var(--muted);font-size:14px;margin:0 2px 12px">Vul per map de regels in, net als in Topcalc. Kijk ondertussen naar je foto's en Google Maps. <b>Tab</b> = volgend vakje, <b>Enter</b> = volgende regel. Per gevel begin je bij <b>Kozijn A</b>: alle regels die je invult horen bij A, tot je op <b>Volgend kozijn</b> drukt (of <b>Ctrl+Enter</b>), dan wordt het B. Strekkend rekent zichzelf uit bij een m1-code; pas het aan als er stijlen bij of af moeten. Weet je de code niet? Klik op Code of Type om een code te kiezen. Bij een maat of aantal komt er een cijferblok bij, bij Omschrijving knopjes met namen.</div>
     ${nietMeeHtml(nietMee(p), x => `data-tcopen="${x.f.id}"`)}
     ${tcStraatHtml(p)}
     ${(() => { const mp = topcalcMappen(p).bestekken; return mp.length ? `<div class="card" style="margin:0 0 10px;padding:10px 12px"><div style="font-weight:700;margin-bottom:4px">Maak eerst deze mappen in Topcalc</div>
@@ -7400,7 +7416,7 @@ function renderTopcalc(m) {
       if (!blokken.length) blokken = [standaard];
       const kopjes = blokken.length > 1 || blokken[0] !== standaard;
       const tabel = b => `<div class="tcscroll"><table class="tcgrid"><thead><tr>${TC_VELDEN.map(([, l]) => `<th>${l}</th>`).join('')}<th style="text-align:right">Uitkomst</th><th></th></tr></thead>
-      <tbody data-bestek="${b}">${rijen.filter(r => rijBestek(r, s) === b).map(r => rijHtml(r, b)).join('')}${rijHtml(null, b)}</tbody></table></div>`;
+      <tbody data-bestek="${b}">${rijen.filter(r => rijBestek(r, s) === b).map(r => rijHtml(r, b)).join('')}${rijHtml(null, b, tcKozijn(s))}</tbody></table></div>`;
       const blokKop = b => `<div style="font-size:12px;font-weight:700;letter-spacing:.04em;color:${bestekKleur(b)};margin:12px 2px 4px">${b} · ${BESTEKKEN[b][0].toUpperCase()}</div>`;
       const nogTeKiezen = BESTEK_LIJST.filter(b => !blokken.includes(b));
       return `<div class="card meetstaat tcmap" data-map="${s.id}" style="margin-top:18px">
@@ -7408,6 +7424,7 @@ function renderTopcalc(m) {
       ${s.fotos.length ? `<div class="tcfotos">${s.fotos.map((f, fi) => `<img data-foto="${f.id}" data-tcopen="${f.id}" alt="" title="Foto ${fi + 1}">`).join('')}</div>` : ''}
       ${gmFotoMapKnopHtml(p, s)}
       ${blokken.map(b => `${kopjes ? blokKop(b) : ''}${tabel(b)}<button class="ghost tcknop" data-tckopie="${s.id}" data-bestek="${b}" style="margin:6px 0 0">Kopiëren voor Topcalc${kopjes ? ` (${b})` : ''}</button>`).join('')}
+      ${tcKzHtml(s)}
       <div class="tcinfo" data-info>Klik in een regel om te zien welk onderdeel het is.</div>
       <button class="ghost tcknop" data-gevelond="${s.id}" style="margin:6px 8px 0 0">＋ Gevelonderdeel (dakgoot, daklijst…)</button>${nogTeKiezen.length ? `<button class="ghost tcknop" data-tcbestek="${s.id}" style="margin:6px 0 0">＋ Bestek (${nogTeKiezen.join(', ')})</button>` : ''}</div>`; }).join('')}
   </div>`;
@@ -7423,6 +7440,17 @@ function renderTopcalc(m) {
   m.querySelectorAll('[data-tcbestek]').forEach(k => k.onclick = () => { const s = p.submappen.find(x => x.id === k.dataset.tcbestek); if (!s) return;
     const nog = BESTEK_LIJST.filter(b => !(s.toonBestek || []).includes(b));
     menu(nog.map(b => ['plus', `${b} · ${BESTEKKEN[b][0]}`, () => { s.toonBestek = [...(s.toonBestek || []), b]; bewaar(); renderTopcalc(m); }])); });
+  // Volgend kozijn: alleen de balk en de lege regels bijwerken (geen hele nieuwe lijst, dan blijft je plek staan).
+  const kzBalk = (kaart, s) => { const oud = $('[data-tckzbalk]', kaart); if (!oud) return; oud.insertAdjacentHTML('afterend', tcKzHtml(s)); oud.remove(); };
+  const kzWissel = (kaart, s, L, body) => {
+    s.tcKz = L; bewaar(); kzBalk(kaart, s);
+    kaart.querySelectorAll('tbody tr:not([data-id]) [data-v=oms], tbody tr[data-id=""] [data-v=oms]').forEach(i => i.placeholder = `Kozijn ${L}`);
+    const leeg = (body || $('tbody', kaart)).querySelector('tr[data-id=""] [data-v=code]'); leeg?.focus();
+    toast(`Kozijn ${L}: nieuwe regels horen nu bij ${L}.`);
+  };
+  m.addEventListener('click', e => { const v = e.target.closest('[data-tckz],[data-tckzterug]'); if (!v) return;
+    const kaart = v.closest('.tcmap'), s = p.submappen.find(x => x.id === (v.dataset.tckz || v.dataset.tckzterug)); if (!s || !kaart) return;
+    const L = tcKozijn(s); kzWissel(kaart, s, v.dataset.tckz ? kzVolgend(L) : kzVorig(L)); });
   m.querySelectorAll('.tcmap tbody').forEach(body => { const kaart = body.closest('.tcmap');
     const s = p.submappen.find(x => x.id === kaart.dataset.map), info = $('[data-info]', kaart);
     const rijVan = tr => tcLijst(s).find(r => r.id === tr.dataset.id);
@@ -7437,8 +7465,11 @@ function renderTopcalc(m) {
     };
     // Eerste letter in de lege onderste regel: die regel wordt echt, en er komt een nieuwe lege regel onder.
     const maakEcht = tr => { if (tr.dataset.id) return rijVan(tr);
-      const r = { id: nieuwId(), code: '', type: '', oms: '', b: '', h: '', st: '', n: '1', bestek: body.dataset.bestek || 'ONB' }; tcLijst(s).push(r); tr.dataset.id = r.id;
-      body.insertAdjacentHTML('beforeend', rijHtml(null, body.dataset.bestek)); return r; };
+      // Een nieuwe regel hoort bij het kozijn waar je mee bezig bent: omschrijving "Kozijn A" (zelf te overschrijven).
+      const kz = tcKozijn(s), r = { id: nieuwId(), code: '', type: '', oms: `Kozijn ${kz}`, b: '', h: '', st: '', n: '1', bestek: body.dataset.bestek || 'ONB' }; tcLijst(s).push(r); tr.dataset.id = r.id;
+      const oi = $('[data-v=oms]', tr); if (oi && !oi.value) oi.value = r.oms;
+      if (!s.tcKz) s.tcKz = kz; kzBalk(kaart, s);
+      body.insertAdjacentHTML('beforeend', rijHtml(null, body.dataset.bestek, kz)); return r; };
     const zoekCode2 = async tr => { if (rijVan(tr)?.bron) return toast('Deze regel komt van een foto. Kies de code op de foto.'); const r = maakEcht(tr);
       const c = await codeKiezer(r.oms || `${s.naam}: code`, `${r.code} ${r.type}`.trim(), false, rijBestek(r, s)); if (!c) return;
       [r.code, r.type] = c.split(' '); $('[data-v=code]', tr).value = r.code; $('[data-v=type]', tr).value = r.type || ''; bewaar(); toonInfo(tr); $('[data-v=oms]', tr).focus(); };
@@ -7467,6 +7498,7 @@ function renderTopcalc(m) {
     body.addEventListener('focusout', bewaarNu);
     body.addEventListener('keydown', e => {
       if (e.key !== 'Enter' || !e.target.dataset.v) return; e.preventDefault();
+      if (e.ctrlKey || e.shiftKey) return kzWissel(kaart, s, kzVolgend(tcKozijn(s)), body);
       const volgende = e.target.closest('tr').nextElementSibling; $('[data-v=code]', volgende || body.lastElementChild)?.focus();
     });
     body.addEventListener('dblclick', e => { const v = e.target.dataset?.v; if (v === 'code' || v === 'type') zoekCode2(e.target.closest('tr')); });
