@@ -2031,7 +2031,7 @@ function gmOnderSvg(s, f, W, H) {
   const l = typeof V !== 'undefined' && V?.sel && f?.lijnen?.find(x => x.id === V.sel);
   if (!l || !l.uitRef || l.richting !== 'horizontaal') return '';
   const br = gmLijnBron(s, f, l), on = br?.onder; if (!on) return '';
-  const x1 = Math.min(l.x1, l.x2) * W, x2 = Math.max(l.x1, l.x2) * W, y = Math.max(l.y1, l.y2) * H, y0 = on.y * H, y1 = (on.y + on.h) * H, st = on.per * W;
+  const x1 = Math.min(l.x1, l.x2) * W, x2 = Math.max(l.x1, l.x2) * W, y = Math.max(l.y1, l.y2) * H, y0 = on.y * H, y1 = (on.y + on.h) * H, st = (x2 - x1) / on.n;
   let streep = ''; for (let x = x1 + st; x < x2 - st * .3; x += st) streep += `<line x1="${x}" y1="${y0}" x2="${x}" y2="${y1}" stroke="#57E0D2" stroke-width="1.5"/>`;
   return `<g pointer-events="none"><line x1="${x1}" y1="${y}" x2="${x1}" y2="${y1}" stroke="#57E0D2" stroke-width="1.5" stroke-dasharray="5 4"/>` +
     `<line x1="${x2}" y1="${y}" x2="${x2}" y2="${y1}" stroke="#57E0D2" stroke-width="1.5" stroke-dasharray="5 4"/>` +
@@ -2042,6 +2042,9 @@ function gmLijnOnder(f, l) {
   const b = gmBeeld(f); if (!b) return null;
   const X1 = Math.min(l.x1, l.x2) * b.w, X2 = Math.max(l.x1, l.x2) * b.w, Y = Math.max(l.y1, l.y2) * b.h, hs = b.h * .07;
   if (X2 - X1 < b.w * .05) return null;
+  // Alle betrouwbare stroken onder de lijn. Door perspectief (foto van onderaf) lijken stenen lager in beeld groter; daarom
+  // trekken we de steenmaat door naar de hoogte van de lijn zelf (rechte lijn door de stroken) in plaats van de strook te nemen.
+  const goed = [];
   for (let y0 = Y + b.h * .01; y0 + hs <= Math.min(b.h, Y + b.h * .45); y0 += hs * .5) {
     const rij = gmRijPer(b, [[X1, X2, y0, y0 + hs]]); if (!rij || rij.score < .4) continue;
     const per = [];
@@ -2051,9 +2054,18 @@ function gmLijnOnder(f, l) {
     if (per.length < 4) continue;
     per.sort((a, c) => a - c); const med = per[per.length >> 1], q1 = per[Math.floor(per.length * .25)], q3 = per[Math.floor(per.length * .75)];
     if ((q3 - q1) / med > .04) continue;
-    return { n: (X2 - X1) / med, y: y0 / b.h, h: hs / b.h, per: med / b.w };
+    goed.push({ y0, yc: y0 + hs / 2, med });
   }
-  return null;
+  if (!goed.length) return null;
+  const eerste = goed[0]; let perL = eerste.med;
+  if (goed.length >= 3 && goed[goed.length - 1].yc - eerste.yc >= hs) {
+    const n = goed.length, my = goed.reduce((t, g) => t + g.yc, 0) / n, mp = goed.reduce((t, g) => t + g.med, 0) / n;
+    const sxy = goed.reduce((t, g) => t + (g.yc - my) * (g.med - mp), 0), sxx = goed.reduce((t, g) => t + (g.yc - my) ** 2, 0);
+    const v = mp + (sxx ? sxy / sxx : 0) * (Y - my);
+    if (v > 0 && Math.abs(v / eerste.med - 1) < .12) perL = v;
+  }
+  const ruw = (X2 - X1) / perL, n = Math.max(.5, Math.round(ruw * 2) / 2);   // zoals je zelf telt: hele en halve stenen
+  return { n, ruw, y: eerste.y0 / b.h, h: hs / b.h, per: perL / b.w, stroken: goed.length };
 }
 function gmLijnBron(s, f, l) {
   if (!s || !f || !l || !s.fotos?.includes(f) || !['horizontaal', 'verticaal'].includes(l.richting)) return null;
@@ -4465,7 +4477,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.26-11';
+const APP_VERSIE = '2026.11.26-12';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
