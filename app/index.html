@@ -2032,11 +2032,14 @@ function gmOnderSvg(s, f, W, H) {
   if (!l || !l.uitRef) return '';
   const br = gmLijnBron(s, f, l), na = br?.naast;
   if (l.richting === 'verticaal' && na) {   // staand: de strook metselwerk waar de lagen geteld zijn, met een streepje per laag
-    const x0 = na.x * W, x1 = (na.x + na.w) * W, y0 = na.y1 * H, y1 = na.y2 * H, st = (y1 - y0) / na.n; let streep = '';
-    for (let y = y0 + st; y < y1 - st * .3; y += st) streep += `<line x1="${x0}" y1="${y}" x2="${x1}" y2="${y}" stroke="#57E0D2" stroke-width="1.2"/>`;
-    return `<g pointer-events="none"><rect x="${x0}" y="${y0}" width="${x1 - x0}" height="${y1 - y0}" fill="rgba(87,224,210,.15)" stroke="#57E0D2" stroke-width="1.5"/>${streep}` +
-      `<line x1="${l.x1 * W}" y1="${y0}" x2="${x0 < l.x1 * W ? x1 : x0}" y2="${y0}" stroke="#57E0D2" stroke-width="1.5" stroke-dasharray="5 4"/><line x1="${l.x1 * W}" y1="${y1}" x2="${x0 < l.x1 * W ? x1 : x0}" y2="${y1}" stroke="#57E0D2" stroke-width="1.5" stroke-dasharray="5 4"/>` +
-      `<text x="${(x0 + x1) / 2}" y="${y0 - 8}" text-anchor="middle" fill="#57E0D2" stroke="#000" stroke-width="3" paint-order="stroke" font-size="13" font-weight="700">${na.n} lagen geteld</text></g>`;
+    // Een streepje op de lijn zelf voor elke voeg (zoals een duimstok), ook net boven en onder de uiteinden,
+    // zodat je de uiteinden precies op een voeg kunt zetten.
+    const lx = (y) => (l.x1 + (l.x2 - l.x1) * (l.y2 === l.y1 ? 0 : (y / H - l.y1) / (l.y2 - l.y1))) * W;
+    const y0 = na.y1 * H, y1 = na.y2 * H, ph = na.per * H, half = Math.max(7, Math.min(16, ph * .6));
+    const vg = (na.voegen?.length ? na.voegen.map(v => v * H) : Array.from({ length: na.n + 1 }, (_, i) => y0 + (y1 - y0) * i / na.n)).filter(y => y >= y0 - ph * 1.3 && y <= y1 + ph * 1.3);
+    let streep = ''; for (const y of vg) { const x = lx(y), binnen = y >= y0 - ph * .3 && y <= y1 + ph * .3;
+      streep += `<line x1="${x - half}" y1="${y}" x2="${x + half}" y2="${y}" stroke="#000" stroke-width="3.5" opacity=".5"/><line x1="${x - half}" y1="${y}" x2="${x + half}" y2="${y}" stroke="#57E0D2" stroke-width="2" opacity="${binnen ? 1 : .55}"/>`; }
+    return `<g pointer-events="none">${streep}<text x="${lx(y0) + half + 6}" y="${y0 + 4}" fill="#57E0D2" stroke="#000" stroke-width="3" paint-order="stroke" font-size="13" font-weight="700">${na.n} lagen</text></g>`;
   }
   if (l.richting !== 'horizontaal') return '';
   const on = br?.onder; if (!on) return '';
@@ -2062,7 +2065,24 @@ function gmLijnNaast(f, l) {
   for (let i = 0; i < 3; i++) { groep = st.filter(s => Math.abs(s.per / per - 1) <= .12); const gp = groep.map(s => s.per).sort((a, c) => a - c); per = gp[gp.length >> 1]; }   // midden van de groep
   const ruw = (Y2 - Y1) / per, n = Math.max(1, Math.round(ruw));
   const dicht = groep.sort((a, c) => c.sc - a.sc)[0];   // de duidelijkste strook laten zien
-  return { n, ruw, per: per / b.h, x: dicht.x, w: ws, y1: Y1 / b.h, y2: Y2 / b.h, stroken: groep.length };
+  const buur = groep.slice().sort((a, c) => Math.abs(a.x + ws / 2 - X) - Math.abs(c.x + ws / 2 - X))[0];   // strook het dichtst bij de lijn: daar de voegen zoeken
+  return { n, ruw, per: per / b.h, x: dicht.x, w: ws, y1: Y1 / b.h, y2: Y2 / b.h, stroken: groep.length, voegen: gmVoegen(b, buur.x * b.w, (buur.x + ws) * b.w, Y1, Y2, per) };
+}
+// Liggende voegen in een strook: de grijze voeg is het minst rood. Eerst de vaste stap (laaghoogte) over de hele strook leggen,
+// dan elke voeg een klein stukje laten opschuiven naar de echte voeg (perspectief maakt lagen boven/onder iets anders).
+function gmVoegen(b, x0, x1, Y1, Y2, per) {
+  x0 = Math.max(0, Math.round(x0)); x1 = Math.min(b.w, Math.round(x1));
+  const a = Math.max(0, Math.floor(Y1 - per * 1.5)), z = Math.min(b.h, Math.ceil(Y2 + per * 1.5)), L = z - a; if (L < per * 2 || x1 - x0 < 3) return [];
+  const p = new Float32Array(L);
+  for (let i = 0; i < L; i++) { let s = 0; for (let x = x0; x < x1; x++) s += b.v[(a + i) * b.w + x]; p[i] = s / (x1 - x0); }
+  const g = p.map((_, i) => (p[Math.max(0, i - 1)] + p[i] + p[Math.min(L - 1, i + 1)]) / 3);
+  let fase = 0, laag = Infinity;
+  for (let f = 0; f < per; f += .5) { let s = 0, n = 0; for (let y = f; y < L; y += per) { s += g[Math.round(y)] ?? 0; n++; } if (s / n < laag) { laag = s / n; fase = f; } }
+  const uit = [];
+  for (let y = fase; y < L; y += per) { const r = per * .25; let m = Math.round(y);
+    for (let k = Math.max(0, Math.round(y - r)); k <= Math.min(L - 1, Math.round(y + r)); k++) if (g[k] < g[m]) m = k;
+    uit.push((a + m) / b.h); }
+  return uit;
 }
 function gmLijnOnder(f, l, yLaag) {
   const b = gmBeeld(f); if (!b) return null;
@@ -4512,7 +4532,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.26-13';
+const APP_VERSIE = '2026.11.26-14';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
