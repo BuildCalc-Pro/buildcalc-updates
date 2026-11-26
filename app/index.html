@@ -2018,19 +2018,7 @@ function gmLijnBron(s, f, l) {
   if (!s || !f || !l || !s.fotos?.includes(f) || !['horizontaal', 'verticaal'].includes(l.richting)) return null;
   const ou = gmLijnOuder(f, l); if (ou) return ou;
   // Stenen zichtbaar naast de lijn? Dan automatisch tellen. Anders de gelaserde referentie van beneden.
-  const sf = gmSteen(s), kan = l.richting === 'horizontaal' ? sf.h && sf.l : sf.h;
-  let st = kan ? gmLijnStenen(s, f, l) : null;
-  // Meer lijnen van hetzelfde kozijn in dezelfde richting (bijv. A bovenlangs en onder de vensterbank): allemaal met dezelfde
-  // schaal, zodat even lange lijnen ook even lang worden (en niet 117 tegen 120 door de vensterbank naast de ene lijn).
-  if (st && l.kozijn) {
-    const as = x => l.richting === 'horizontaal' ? Math.abs(x.x2 - x.x1) : Math.abs(x.y2 - x.y1);
-    // Schaal (stenen per stukje foto) van elke lijn; we nemen de middelste (bij twee lijnen het gemiddelde), zodat één
-    // misgeteld strookje niet alles meetrekt.
-    const sch = [l, ...f.lijnen.filter(x => x !== l && x.kozijn === l.kozijn && x.richting === l.richting && !x.ref && !x.hoek && !x.aftrek && !x.lagen10 && !x.vlakRef && (x.maat == null || x.uitRef) && as(x) > 0)]
-      .map(x => [x, x === l ? st : gmLijnStenen(s, f, x)]).filter(([x, r]) => r && r.n > 0 && as(x) > 0).map(([x, r]) => r.n / as(x)).sort((a, b) => a - b);
-    if (sch.length > 1 && as(l) > 0) { const h = sch.length >> 1, mid = sch.length % 2 ? sch[h] : (sch[h - 1] + sch[h]) / 2, n = mid * as(l), k = n / st.n;
-      st = { ...st, n, lagen: st.lagen && st.lagen * k, m: Math.round(n * (st.liggend ? sf.l : sf.h)) / 100 }; }
-  }
+  const sf = gmSteen(s), st = (l.richting === 'horizontaal' ? sf.h && sf.l : sf.h) ? gmLijnStenen(s, f, l) : null;
   if (st && st.m > 0 && st.m < 100) return { m: st.m, stenen: true, tekst: st.iso ? `${gmNl(Math.round(st.lagen * 10) / 10)} lagen breed × ${gmNl(sf.h)} cm (breedte uit de laaghoogte naast de lijn, stootvoegen niet duidelijk; jouw steenmaat: ${gmSteenTekst(s)})` : `${st.liggend ? `${gmNl(Math.round(st.n * 10) / 10)} stenen × ${gmNl(sf.l)}` : `${gmNl(Math.round(st.n * 10) / 10)} lagen × ${gmNl(sf.h)}`} cm, automatisch geteld naast de lijn (jouw steenmaat: ${gmSteenTekst(s)})` };
   const m = gmLijnRef(s, f, l); return m != null ? { m, tekst: `Berekend uit de referentie van ${s.naam} (${s.gm.ref.B} × ${s.gm.ref.H} cm)` } : null;
 }
@@ -4420,7 +4408,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.26-5';
+const APP_VERSIE = '2026.11.26-6';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
