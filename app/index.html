@@ -4407,7 +4407,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.25-26';
+const APP_VERSIE = '2026.11.26-1';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
@@ -7386,6 +7386,8 @@ function renderTopcalc(m) {
       ${mp.map(b => `<div style="margin-top:6px"><b style="color:${bestekKleur(b.bestek)}">${b.bestek}</b> &gt; ${esc(b.straat)} &gt; ${b.mappen.map(esc).join(', ')}</div>`).join('')}</div>` : ''; })()}
     ${(p.adressen || []).length ? `<div class="card" style="margin:0 0 10px;padding:10px 12px"><div style="font-weight:700;margin-bottom:4px">Woningen in dit complex (voor je factor in Topcalc)</div>${adresTelling(p).map(t => `<div style="margin-top:4px"><b>${t.aantal} ×</b> ${esc(t.type)} <span style="color:var(--muted);font-size:13px">${[...t.straten.entries()].map(([st, nrs]) => `${esc(st)} ${nrs.length}`).join(', ')}</span></div>`).join('')}</div>` : ''}
     ${gmFotoKnopHtml(p)}
+    <button class="outline" id="tcCsv">${ic('table')} CSV voor Topcalc (importeren)</button>
+    <div style="color:var(--muted);font-size:13px;margin:6px 4px 10px">Precies het formaat dat Topcalc inleest. Zet het bestand via de Verkenner op U:. Niet openen in Excel: dat verandert de scheidingstekens en haalt de nullen voor de codes weg.</div>
     <button class="outline" id="tcScript">${ic('terugzet')} Script voor de pc</button>
     <button class="outline" id="tcPrint" style="margin-top:10px">${ic('pdf')} Printen / PDF (zonder foto's)</button>
     <div style="color:var(--muted);font-size:13px;margin:6px 4px 0">Het script typt de regels in Topcalc, map voor map. Open in Topcalc de meetstaat van de eerste map, klik in het eerste vakje en druk op F9. Bij elke F9 vraagt het eerst of de goede map openstaat.</div>
@@ -7488,6 +7490,15 @@ function renderTopcalc(m) {
     catch (e) { toast('PDF maken mislukt: ' + e.message); }
     b.disabled = false;
   };
+  $('#tcCsv', m).onclick = async () => {
+    bewaar(); const { csv, zonder, n } = topcalcCsv(p);
+    if (!n) return toast(zonder ? `Nog geen regels met een code (${zonder} zonder code).` : 'Er staan nog geen regels in de lijst.');
+    if (zonder && !await bevestig(`${zonder} ${zonder === 1 ? 'regel' : 'regels'} zonder code`, 'Regels zonder Topcalc-code kan Topcalc niet inlezen. Die laat de CSV weg. Kies eerst een code, of maak de CSV zonder die regels.',
+      { ja: 'CSV zonder die regels', nee: 'Eerst codes kiezen', klasse: 'primary' })) return;
+    const naam = `Topcalc_${(p.werknummer || p.adres || 'project').replace(/[^\w-]+/g, '_')}.csv`;
+    await download(new Blob([csv], { type: 'application/octet-stream' }), naam);
+    if (!Native) toast(`${naam} staat in je Downloads (${n} regels). Kopieer het via de Verkenner naar U:, niet via Excel.`, 6000);
+  };
   $('#tcScript', m).onclick = async () => {
     bewaar();
     // Per bestek op alfabet (GOB, GOI, ONB, ONI, RDO), net als in Topcalc. Binnen een bestek de gevels op alfabet
@@ -7544,6 +7555,35 @@ function topcalcMappen(p) {
   const groepen = topcalcRegels(p, false, true).sort(abc), per = new Map();
   for (const g of groepen) { const straat = tcStraat(p, g.s), k = g.bestek + '|' + straat, b = per.get(k) || { bestek: g.bestek, straat, mappen: [] }; per.set(k, b); b.mappen.push(kaalMap(g.s.naam) || g.s.naam); }
   return { groepen, bestekken: [...per.values()] };
+}
+// CSV voor de import in Topcalc, precies zoals een bestand dat werkt (van een collega, 26-11-2026):
+// puntkomma's, geen aanhalingstekens, kopregel, CRLF ook na de laatste regel, geen BOM, ANSI (Windows-1252).
+// projectcode 0, projectsoort = bestek (ONB…), projectdeel = straat, projectsubdeel = gevel (met "(8 x)" bij een factor),
+// onderdeel 3 cijfers (001), maten in hele cm (leeg = 0), aantal minstens 1, bestek = wat je in het vakje Bestek typte.
+const TC_CSV_KOP = 'projectcode;projectsoort;projectdeel;projectsubdeel;onderdeel;onderdeeltype;omschrijving;breed;hoog;strek;aantal;bestek';
+const csvVak = v => String(v ?? '').replace(/[;\r\n\t"]+/g, ' ').replace(/\s+/g, ' ').trim();
+const csvCm = v => { const x = parseFloat(String(v ?? '').replace(',', '.')); return isFinite(x) ? String(Math.max(0, Math.round(x))) : '0'; };
+const csvCode = c => { c = csvVak(c).toUpperCase(); return /^\d{1,3}$/.test(c) ? c.padStart(3, '0') : c; };
+const CP1252 = { 0x20AC: 0x80, 0x201A: 0x82, 0x0192: 0x83, 0x201E: 0x84, 0x2026: 0x85, 0x2020: 0x86, 0x2021: 0x87, 0x02C6: 0x88, 0x2030: 0x89, 0x0160: 0x8A, 0x2039: 0x8B, 0x0152: 0x8C, 0x017D: 0x8E,
+  0x2018: 0x91, 0x2019: 0x92, 0x201C: 0x93, 0x201D: 0x94, 0x2022: 0x95, 0x2013: 0x96, 0x2014: 0x97, 0x02DC: 0x98, 0x2122: 0x99, 0x0161: 0x9A, 0x203A: 0x9B, 0x0153: 0x9C, 0x017E: 0x9E, 0x0178: 0x9F };
+function naarAnsi(t) {
+  const uit = [];
+  for (const ch of t) { const c = ch.codePointAt(0);
+    if (c < 0x80 || (c >= 0xA0 && c <= 0xFF)) uit.push(c); else if (CP1252[c]) uit.push(CP1252[c]);
+    else { const k = ch.normalize('NFD').replace(/[\u0300-\u036f]/g, ''); uit.push(...[...k].map(x => x.charCodeAt(0) < 0x80 ? x.charCodeAt(0) : 0x3F)); } }
+  return new Uint8Array(uit);
+}
+function topcalcCsv(p) {
+  let zonder = 0; const rijen = [];
+  for (const g of topcalcMappen(p).groepen) {
+    const keer = keerVan(p, g.s), gevel = (kaalMap(g.s.naam) || g.s.naam) + (keer > 1 ? ` (${keer} x)` : '');
+    for (const x of g.regels) { const r = x.r;
+      if (!String(r.code || '').trim()) { zonder++; continue; }
+      const n = Math.max(1, Math.round(parseFloat(String(r.n || '1').replace(',', '.')) || 1));
+      rijen.push(['0', g.bestek, tcStraat(p, g.s), gevel, csvCode(r.code), csvVak(r.type).toUpperCase(), csvVak(r.oms),
+        csvCm(r.b), csvCm(r.h), csvCm(r.st), String(n), csvVak(rijVariant(r))].map(csvVak).join(';')); }
+  }
+  return { csv: naarAnsi([TC_CSV_KOP, ...rijen].map(l => l + '\r\n').join('')), zonder, n: rijen.length };
 }
 const mappenTekst = p => topcalcMappen(p).bestekken.map(b => `${b.bestek} > ${b.straat} > ${b.mappen.join(', ')}`).join('\n');
 const BESTEK_KNOPPEN = ['ONB', 'ONI', 'RCB', 'RDO', 'GOB', 'GOI'];
