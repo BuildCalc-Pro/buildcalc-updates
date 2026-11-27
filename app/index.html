@@ -2242,7 +2242,7 @@ const mpZichtbaar = x => x.soort !== MP_REF || (MP && MP.sel === x.id);
 // In de gewone fotoweergave: alle lijnen van deze foto, alleen om te zien.
 function mpSvg(s, f, W, H) {
   if (!s?.mp || !f) return ''; mpVan(s);
-  return mpLijnenOp(s, f.id).filter(x => x.soort !== MP_REF && !mpOndVan(x)).map(x => mpPijlSvg(x, W, H, mpKleur(x), mpTekst(s, x), 1, 2, 'pointer-events="none"')).join('');
+  return mpLijnenOp(s, f.id).filter(x => x.soort !== MP_REF && !mpOndVan(x) && !x.paar).map(x => mpPijlSvg(x, W, H, mpKleur(x), mpTekst(s, x), 1, 2, 'pointer-events="none"')).join('');
 }
 
 // ---------- Koppeling met de onderdelen (lijst "Op deze foto" met + Onderdeel, codes en aantal) ----------
@@ -2254,11 +2254,16 @@ const mpOndVan = x => { const s = MP?.s || (typeof V !== 'undefined' ? V?.s : nu
 const mpOndKeuze = f => ondVan(f).filter(o => !isWand(o));
 function mpSpiegel(s, x) {
   const f = mpFotoVan(s, x); if (!f) return false; f.lijnen ??= [];
-  const l = f.lijnen.find(y => y.mp === x.id), o = x.ond ? mpOndOp(f, x.ond) : null;
-  if (!o) { if (l) { f.lijnen = f.lijnen.filter(y => y !== l); return true; } return false; }
+  const l = f.lijnen.find(y => y.mp === x.id);
+  // In de gewone weergave (of via "Wat is het?") aan een onderdeel gehangen: dat neemt de maatpijl over.
+  let terug = false;
+  if (l && 'mpOnd' in l && (l.kozijn || null) !== (l.mpOnd || null) && (!l.kozijn || mpOndOp(f, l.kozijn))) { if (l.kozijn) { x.ond = l.kozijn; delete x.paar; } else delete x.ond; terug = true; }
+  const o = x.ond ? mpOndOp(f, x.ond) : null;
+  if (!o && x.paar !== 'gevraagd') { if (l) { f.lijnen = f.lijnen.filter(y => y !== l); return true; } return terug; }
   const v = mpWaarde(s, x), r = mpRicht(x), oud = l ? JSON.stringify(l) : '', n = l || { id: 'mp' + x.id, mp: x.id };
-  Object.assign(n, { kozijn: x.ond, richting: r === 'h' ? 'horizontaal' : 'verticaal', x1: x.a[0], y1: x.a[1], x2: x.b[0], y2: x.b[1], maat: v != null ? v / 100 : null, bron: x.hand ? 'mp' : 'foto', uitRef: !x.hand });
-  if (!l) f.lijnen.push(n); return JSON.stringify(n) !== oud;
+  Object.assign(n, { kozijn: o ? x.ond : null, mpOnd: o ? x.ond : null, richting: r === 'h' ? 'horizontaal' : 'verticaal', x1: x.a[0], y1: x.a[1], x2: x.b[0], y2: x.b[1], maat: v != null ? v / 100 : null, bron: x.hand ? 'mp' : 'foto', uitRef: !x.hand });
+  if (o) delete n.ref;
+  if (!l) f.lijnen.push(n); return terug || JSON.stringify(n) !== oud;
 }
 function mpSpiegelAlles(s, fid) {
   let n = false; for (const x of mpLijnenOp(s, fid)) n = mpSpiegel(s, x) || n;
@@ -2273,9 +2278,10 @@ const mpBreed = () => window.innerWidth >= 900;
 function mpPaneel() {
   if (!MP) return; let z = MP.zij;
   const aan = mpBreed() && typeof V !== 'undefined' && V?.s === MP.s && V.p?.simpel;
-  MP.el.style.right = aan ? '340px' : ''; if (z) z.hidden = !aan; if (!aan) return;
+  if (!MP.obs && typeof V !== 'undefined' && V?.s === MP.s && $('#vextra', V.el)) { MP.obs = new MutationObserver(() => mpPaneelKopie()); MP.obs.observe($('#vextra', V.el), { childList: true, subtree: true, characterData: true }); }
+  MP.el.style.right = aan ? '340px' : ''; if (z) z.hidden = !aan; if (!aan) return mpPaneelKopie();
   if (!$('#mpzijcss')) { const st = document.createElement('style'); st.id = 'mpzijcss'; st.textContent = `.mpzij { position: fixed; top: 0; right: 0; bottom: 0; width: 340px; z-index: 48; background: var(--surface); border-left: 1px solid var(--surface-high); overflow: auto; padding: 12px; box-sizing: border-box; color: var(--text); }
-.mpzij .mpzijkop { font-weight: 700; font-size: 15px; padding: 6px 4px 10px; } .mpzij [data-deelin], .mpzij .kantoorknop, .mpzij .vtools { display: none !important; }`; document.head.appendChild(st); }
+.mpzij .mpzijkop { font-weight: 700; font-size: 15px; padding: 6px 4px 10px; } .mpzij .kantoorknop, .mpzij .vtools { display: none !important; }`; document.head.appendChild(st); }
   if (!z) { z = MP.zij = document.createElement('div'); z.className = 'mpzij'; document.body.appendChild(z);
     z.addEventListener('click', e => {
       const t = e.target.closest('[data-ond],[data-lsel],[data-ooknaar],button[id],button,[data-anderopen]'); if (!t || !z.contains(t) || t.tagName === 'INPUT') return;
@@ -2283,25 +2289,32 @@ function mpPaneel() {
       if (t.dataset.ooknaar != null) return mpLaad(+t.dataset.ooknaar);
       if (t.dataset.lsel) { const l = MP.f.lijnen.find(y => y.id === t.dataset.lsel); if (l?.mp) { MP.sel = l.mp; mpTeken(); return; } }
       if (t.dataset.ond) MP.ond = t.dataset.ond;
-      if (t.id === 'vplusond') return mpNieuwOnd(null);
+      if (t.id === 'vplusond') MP.wacht = { x: null, voor: new Set(ondVan(MP.f).map(o => o.letter)) };
       const a = [...t.attributes].find(a => a.name.startsWith('data-'));
       const doel = t.id ? $('#' + t.id, vx) : a ? vx.querySelector(`[${a.name}="${CSS.escape(a.value)}"]`) : null;
       if (doel) doel.click(); setTimeout(mpPaneelKopie, 30); });
     z.addEventListener('change', e => { const t = e.target, a = t && [...t.attributes].find(a => a.name.startsWith('data-')); if (!a) return;
       const doel = $('#vextra', V.el)?.querySelector(`[${a.name}="${CSS.escape(a.value)}"]`); if (doel) { doel.value = t.value; doel.dispatchEvent(new Event('input', { bubbles: true })); doel.dispatchEvent(new Event('change', { bubbles: true })); } setTimeout(mpPaneelKopie, 30); });
-    MP.obs = new MutationObserver(() => mpPaneelKopie()); MP.obs.observe($('#vextra', V.el), { childList: true, subtree: true, characterData: true }); }
+  }
   mpPaneelKopie();
 }
 function mpPaneelKopie() {
-  if (!MP?.zij || MP.zij.hidden || typeof V === 'undefined' || !V) return;
+  if (!MP || typeof V === 'undefined' || !V || V.s !== MP.s) return;
   const vx = $('#vextra', V.el); if (!vx) return;
+  // Een gekozen lijn in de gewone weergave verbergt de lijst: in Maatpijlen kies je lijnen hier.
+  if (V.sel) { V.sel = null; V.paar = null; requestAnimationFrame(() => V && tekenUI()); return; }
   // Nieuw onderdeel net gemaakt (via + Onderdeel): de lijn die erop wachtte, of de volgende lijn, hoort erbij.
   if (MP.wacht) { const nw = ondVan(MP.f).find(o => !MP.wacht.voor.has(o.letter));
     if (nw) { const x = MP.wacht.x; MP.wacht = null; MP.ond = nw.letter; if (x && MP.s.mp.lijn.includes(x)) x.ond = nw.letter; mpSpiegelAlles(MP.s, MP.f.id); bewaar(); mpTeken(); } }
   if (V.ond && V.ond !== MP.ondV) { MP.ondV = V.ond; if (mpOndOp(MP.f, V.ond)) MP.ond = V.ond; }
+  if (!MP.bezigTerug && mpSpiegelAlles(MP.s, MP.f.id)) { MP.bezigTerug = true; bewaar(); mpTeken(); MP.bezigTerug = false; requestAnimationFrame(() => V && tekenUI()); return; }
+  if (!MP.zij || MP.zij.hidden) return;
   const h = `<div class="mpzijkop">Onderdelen · ${esc(MP.s.naam)}</div>` + vx.innerHTML;
   if (MP.zij.dataset.h !== h) { MP.zij.dataset.h = h; const sc = MP.zij.scrollTop; MP.zij.innerHTML = h; MP.zij.scrollTop = sc; }
 }
+// Zoals in de gewone weergave op kantoor: twee lijnen (breedte en hoogte) en dan "Wat is het?" (kozijn, draairaam, deur…),
+// en binnen een kozijn de delen (Draairaam in A). Op locatie (telefoon) niet: daar trek je alleen lijnen met lasermaten.
+const mpPaarAan = () => typeof V !== 'undefined' && V?.s === MP?.s && V.p?.simpel && typeof lijnPaarVraag === 'function' && opKantoorNu() && foto() === MP.f;
 // + Nieuw onderdeel vanuit de balk onder de foto: hetzelfde menu als + Onderdeel in de lijst.
 function mpNieuwOnd(x) {
   MP.wacht = { x, voor: new Set(ondVan(MP.f).map(o => o.letter)) };
@@ -2555,7 +2568,15 @@ function mpNieuweLijnKlaar(x) {
   const s = MP.s, r = mpRicht(x);
   if (mpPx(x) < 10) { s.mp.lijn = s.mp.lijn.filter(y => y !== x); MP.sel = null; return mpTeken(); }
   mpZetSoort(s, x, MP.laatste);
-  if (MP.ond && mpOndOp(MP.f, MP.ond)) x.ond = MP.ond;
+  if (mpPaarAan()) {
+    const f = MP.f, o = MP.ond && mpOndOp(f, MP.ond), vol = o && ['horizontaal', 'verticaal'].every(rr => f.lijnen.some(l => l.kozijn === o.letter && !l.ref && l.richting === rr));
+    if (V.telDeel || !o || vol || isWand(o)) {
+      x.paar = true; const y = [...mpLijnenOp(s, f.id)].reverse().find(y => y !== x && y.paar === true && !y.ond && mpRicht(y) !== r);
+      if (y) { y.paar = x.paar = 'gevraagd'; mpSpiegelAlles(s, f.id); const a = f.lijnen.find(l => l.mp === y.id), b = f.lijnen.find(l => l.mp === x.id);
+        if (a && b && lijnPaarPast(a, b)) { bewaar(); mpTeken(); setTimeout(() => { if (MP) lijnPaarVraag(f, a, b); }, 30); return; }
+        y.paar = x.paar = true; mpSpiegelAlles(s, f.id); }
+    } else x.ond = o.letter;
+  } else if (MP.ond && mpOndOp(MP.f, MP.ond)) x.ond = MP.ond;
   if (!mpHeeftSchaal(s, x.fotoId, r) && MP.geenSchaalMelding !== x.fotoId + r) { MP.geenSchaalMelding = x.fotoId + r;
     toast(`Nog geen ${r === 'h' ? 'breedte' : 'hoogte'} bekend op deze foto. Typ je lasermaat in het vak: deze lijn wordt dan referentie (◉).`, 6000); }
   if (!mpHeeftSchaal(s, x.fotoId, r)) setTimeout(() => { const i = $('#mpcm', MP?.el); if (i) i.focus(); }, 50);
@@ -2576,6 +2597,8 @@ function mpBalk() {
   $('#mptitel', MP.el).textContent = `${s.naam} · foto ${fi + 1}/${s.fotos.length}`;
   $('#mpvorige', MP.el).disabled = fi <= 0; $('#mpvolgende', MP.el).disabled = fi >= s.fotos.length - 1;
   if (MP.sel === 'raster' && s.mp.raster?.[f.id]) return mpRasterBalk(bk);
+  if (!x && typeof V !== 'undefined' && V?.s === s && V.telDeel && mpOndOp(f, V.telDeel)) { bk.innerHTML = `<div class="mphint">Delen in ${esc(V.telDeel)}: trek de breedte en de hoogte van het raam.</div><button class="mptc" id="mpdeelklaar">Klaar</button>`;
+    $('#mpdeelklaar', bk).onclick = () => { V.telDeel = null; V.telNu = null; tekenUI(); mpTeken(); }; return; }
   if (!x) { bk.innerHTML = `<div class="mphint">${mpLijnenOp(s, f.id).length ? 'Tik op een lijn, of trek een nieuwe.' : (mpRaster(s, f.id) ? 'Trek een lijn op het kozijn, de deur of het draairaam.' : 'Trek een lijn op het kozijn. ▦ rechtsonder = gevelraster.')}</div>`; return; }
   const ond = mpOndVan(x), ref = x.soort === MP_REF, v = mpWaarde(s, x), calc = mpCalc(s, x), hand = !ref && x.hand != null;
   const rij = !ref && mpGroep(s, x).map(y => mpTcRij(s, y)).find(Boolean), w = !ref && mpTcWaarden(s, x);
@@ -5322,7 +5345,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.27-10';
+const APP_VERSIE = '2026.11.27-11';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
