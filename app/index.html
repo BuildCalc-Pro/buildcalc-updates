@@ -2233,6 +2233,7 @@ const MP_REF_KL = '#57E0D2', MP_KL = '#FFD54F', MP_NU = '#FF8A50';
 function mpTekst(s, x) {
   const v = mpWaarde(s, x);
   if (x.soort === MP_REF) return `R ${v != null ? v + ' cm' : '? cm'}`;
+  if (mpOndVan(x)) return `${mpIsLaser(x) ? '◉ ' : ''}${x.ond} ${v != null ? v + ' cm' : 'ref?'}`;
   return `${mpIsLaser(x) ? '◉ ' : ''}${x.soort === 'Kozijn' ? 'K' : x.soort === 'Draairaam' ? 'DR' : x.soort === 'Deur' ? 'D' : 'BD'}${x.nr || 1} ${v != null ? v + ' cm' : 'ref?'}`;
 }
 const mpKleur = x => x.soort === MP_REF ? MP_REF_KL : MP_KL;
@@ -2241,7 +2242,75 @@ const mpZichtbaar = x => x.soort !== MP_REF || (MP && MP.sel === x.id);
 // In de gewone fotoweergave: alle lijnen van deze foto, alleen om te zien.
 function mpSvg(s, f, W, H) {
   if (!s?.mp || !f) return ''; mpVan(s);
-  return mpLijnenOp(s, f.id).filter(x => x.soort !== MP_REF).map(x => mpPijlSvg(x, W, H, mpKleur(x), mpTekst(s, x), 1, 2, 'pointer-events="none"')).join('');
+  return mpLijnenOp(s, f.id).filter(x => x.soort !== MP_REF && !mpOndVan(x)).map(x => mpPijlSvg(x, W, H, mpKleur(x), mpTekst(s, x), 1, 2, 'pointer-events="none"')).join('');
+}
+
+// ---------- Koppeling met de onderdelen (lijst "Op deze foto" met + Onderdeel, codes en aantal) ----------
+// Een lijn kan bij een onderdeel van de foto horen (A, B…). Dan staat hij ook als lijn van dat onderdeel in de gewone
+// weergave, met de maat uit Maatpijlen (raster, lasermaten). Codes, aantal en Topcalc gaan via het onderdeel, zoals altijd.
+const mpFotoVan = (s, x) => (s?.fotos || []).find(g => g.id === x.fotoId) || null;
+const mpOndOp = (f, L) => L && f ? ondVan(f).find(o => o.letter === L) || null : null;
+const mpOndVan = x => { const s = MP?.s || (typeof V !== 'undefined' ? V?.s : null); return x?.ond && s ? mpOndOp(mpFotoVan(s, x), x.ond) : null; };
+const mpOndKeuze = f => ondVan(f).filter(o => !isWand(o));
+function mpSpiegel(s, x) {
+  const f = mpFotoVan(s, x); if (!f) return false; f.lijnen ??= [];
+  const l = f.lijnen.find(y => y.mp === x.id), o = x.ond ? mpOndOp(f, x.ond) : null;
+  if (!o) { if (l) { f.lijnen = f.lijnen.filter(y => y !== l); return true; } return false; }
+  const v = mpWaarde(s, x), r = mpRicht(x), oud = l ? JSON.stringify(l) : '', n = l || { id: 'mp' + x.id, mp: x.id };
+  Object.assign(n, { kozijn: x.ond, richting: r === 'h' ? 'horizontaal' : 'verticaal', x1: x.a[0], y1: x.a[1], x2: x.b[0], y2: x.b[1], maat: v != null ? v / 100 : null, bron: x.hand ? 'mp' : 'foto', uitRef: !x.hand });
+  if (!l) f.lijnen.push(n); return JSON.stringify(n) !== oud;
+}
+function mpSpiegelAlles(s, fid) {
+  let n = false; for (const x of mpLijnenOp(s, fid)) n = mpSpiegel(s, x) || n;
+  const f = (s.fotos || []).find(g => g.id === fid), ids = new Set(mpLijnenOp(s, fid).map(x => x.id));
+  if (f?.lijnen?.some(l => l.mp && !ids.has(l.mp))) { f.lijnen = f.lijnen.filter(l => !l.mp || ids.has(l.mp)); n = true; }
+  return n;
+}
+// Maat van de gekoppelde lijn in de gewone weergave (in meters).
+function mpSpiegelMaat(s, f, l) { const x = l?.mp && (s?.mp?.lijn || []).find(y => y.id === l.mp); if (!x) return null; const v = mpWaarde(s, x); return v != null ? v / 100 : null; }
+// Paneel rechts (laptop/pc): dezelfde lijst als in de gewone weergave. Klikken gaat naar de knoppen van die lijst.
+const mpBreed = () => window.innerWidth >= 900;
+function mpPaneel() {
+  if (!MP) return; let z = MP.zij;
+  const aan = mpBreed() && typeof V !== 'undefined' && V?.s === MP.s && V.p?.simpel;
+  MP.el.style.right = aan ? '340px' : ''; if (z) z.hidden = !aan; if (!aan) return;
+  if (!$('#mpzijcss')) { const st = document.createElement('style'); st.id = 'mpzijcss'; st.textContent = `.mpzij { position: fixed; top: 0; right: 0; bottom: 0; width: 340px; z-index: 48; background: var(--surface); border-left: 1px solid var(--surface-high); overflow: auto; padding: 12px; box-sizing: border-box; color: var(--text); }
+.mpzij .mpzijkop { font-weight: 700; font-size: 15px; padding: 6px 4px 10px; } .mpzij [data-deelin], .mpzij .kantoorknop, .mpzij .vtools { display: none !important; }`; document.head.appendChild(st); }
+  if (!z) { z = MP.zij = document.createElement('div'); z.className = 'mpzij'; document.body.appendChild(z);
+    z.addEventListener('click', e => {
+      const t = e.target.closest('[data-ond],[data-lsel],[data-ooknaar],button[id],button,[data-anderopen]'); if (!t || !z.contains(t) || t.tagName === 'INPUT') return;
+      const vx = $('#vextra', V.el); if (!vx) return;
+      if (t.dataset.ooknaar != null) return mpLaad(+t.dataset.ooknaar);
+      if (t.dataset.lsel) { const l = MP.f.lijnen.find(y => y.id === t.dataset.lsel); if (l?.mp) { MP.sel = l.mp; mpTeken(); return; } }
+      if (t.dataset.ond) MP.ond = t.dataset.ond;
+      if (t.id === 'vplusond') return mpNieuwOnd(null);
+      const a = [...t.attributes].find(a => a.name.startsWith('data-'));
+      const doel = t.id ? $('#' + t.id, vx) : a ? vx.querySelector(`[${a.name}="${CSS.escape(a.value)}"]`) : null;
+      if (doel) doel.click(); setTimeout(mpPaneelKopie, 30); });
+    z.addEventListener('change', e => { const t = e.target, a = t && [...t.attributes].find(a => a.name.startsWith('data-')); if (!a) return;
+      const doel = $('#vextra', V.el)?.querySelector(`[${a.name}="${CSS.escape(a.value)}"]`); if (doel) { doel.value = t.value; doel.dispatchEvent(new Event('input', { bubbles: true })); doel.dispatchEvent(new Event('change', { bubbles: true })); } setTimeout(mpPaneelKopie, 30); });
+    MP.obs = new MutationObserver(() => mpPaneelKopie()); MP.obs.observe($('#vextra', V.el), { childList: true, subtree: true, characterData: true }); }
+  mpPaneelKopie();
+}
+function mpPaneelKopie() {
+  if (!MP?.zij || MP.zij.hidden || typeof V === 'undefined' || !V) return;
+  const vx = $('#vextra', V.el); if (!vx) return;
+  // Nieuw onderdeel net gemaakt (via + Onderdeel): de lijn die erop wachtte, of de volgende lijn, hoort erbij.
+  if (MP.wacht) { const nw = ondVan(MP.f).find(o => !MP.wacht.voor.has(o.letter));
+    if (nw) { const x = MP.wacht.x; MP.wacht = null; MP.ond = nw.letter; if (x && MP.s.mp.lijn.includes(x)) x.ond = nw.letter; mpSpiegelAlles(MP.s, MP.f.id); bewaar(); mpTeken(); } }
+  if (V.ond && V.ond !== MP.ondV) { MP.ondV = V.ond; if (mpOndOp(MP.f, V.ond)) MP.ond = V.ond; }
+  const h = `<div class="mpzijkop">Onderdelen · ${esc(MP.s.naam)}</div>` + vx.innerHTML;
+  if (MP.zij.dataset.h !== h) { MP.zij.dataset.h = h; const sc = MP.zij.scrollTop; MP.zij.innerHTML = h; MP.zij.scrollTop = sc; }
+}
+// + Nieuw onderdeel vanuit de balk onder de foto: hetzelfde menu als + Onderdeel in de lijst.
+function mpNieuwOnd(x) {
+  MP.wacht = { x, voor: new Set(ondVan(MP.f).map(o => o.letter)) };
+  menu(BESTEK_KNOPPEN.map(b => ['plus', `${b} · ${BESTEKKEN[b][0]}`, async () => {
+    const f = MP.f, L = volgendeLetter(f), n = await vraagTekst(`${b}: onderdeel ${L}`, 'Naam', 'Bijv. Kozijn 1e verdieping of Voordeur', '', onderdeelNamen()); if (n == null || !MP) return;
+    nieuwOnderdeel(f, L, n); const o = mpOndOp(f, L); o.bestek = b; if (o.codes?.length && !o.codes.every(c => codePastBij(String(c.code).split(' ')[0], b))) delete o.codes;
+    MP.wacht = null; MP.ond = L; if (x && MP.s.mp.lijn.includes(x)) x.ond = L; mpSpiegelAlles(MP.s, f.id); bewaar(); mpTeken();
+    const c = await kiesBestekCode(b, `${b}-code voor ${L}${n ? ' ' + n : ''}`, o.codes?.[0]?.code || ''); if (c) { o.codes = [{ code: c, bestek: b }]; bewaar(); }
+    if (MP) { mpTeken(); toast(`Trek de breedte en de hoogte van ${L}${n ? ' ' + n : ''}.`); } }]));
 }
 
 let MP = null;
@@ -2262,7 +2331,8 @@ async function mpOpen(p, s, fi) {
   $('#mpvorige', el).onclick = () => mpLaad(MP.fi - 1);
   $('#mpvolgende', el).onclick = () => mpLaad(MP.fi + 1);
   el.querySelectorAll('[data-z]').forEach(b => b.onclick = () => { const z = +b.dataset.z; if (!z) mpZoom(1, null, true); else mpZoom(MP.z.s * (z > 0 ? 1.6 : 1 / 1.6)); });
-  window.addEventListener('resize', mpSchik);
+  window.addEventListener('resize', mpSchik); window.addEventListener('resize', mpPaneel);
+  if (typeof V !== 'undefined' && V?.s === s && V.ond) MP.ond = V.ond;
   mpGebaren($('#mpstage', el));
   await mpLaad(fi);
 }
@@ -2270,7 +2340,9 @@ async function mpLaad(fi) {
   const s = MP.s; if (fi < 0 || fi >= s.fotos.length) return;
   const f = s.fotos[fi], img = $('#mpimg', MP.el), u = await fotoUrl(f.id);
   if (!u) { toast('Foto ontbreekt.'); return; }
-  Object.assign(MP, { f, fi, iw: 0, sel: null, z: { s: 1, tx: 0, ty: 0 }, stH: null, R: null, bron: u }); $('#mpsvg', MP.el).innerHTML = '';
+  Object.assign(MP, { f, fi, iw: 0, sel: null, z: { s: 1, tx: 0, ty: 0 }, stH: null, R: null, bron: u, wacht: null }); $('#mpsvg', MP.el).innerHTML = '';
+  if (MP.ond && !mpOndOp(f, MP.ond)) MP.ond = null;
+  if (typeof V !== 'undefined' && V?.s === s && V.i !== fi) await naarFoto(fi);
   img.onload = () => { if (!MP || MP.f !== f) return; MP.iw = MP.ow = img.naturalWidth; MP.ih = MP.oh = img.naturalHeight; MP.orig = img; mpIngebrand(f, img); mpSchik();
     if (s.mp.rechtAan && mpRasterRuw(s, f.id)) mpZetRecht(true, true);
     // Detailfoto zonder eigen referentie terwijl een andere foto van deze gevel er wel een heeft: meteen zeggen.
@@ -2310,8 +2382,9 @@ function mpNieuwRaster() {
   toast('Sleep de 4 hoeken op stoep, dakgoot en de gevelranden. Breedte en hoogte hoeven niet: de lasermaten op je lijnen zetten de schaal.', 6000);
 }
 function mpSluit() {
-  window.removeEventListener('resize', mpSchik);
+  window.removeEventListener('resize', mpSchik); window.removeEventListener('resize', mpPaneel);
   Laser.opMeting = MP?.laserWas ?? null;
+  if (MP) { mpSpiegelAlles(MP.s, MP.f.id); bewaar(); MP.obs?.disconnect(); MP.zij?.remove(); }
   MP?.el.remove(); MP = null;
   if (V) { tekenUI(); tekenLijnen(); } else render();
 }
@@ -2376,6 +2449,8 @@ function mpTeken() {
       ${nu ? [[x1, y1], [x2, y2]].map(([px, py], i) => `<circle cx="${px}" cy="${py}" r="${hit}" fill="rgba(0,0,0,0)" data-punt="${i}" data-van="${x.id}"/><circle cx="${px}" cy="${py}" r="${rh}" fill="rgba(0,0,0,.25)" stroke="${MP_NU}" stroke-width="${2 / zs}" pointer-events="none"/>`).join('') : ''}</g>`;
   }).join('');
   mpBalk(); mpKnoppen();
+  if (mpSpiegelAlles(s, MP.f.id) && typeof V !== 'undefined' && V?.s === s && !MP.uiBezig) { MP.uiBezig = true; requestAnimationFrame(() => { if (MP) MP.uiBezig = false; if (V) tekenUI(); }); }
+  mpPaneel();
   const sh = Math.round($('#mpstage', MP.el).getBoundingClientRect().height);
   if (sh !== MP.stH && !MP.sleept) { MP.stH = sh; if (MP.z.s === 1) mpSchik(); }
 }
@@ -2480,6 +2555,7 @@ function mpNieuweLijnKlaar(x) {
   const s = MP.s, r = mpRicht(x);
   if (mpPx(x) < 10) { s.mp.lijn = s.mp.lijn.filter(y => y !== x); MP.sel = null; return mpTeken(); }
   mpZetSoort(s, x, MP.laatste);
+  if (MP.ond && mpOndOp(MP.f, MP.ond)) x.ond = MP.ond;
   if (!mpHeeftSchaal(s, x.fotoId, r) && MP.geenSchaalMelding !== x.fotoId + r) { MP.geenSchaalMelding = x.fotoId + r;
     toast(`Nog geen ${r === 'h' ? 'breedte' : 'hoogte'} bekend op deze foto. Typ je lasermaat in het vak: deze lijn wordt dan referentie (◉).`, 6000); }
   if (!mpHeeftSchaal(s, x.fotoId, r)) setTimeout(() => { const i = $('#mpcm', MP?.el); if (i) i.focus(); }, 50);
@@ -2501,14 +2577,15 @@ function mpBalk() {
   $('#mpvorige', MP.el).disabled = fi <= 0; $('#mpvolgende', MP.el).disabled = fi >= s.fotos.length - 1;
   if (MP.sel === 'raster' && s.mp.raster?.[f.id]) return mpRasterBalk(bk);
   if (!x) { bk.innerHTML = `<div class="mphint">${mpLijnenOp(s, f.id).length ? 'Tik op een lijn, of trek een nieuwe.' : (mpRaster(s, f.id) ? 'Trek een lijn op het kozijn, de deur of het draairaam.' : 'Trek een lijn op het kozijn. ▦ rechtsonder = gevelraster.')}</div>`; return; }
-  const ref = x.soort === MP_REF, v = mpWaarde(s, x), calc = mpCalc(s, x), hand = !ref && x.hand != null;
+  const ond = mpOndVan(x), ref = x.soort === MP_REF, v = mpWaarde(s, x), calc = mpCalc(s, x), hand = !ref && x.hand != null;
   const rij = !ref && mpGroep(s, x).map(y => mpTcRij(s, y)).find(Boolean), w = !ref && mpTcWaarden(s, x);
   const zelfde = rij && ['oms', 'b', 'h', 'st', 'n'].every(k => String(rij[k] ?? '') === w[k]);
   bk.innerHTML = `<span class="mprich">${mpRicht(x) === 'h' ? '↔' : '↕'}</span><input id="mpcm" class="${hand ? 'hand' : ''}" inputmode="decimal" autocomplete="off" value="${esc(v ?? '')}" placeholder="${ref ? 'laser' : 'ref?'}" title="${hand ? 'Lasermaat: deze lijn is ook referentie' + (calc != null && calc !== x.hand ? ` (lijn zegt ${calc})` : '') : ''}">
-    <select id="mpsoort">${[MP_REF, ...MP_SOORTEN].map(k => `<option value="${k}"${k === x.soort ? ' selected' : ''}>${k === MP_REF ? k : `${k} ${k === x.soort ? x.nr || 1 : ''}`.trim()}</option>`).join('')}</select>
+    <select id="mpsoort">${mpOndKeuze(f).length ? `<optgroup label="Onderdelen op deze foto">${mpOndKeuze(f).map(o => `<option value="o:${o.letter}"${x.ond === o.letter && ond ? ' selected' : ''}>${esc(o.letter)} · ${esc(ondKortNaam(o) || 'Onderdeel')}${o.codes?.[0]?.code ? ' (' + esc(o.codes[0].code) + ')' : ''}</option>`).join('')}</optgroup>` : ''}
+      <option value="nieuw">＋ Nieuw onderdeel…</option><optgroup label="Zonder onderdeel">${[MP_REF, ...MP_SOORTEN].map(k => `<option value="${k}"${k === x.soort && !ond ? ' selected' : ''}>${k === MP_REF ? k : `${k} ${k === x.soort ? x.nr || 1 : ''}`.trim()}</option>`).join('')}</optgroup></select>
     <button class="iconbtn mpweg" id="mpweg" aria-label="Verwijderen" title="Verwijderen">${ic('trash')}</button>
-    ${ref ? '' : `<input id="mpn" class="mpn" inputmode="numeric" autocomplete="off" value="${esc(mpGroep(s, x).find(y => y.n > 0)?.n || 1)}" title="Aantal" aria-label="Aantal">`}
-    ${ref ? '' : `<button class="mptc${zelfde ? ' klaar' : ''}" id="mptc">${!rij ? '+ Naar Topcalc' : zelfde ? '✓ Topcalc' : '↻ Topcalc'}</button>`}`;
+    ${ref || ond ? '' : `<input id="mpn" class="mpn" inputmode="numeric" autocomplete="off" value="${esc(mpGroep(s, x).find(y => y.n > 0)?.n || 1)}" title="Aantal" aria-label="Aantal">`}
+    ${ref || ond ? '' : `<button class="mptc${zelfde ? ' klaar' : ''}" id="mptc">${!rij ? '+ Naar Topcalc' : zelfde ? '✓ Topcalc' : '↻ Topcalc'}</button>`}`;
   const i = $('#mpcm', bk); if (actief != null) { i.value = actief; i.focus(); }
   i.onchange = () => { const n = mpCm(i.value);
     // Getypte maat = lasermaat: de lijn wordt ook referentie (◉). Leegmaken = weer berekenen.
@@ -2517,7 +2594,11 @@ function mpBalk() {
     bewaar(); setTimeout(() => MP && mpTeken(), 200); };
   i.onkeydown = e => { if (e.key === 'Enter') i.blur(); };
   const ni = $('#mpn', bk); if (ni) ni.onchange = () => { const n = Math.max(1, Math.min(999, Math.round(+ni.value) || 1)); for (const y of mpGroep(s, x)) y.n = n; bewaar(); setTimeout(() => MP && mpTeken(), 200); };
-  $('#mpsoort', bk).onchange = e => { mpZetSoort(s, x, e.target.value); if (x.soort !== MP_REF) MP.laatste = x.soort; bewaar(); mpTeken(); };
+  $('#mpsoort', bk).onchange = e => { const w = e.target.value;
+    if (w === 'nieuw') { mpTeken(); return mpNieuwOnd(x); }
+    if (w.startsWith('o:')) { x.ond = MP.ond = w.slice(2); if (x.soort === MP_REF) mpZetSoort(s, x, MP.laatste); delete x.tc; }
+    else { delete x.ond; MP.ond = null; mpZetSoort(s, x, w); if (x.soort !== MP_REF) MP.laatste = x.soort; }
+    bewaar(); mpTeken(); };
   $('#mpweg', bk).onclick = () => { const kopie = { ...x }, idx = s.mp.lijn.indexOf(x);
     s.mp.lijn = s.mp.lijn.filter(y => y !== x); MP.sel = null; bewaar(); mpTeken();
     ongedaanToast(`${mpNaam(x)} weg.`, () => { s.mp.lijn.splice(idx, 0, kopie); bewaar(); if (MP) mpTeken(); }); };
@@ -2817,9 +2898,12 @@ function gmLijnOnder(f, l, yLaag) {
 }
 function gmLijnBron(s, f, l) {
   if (!s || !f || !l || !s.fotos?.includes(f) || !['horizontaal', 'verticaal'].includes(l.richting)) return null;
+  if (l.mp) { const m = typeof mpSpiegelMaat === 'function' ? mpSpiegelMaat(s, f, l) : null; return m != null ? { m, tekst: `Uit Maatpijlen (${s.naam})` } : null; }
   const ou = gmLijnOuder(f, l); if (ou) return ou;
   // 2026-11-26: geen automatische stenentelling meer (gaf uitschieters, bijv. 584 cm over glas). Alleen nog in verhouding
   // tot een maat die je zelf gemeten of getypt hebt op deze foto (zelfde richting), anders de referentie van de gevelmap.
+  // Gevelraster op deze foto (Maatpijlen, ▦): dat rekent met perspectief, dus ook bovenin goed. Gaat voor de simpele verhouding.
+  if (typeof mpRaster === 'function' && mpRaster(s, f.id)) { const m = mpLijnMaat(s, f, l); if (m != null) return { m, tekst: `Berekend met het gevelraster van ${s.naam} op deze foto` }; }
   const gm = gmLijnGemeten(f, l); if (gm) return gm;
   // 2026-11-27: geen stenentelling meer (onbetrouwbaar). Maten uit de foto: knop Maatpijlen met referentiepijlen.
   { const m = typeof mpLijnMaat === 'function' ? mpLijnMaat(s, f, l) : null; if (m != null) return { m, tekst: `Berekend uit de referentiematen van ${s.naam} op deze foto` }; }
@@ -5238,7 +5322,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.27-9';
+const APP_VERSIE = '2026.11.27-10';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
