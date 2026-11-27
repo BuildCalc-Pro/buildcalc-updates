@@ -705,6 +705,13 @@ async function fotoMini(id) {
   memMini.set(id, v); if (memMini.size > 400) memMini.delete(memMini.keys().next().value);
   return v;
 }
+// Eenmalig: fotootjes van foto's uit versie 2026.11.27-1 t/m -5 waren kartelig verkleind. Weggooien, dan worden ze netjes opnieuw gemaakt.
+setTimeout(async () => {
+  try { if (localStorage.getItem('bc_minifix1')) return; } catch {}
+  for (const p of projecten) for (const s of p.submappen) for (const f of s.fotos)
+    if (String(f.gemaakt) >= '2026-11-27T07:00') { memMini.delete(f.id); try { await idb('readwrite', st => st.delete('mini:' + f.id)); } catch {} }
+  try { localStorage.setItem('bc_minifix1', '1'); } catch {}
+}, 1500);
 // Bij het starten oude foto's (als blob opgeslagen) eenmalig omzetten, zonder ze allemaal in het geheugen te laden.
 setTimeout(async () => {
   try { if (localStorage.getItem('bc_fotomig2')) return; } catch {}
@@ -1413,7 +1420,9 @@ function renderSubmap(m, p, s) {
         return `<div class="notform" data-not="${n.id}" role="button"><div class="nkop2">${fi >= 0 ? `<img class="nfoto" data-foto="${n.fotoId}" data-open="${fi}" alt="">` : ''}
           <div>${lab ? `<b>${esc(lab)}</b>` : ''}<i>"${esc(n.tekst)}"</i></div></div>${formTabelHtml(formRegels(n, s))}</div>`; }).join('')}</div>` : ''}
     <button class="camfab" id="cam" aria-label="Foto maken">${ic('camera')}</button>${p.simpel ? '' : `<button class="micfab" id="smic" aria-label="Inspreken zonder foto">${ic('mic')}</button>`}`;
-  m.querySelectorAll('img[data-foto]').forEach(async img => { const u = await fotoMini(img.dataset.foto); if (u) img.src = u; else if (img.classList.contains('nfoto')) img.remove(); else img.replaceWith(Object.assign(document.createElement('span'), { className: 'weg', textContent: 'Foto ontbreekt' })); });
+  // Grote tegels (pc, breed scherm): de echte foto tonen, het kleine fotootje (400 px) wordt daar wazig.
+  m.querySelectorAll('img[data-foto]').forEach(async img => { const groot = img.closest('.thumb') && img.clientWidth * (devicePixelRatio || 1) > 420;
+    const u = groot ? await fotoData(img.dataset.foto) : await fotoMini(img.dataset.foto); if (u) img.src = u; else if (img.classList.contains('nfoto')) img.remove(); else img.replaceWith(Object.assign(document.createElement('span'), { className: 'weg', textContent: 'Foto ontbreekt' })); });
   $('#terug').onclick = () => { stapel = [p.id]; render(); };
   m.querySelectorAll('[data-not]').forEach(b => b.onclick = e => {
     const open = e.target.closest('[data-open]');
@@ -1437,9 +1446,14 @@ async function verwerkFoto(file) {
     const foto = { id: nieuwId(), gemaakt: new Date().toISOString(), lijnen: [], ...(f35 ? { f35 } : {}), ...(doel?.controle ? { controle: doel.controle } : {}) };
     await fotoBewaar(foto.id, blob);
     // Het kleine fotootje voor de lijst meteen uit de al verkleinde foto maken (scheelt nog een keer de foto inlezen).
-    if (uit.canvas) try { const c = uit.canvas, k = Math.min(1, 400 / Math.max(c.width, c.height)), m = document.createElement('canvas');
-      m.width = Math.round(c.width * k); m.height = Math.round(c.height * k); m.getContext('2d').drawImage(c, 0, 0, m.width, m.height);
-      const v = m.toDataURL('image/jpeg', 0.75); m.width = m.height = 0; memMini.set(foto.id, v); idb('readwrite', st => st.put(v, 'mini:' + foto.id)).catch(() => {}); } catch {}
+    // In stapjes van de helft verkleinen: in één keer van 2000 naar 400 px geeft een kartelig, wazig fotootje.
+    if (uit.canvas) try { let c = uit.canvas; const doel = 400;
+      while (Math.max(c.width, c.height) > doel * 2) { const h = document.createElement('canvas'); h.width = Math.round(c.width / 2); h.height = Math.round(c.height / 2);
+        const hg = h.getContext('2d'); hg.imageSmoothingQuality = 'high'; hg.drawImage(c, 0, 0, h.width, h.height); if (c !== uit.canvas) c.width = c.height = 0; c = h; }
+      const k = Math.min(1, doel / Math.max(c.width, c.height)), m = document.createElement('canvas');
+      m.width = Math.round(c.width * k); m.height = Math.round(c.height * k); const mg = m.getContext('2d'); mg.imageSmoothingQuality = 'high'; mg.drawImage(c, 0, 0, m.width, m.height);
+      if (c !== uit.canvas) c.width = c.height = 0;
+      const v = m.toDataURL('image/jpeg', 0.8); m.width = m.height = 0; memMini.set(foto.id, v); idb('readwrite', st => st.put(v, 'mini:' + foto.id)).catch(() => {}); } catch {}
     bezig.remove();
     // In een trappenhuis staan de lijnen van een trapwand meteen klaar; je hoeft alleen te laseren.
     if (trapMap(s) && !doel?.controle) try { sjMaak(foto, 'trap', s); } catch (e) { console.warn(e); }
@@ -5037,7 +5051,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.27-6';
+const APP_VERSIE = '2026.11.27-7';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
