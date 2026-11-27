@@ -1698,25 +1698,6 @@ function gmSvg(s, f, W, H) {
 }
 
 let GM = null;
-// modus: 'ref' (referentie zetten) of 'sj' (sjabloon opleggen, op kantoor).
-async function gmOpen(p, s, fi, modus) {
-  const f = s.fotos[fi]; if (!f) return;
-  gmVan(s);
-  const el = document.createElement('div'); el.className = 'gmed';
-  el.innerHTML = `<div class="gmbar"><button class="iconbtn" id="gmsluit" aria-label="Sluiten">${ic('close')}</button><div class="t" id="gmtitel"></div></div>
-    <div class="gmstage" id="gmstage"><div class="gmsurf" id="gmsurf"><img id="gmimg" alt="" draggable="false"><svg id="gmsvg"></svg></div>
-      <canvas class="gmloep" id="gmloep" width="170" height="170" hidden></canvas>
-      <div class="gmzoom"><button data-z="1" aria-label="Inzoomen">+</button><button data-z="-1" aria-label="Uitzoomen">−</button><button data-z="0" aria-label="Passend">⤢</button></div></div>
-    <div class="gmpaneel" id="gmpaneel"></div>`;
-  document.body.appendChild(el);
-  GM = { p, s, f, fi, el, modus, iw: 0, ih: 0, w: 0, h: 0, z: { s: 1, tx: 0, ty: 0 }, sel: null, draft: null };
-  $('#gmsluit', el).onclick = gmSluit;
-  el.querySelectorAll('[data-z]').forEach(b => b.onclick = () => { const z = +b.dataset.z; if (!z) gmZoom(1, null, true); else gmZoom(GM.z.s * (z > 0 ? 1.6 : 1 / 1.6)); });
-  window.addEventListener('resize', gmSchik);
-  window.addEventListener('keydown', gmToets);
-  await gmLaad(fi, () => gmBegin());
-  gmGebaren($('#gmstage', el));
-}
 // Een foto van deze map in de editor laden (ook bij het koppelen: even naar de foto met de referentie).
 async function gmLaad(fi, klaar) {
   const f = GM.s.fotos[fi], img = $('#gmimg', GM.el), u = f && await fotoUrl(f.id);
@@ -1844,47 +1825,6 @@ function gmLoep(pt, vak, clientX) {
   g.strokeStyle = '#fff'; g.lineWidth = 1; g.beginPath(); g.moveTo(S / 2, S / 2 - 18); g.lineTo(S / 2, S / 2 - 4); g.moveTo(S / 2, S / 2 + 4); g.lineTo(S / 2, S / 2 + 18);
   g.moveTo(S / 2 - 18, S / 2); g.lineTo(S / 2 - 4, S / 2); g.moveTo(S / 2 + 4, S / 2); g.lineTo(S / 2 + 18, S / 2); g.stroke();
   g.fillStyle = '#D4AF37'; g.beginPath(); g.arc(S / 2, S / 2, 2, 0, 7); g.fill();
-}
-// Slepen: een hoek (met vergrootglas), het hele vak (binnenkant), of de foto (schuiven als je ingezoomd bent). Knijpen = zoomen.
-function gmGebaren(stage) {
-  const vingers = new Map(); let sleep = null, knijp = null;
-  stage.addEventListener('wheel', e => { if (!GM) return; e.preventDefault(); const st = stage.getBoundingClientRect(); gmZoom(GM.z.s * (e.deltaY < 0 ? 1.2 : 1 / 1.2), [e.clientX - st.left, e.clientY - st.top]); }, { passive: false });
-  stage.addEventListener('pointerdown', e => {
-    if (!GM?.w || e.target.closest('.gmzoom')) return;
-    vingers.set(e.pointerId, [e.clientX, e.clientY]);
-    try { stage.setPointerCapture(e.pointerId); } catch (x) {}
-    if (vingers.size === 2) { const [a, b] = [...vingers.values()]; knijp = { d: gmD(a, b), s: GM.z.s }; sleep = null; $('#gmloep', GM.el).hidden = true; return; }
-    const hoek = e.target.closest('[data-hoek]'), romp = e.target.closest('[data-romp]');
-    const vakken = gmVakken();
-    if (hoek) { const v = vakken.find(x => x.id === hoek.dataset.van); sleep = { soort: 'hoek', v, i: +hoek.dataset.hoek, start: gmNorm(e.clientX, e.clientY), van: [...v.p[+hoek.dataset.hoek]] }; GM.hk = { id: v.id, i: sleep.i }; gmLoep(v.p[sleep.i], v, e.clientX); }
-    else if (romp) { const v = vakken.find(x => x.id === romp.dataset.romp);
-      if (!v.actief) { if (GM.modus === 'sj' && v.id !== 'ref' && v.id !== 'kvan') { GM.sel = v.id; gmTeken(); } sleep = { soort: 'foto', x: e.clientX, y: e.clientY, tx: GM.z.tx, ty: GM.z.ty }; }
-      else sleep = { soort: 'vak', v, start: gmNorm(e.clientX, e.clientY), van: v.p.map(a => [...a]) }; }
-    else sleep = { soort: 'foto', x: e.clientX, y: e.clientY, tx: GM.z.tx, ty: GM.z.ty };
-    e.preventDefault();
-  });
-  stage.addEventListener('pointermove', e => {
-    if (!GM || !vingers.has(e.pointerId)) return;
-    vingers.set(e.pointerId, [e.clientX, e.clientY]);
-    if (knijp && vingers.size === 2) { const [a, b] = [...vingers.values()], st = stage.getBoundingClientRect();
-      gmZoom(knijp.s * gmD(a, b) / knijp.d, [(a[0] + b[0]) / 2 - st.left, (a[1] + b[1]) / 2 - st.top]); return; }
-    if (!sleep) return;
-    if (sleep.soort === 'foto') { if (GM.z.s === 1) return; GM.z.tx = sleep.tx + e.clientX - sleep.x; GM.z.ty = sleep.ty + e.clientY - sleep.y;
-      $('#gmsurf', GM.el).style.transform = `translate(${GM.z.tx}px,${GM.z.ty}px) scale(${GM.z.s})`; return; }
-    const nu = gmNorm(e.clientX, e.clientY), dx = nu[0] - sleep.start[0], dy = nu[1] - sleep.start[1];
-    if (sleep.soort === 'hoek') { sleep.v.p[sleep.i][0] = gmKlem(sleep.van[0] + dx); sleep.v.p[sleep.i][1] = gmKlem(sleep.van[1] + dy); gmLoep(sleep.v.p[sleep.i], sleep.v, e.clientX); }
-    else sleep.v.p.forEach((a, i) => { a[0] = gmKlem(sleep.van[i][0] + dx); a[1] = gmKlem(sleep.van[i][1] + dy); });
-    sleep.bewogen = true; GM.sleept = true; gmNaSlepen(false);
-  });
-  const los = e => {
-    if (!vingers.has(e.pointerId)) return; vingers.delete(e.pointerId);
-    if (vingers.size < 2) knijp = null;
-    if (GM) GM.sleept = false;
-    if (GM && sleep && sleep.soort !== 'foto' && sleep.bewogen) gmNaSlepen(true);
-    if (GM) $('#gmloep', GM.el).hidden = true;
-    if (!vingers.size) sleep = null;
-  };
-  stage.addEventListener('pointerup', los); stage.addEventListener('pointercancel', los);
 }
 // Na slepen: sjabloon direct herrekenen (en bewaren bij loslaten). Het referentiekader bewaar je met Opslaan.
 function gmNaSlepen(klaar) {
@@ -2104,7 +2044,15 @@ function mpRasterVorm(r) {
 }
 // Raster met maten: breedte en hoogte zelf getypt, anders uit de bekende maten op de foto (lasermaten, referenties),
 // en mist er één richting, dan uit de vorm van de 4 hoeken. Zonder enige maat: null (dan rekent het raster niet).
+// Sneller: binnen één tik/teken-ronde rekent het raster per foto maar één keer (niet voor elke lijn opnieuw).
+let MP_RC = null;
+const mpRasterVergeet = () => { MP_RC = null; };
 function mpRaster(s, fid, diep = 0) {
+  if (!MP_RC) { MP_RC = new Map(); queueMicrotask(mpRasterVergeet); }
+  const k = fid + '|' + diep; if (MP_RC.has(k)) return MP_RC.get(k);
+  const uit = mpRaster0(s, fid, diep); MP_RC.set(k, uit); return uit;
+}
+function mpRaster0(s, fid, diep = 0) {
   const r = mpRasterRuw(s, fid); if (!r) return null;
   let B = r.B > 0 ? r.B : null, H = r.H > 0 ? r.H : null; const bron = { B: B ? 'typ' : null, H: H ? 'typ' : null };
   if (!B || !H) {
@@ -2237,10 +2185,13 @@ function mpPijlSvg(x, W, H, kl, tekst, zs = 1, dik = 2.2, extra = '') {
 }
 const MP_REF_KL = '#57E0D2', MP_KL = '#FFD54F', MP_NU = '#FF8A50';
 // Tekst bij de lijn: de maat, met R voor een referentie. Zonder referentie op deze foto: "ref?".
+// Project met onderdelen (lijst "Op deze foto"): alles gaat via de onderdelen naar Topcalc, niet ook nog los per lijn.
+const mpEenWeg = () => typeof V !== 'undefined' && !!V?.p?.simpel && V.s === MP?.s;
 function mpTekst(s, x) {
   const v = mpWaarde(s, x);
   if (x.soort === MP_REF) return `R ${v != null ? v + ' cm' : '? cm'}`;
   if (mpOndVan(x)) return `${mpIsLaser(x) ? '◉ ' : ''}${x.ond} ${v != null ? v + ' cm' : 'ref?'}`;
+  if (mpEenWeg()) return `${mpIsLaser(x) ? '◉ ' : ''}${v != null ? v + ' cm' : 'ref?'}`;
   return `${mpIsLaser(x) ? '◉ ' : ''}${x.soort === 'Kozijn' ? 'K' : x.soort === 'Draairaam' ? 'DR' : x.soort === 'Deur' ? 'D' : 'BD'}${x.nr || 1} ${v != null ? v + ' cm' : 'ref?'}`;
 }
 const mpKleur = x => x.soort === MP_REF ? MP_REF_KL : MP_KL;
@@ -2273,6 +2224,7 @@ function mpSpiegel(s, x) {
   if (!l) f.lijnen.push(n); return terug || JSON.stringify(n) !== oud;
 }
 function mpSpiegelAlles(s, fid) {
+  mpRasterVergeet();
   let n = false; for (const x of mpLijnenOp(s, fid)) n = mpSpiegel(s, x) || n;
   const f = (s.fotos || []).find(g => g.id === fid), ids = new Set(mpLijnenOp(s, fid).map(x => x.id));
   if (f?.lijnen?.some(l => l.mp && !ids.has(l.mp))) { f.lijnen = f.lijnen.filter(l => !l.mp || ids.has(l.mp)); n = true; }
@@ -2460,7 +2412,15 @@ function mpVanBeeld(q) {
 }
 const mpBeeldLijn = x => ({ a: mpNaarBeeld(x.a), b: mpNaarBeeld(x.b) });
 // De gevel rechttrekken: elke beeldpixel komt van zijn plek op de foto (met een randje rond de gevel).
+// Rechtgetrokken foto onthouden (per foto en raster): de tweede keer ⊡ is meteen klaar.
+const MP_RECHT = new Map();
 function mpRechtBeeld(img, r) {
+  const key = `${MP?.f?.id}|${img.naturalWidth}|${JSON.stringify([r.p, Math.round(r.B * 10), Math.round(r.H * 10), MP_RAND])}`;
+  if (MP_RECHT.has(key)) return MP_RECHT.get(key);
+  const uit = mpRechtBeeld0(img, r); if (uit) { if (MP_RECHT.size >= 6) MP_RECHT.delete(MP_RECHT.keys().next().value); MP_RECHT.set(key, uit); }
+  return uit;
+}
+function mpRechtBeeld0(img, r) {
   const k = Math.min(1, 2400 / Math.max(img.naturalWidth, img.naturalHeight)), SW = Math.round(img.naturalWidth * k), SH = Math.round(img.naturalHeight * k);
   const c0 = document.createElement('canvas'); c0.width = SW; c0.height = SH; const g0 = c0.getContext('2d', { willReadFrequently: true }); g0.drawImage(img, 0, 0, SW, SH);
   const src = g0.getImageData(0, 0, SW, SH).data, h = mpRasterH(r); if (!h) return null;
@@ -2478,6 +2438,7 @@ function mpRechtBeeld(img, r) {
 }
 const mpNu = () => MP && mpLijnenOp(MP.s, MP.f.id).find(x => x.id === MP.sel) || null;
 function mpTeken() {
+  mpRasterVergeet();
   if (!MP?.w) return;
   const W = MP.w, H = MP.h, zs = MP.z.s, svg = $('#mpsvg', MP.el), s = MP.s;
   svg.setAttribute('viewBox', `0 0 ${W} ${H}`); svg.setAttribute('width', W); svg.setAttribute('height', H);
@@ -2592,6 +2553,7 @@ function mpGebaren(stage) {
 // Nieuwe lijn klaar: nog geen referentie in deze richting op deze foto? Dan wordt het de referentie (typ de lasermaat).
 // Anders hoort hij bij hetzelfde soort onderdeel als de vorige lijn.
 function mpNieuweLijnKlaar(x) {
+  mpRasterVergeet();
   const s = MP.s, r = mpRicht(x);
   if (mpPx(x) < 10) { s.mp.lijn = s.mp.lijn.filter(y => y !== x); MP.sel = null; return mpTeken(); }
   mpZetSoort(s, x, MP.laatste);
@@ -2630,19 +2592,19 @@ function mpBalk() {
   if (!x && typeof V !== 'undefined' && V?.s === s && V.telDeel && mpOndOp(f, V.telDeel)) { bk.innerHTML = `<div class="mphint">Delen in ${esc(V.telDeel)}: trek de breedte en de hoogte van het raam.</div><button class="mptc" id="mpdeelklaar">Klaar</button>`;
     $('#mpdeelklaar', bk).onclick = () => { V.telDeel = null; V.telNu = null; tekenUI(); mpTeken(); }; return; }
   if (!x) { bk.innerHTML = `<div class="mphint">${mpLijnenOp(s, f.id).length ? 'Tik op een lijn, of trek een nieuwe.' : (mpRaster(s, f.id) ? 'Trek een lijn op het kozijn, de deur of het draairaam.' : 'Trek een lijn op het kozijn. ▦ rechtsonder = gevelraster.')}</div>`; return; }
-  const ond = mpOndVan(x), ref = x.soort === MP_REF, v = mpWaarde(s, x), calc = mpCalc(s, x), hand = !ref && x.hand != null;
+  const een = mpEenWeg(), ond = mpOndVan(x), ref = x.soort === MP_REF, v = mpWaarde(s, x), calc = mpCalc(s, x), hand = !ref && x.hand != null;
   const rij = !ref && mpGroep(s, x).map(y => mpTcRij(s, y)).find(Boolean), w = !ref && mpTcWaarden(s, x);
   const zelfde = rij && ['oms', 'b', 'h', 'st', 'n'].every(k => String(rij[k] ?? '') === w[k]);
   bk.innerHTML = `<span class="mprich">${mpRicht(x) === 'h' ? '↔' : '↕'}</span><input id="mpcm" class="${hand ? 'hand' : ''}" inputmode="decimal" autocomplete="off" value="${esc(v ?? '')}" placeholder="${ref ? 'laser' : 'ref?'}" title="${hand ? 'Lasermaat: deze lijn is ook referentie' + (calc != null && calc !== x.hand ? ` (lijn zegt ${calc})` : '') : ''}">
     <select id="mpsoort">${mpOndKeuze(f).length ? `<optgroup label="Onderdelen op deze foto">${mpOndKeuze(f).map(o => `<option value="o:${o.letter}"${x.ond === o.letter && ond ? ' selected' : ''}>${esc(o.letter)} · ${esc(ondKortNaam(o) || 'Onderdeel')}${o.codes?.[0]?.code ? ' (' + esc(o.codes[0].code) + ')' : ''}</option>`).join('')}</optgroup>` : ''}
-      <option value="nieuw">＋ Nieuw onderdeel…</option><optgroup label="Zonder onderdeel">${[MP_REF, ...MP_SOORTEN].map(k => `<option value="${k}"${k === x.soort && !ond ? ' selected' : ''}>${k === MP_REF ? k : `${k} ${k === x.soort ? x.nr || 1 : ''}`.trim()}</option>`).join('')}</optgroup></select>
+      ${een && !ond && !ref ? '<option value="" selected disabled>Bij welk onderdeel?</option>' : ''}<option value="nieuw">＋ Nieuw onderdeel…</option>${een && !ref ? '' : `<optgroup label="Zonder onderdeel">${[MP_REF, ...MP_SOORTEN].map(k => `<option value="${k}"${k === x.soort && !ond ? ' selected' : ''}>${k === MP_REF ? k : `${k} ${k === x.soort ? x.nr || 1 : ''}`.trim()}</option>`).join('')}</optgroup>`}</select>
     <button class="iconbtn mpweg" id="mpweg" aria-label="Verwijderen" title="Verwijderen">${ic('trash')}</button>
-    ${ref || ond ? '' : `<input id="mpn" class="mpn" inputmode="numeric" autocomplete="off" value="${esc(mpGroep(s, x).find(y => y.n > 0)?.n || 1)}" title="Aantal" aria-label="Aantal">`}
-    ${ref || ond ? '' : `<button class="mptc${zelfde ? ' klaar' : ''}" id="mptc">${!rij ? '+ Naar Topcalc' : zelfde ? '✓ Topcalc' : '↻ Topcalc'}</button>`}`;
+    ${ref || ond || een ? '' : `<input id="mpn" class="mpn" inputmode="numeric" autocomplete="off" value="${esc(mpGroep(s, x).find(y => y.n > 0)?.n || 1)}" title="Aantal" aria-label="Aantal">`}
+    ${ref || ond || een ? '' : `<button class="mptc${zelfde ? ' klaar' : ''}" id="mptc">${!rij ? '+ Naar Topcalc' : zelfde ? '✓ Topcalc' : '↻ Topcalc'}</button>`}`;
   const i = $('#mpcm', bk); if (actief != null) { i.value = actief; i.focus(); }
   i.onchange = () => { const n = mpCm(i.value);
     // Getypte maat = lasermaat: de lijn wordt ook referentie (◉). Leegmaken = weer berekenen.
-    if (ref) x.cm = n; else if (n == null) delete x.hand; else x.hand = Math.round(n);
+    if (ref) x.cm = n; else if (n == null) delete x.hand; else x.hand = Math.round(n); mpRasterVergeet();
     if (MP.R && !ref) mpZetRecht(true, true);
     bewaar(); setTimeout(() => MP && mpTeken(), 200); };
   i.onkeydown = e => { if (e.key === 'Enter') i.blur(); };
@@ -2813,7 +2775,7 @@ function mpRasterBalk(bk) {
     ${ctl.slice(0, 2).map((k, i) => `<button class="mpijk" data-ijk="${i}" title="Tik om het raster hierop te ijken">${k.r === 'h' ? '↔' : '↕'}${k.cm}→${Math.round(k.nu)}</button>`).join('')}
     <button class="iconbtn mpweg" id="mprweg" aria-label="Raster verwijderen" title="Raster verwijderen">${ic('trash')}</button>`;
   const zet = (id, k) => { const i = $('#' + id, bk); i.onkeydown = e => { if (e.key === 'Enter') i.blur(); };
-    i.onchange = () => { r[k] = mpCm(i.value); if (MP.R) mpZetRecht(true, true); bewaar(); setTimeout(() => MP && mpTeken(), 200); }; };
+    i.onchange = () => { r[k] = mpCm(i.value); mpRasterVergeet(); if (MP.R) mpZetRecht(true, true); bewaar(); setTimeout(() => MP && mpTeken(), 200); }; };
   zet('mprb', 'B'); zet('mprh', 'H');
   bk.querySelectorAll('[data-ijk]').forEach(b => b.onclick = () => { const k = ctl[+b.dataset.ijk], key = k.r === 'h' ? 'B' : 'H';
     r[key] = Math.round(e[key] * k.cm / k.nu * 10) / 10; bewaar(); if (MP.R) mpZetRecht(true, true); mpTeken(); toast(`Raster geijkt op ${k.cm} cm: gevel ${k.r === 'h' ? 'breedte' : 'hoogte'} nu ${r[key]} cm.`); });
@@ -2851,103 +2813,6 @@ function gmLijnGemeten(f, l) {
   const k = gem.filter(x => l.kozijn && x.kozijn === l.kozijn).sort((a, b) => as(b) - as(a))[0] || gem.sort((a, b) => as(b) - as(a))[0];
   if (!k || !(as(l) > 0)) return null; const m = as(l) / as(k) * k.maat;
   return isFinite(m) && m > 0 && m < 100 ? { m: Math.round(m * 100) / 100, tekst: `In verhouding tot je gemeten lijn${k.kozijn ? ' van ' + k.kozijn : ''} (${Math.round(k.maat * 100)} cm)` } : null;
-}
-// Stenen tellen recht onder een liggende lijn: per laag de stootvoegen (om de steenlengte), in stroken steeds verder naar
-// beneden. De eerste strook waar minstens 4 lagen hetzelfde zeggen (binnen 4%) telt. Onzeker? Dan null (geen maat).
-// Laat zien waar geteld is: twee hulpstrepen recht omlaag vanaf de uiteinden van de gekozen lijn, de getelde strook
-// metselwerk, streepjes om de steen en het aantal. Zo kun je de telling zelf nalopen.
-function gmOnderSvg(s, f, W, H) {
-  const l = typeof V !== 'undefined' && V?.sel && f?.lijnen?.find(x => x.id === V.sel);
-  if (!l || !l.uitRef) return '';
-  const br = gmLijnBron(s, f, l), na = br?.naast;
-  if (l.richting === 'verticaal' && na) {   // staand: de strook metselwerk waar de lagen geteld zijn, met een streepje per laag
-    // Een streepje op de lijn zelf voor elke voeg (zoals een duimstok), ook net boven en onder de uiteinden,
-    // zodat je de uiteinden precies op een voeg kunt zetten.
-    const lx = (y) => (l.x1 + (l.x2 - l.x1) * (l.y2 === l.y1 ? 0 : (y / H - l.y1) / (l.y2 - l.y1))) * W;
-    const y0 = na.y1 * H, y1 = na.y2 * H, ph = na.per * H, half = Math.max(7, Math.min(16, ph * .6));
-    const vg = (na.voegen?.length ? na.voegen.map(v => v * H) : Array.from({ length: na.n + 1 }, (_, i) => y0 + (y1 - y0) * i / na.n)).filter(y => y >= y0 - ph * 1.3 && y <= y1 + ph * 1.3);
-    let streep = ''; for (const y of vg) { const x = lx(y), binnen = y >= y0 - ph * .3 && y <= y1 + ph * .3;
-      streep += `<line x1="${x - half}" y1="${y}" x2="${x + half}" y2="${y}" stroke="#000" stroke-width="3.5" opacity=".5"/><line x1="${x - half}" y1="${y}" x2="${x + half}" y2="${y}" stroke="#57E0D2" stroke-width="2" opacity="${binnen ? 1 : .55}"/>`; }
-    return `<g pointer-events="none">${streep}<text x="${lx(y0) + half + 6}" y="${y0 + 4}" fill="#57E0D2" stroke="#000" stroke-width="3" paint-order="stroke" font-size="13" font-weight="700">${na.n} lagen</text></g>`;
-  }
-  if (l.richting !== 'horizontaal') return '';
-  const on = br?.onder; if (!on) return '';
-  const x1 = Math.min(l.x1, l.x2) * W, x2 = Math.max(l.x1, l.x2) * W, y = Math.max(l.y1, l.y2) * H, y0 = on.y * H, y1 = (on.y + on.h) * H, st = (x2 - x1) / on.n;
-  let streep = ''; for (let x = x1 + st; x < x2 - st * .3; x += st) streep += `<line x1="${x}" y1="${y0}" x2="${x}" y2="${y1}" stroke="#57E0D2" stroke-width="1.5"/>`;
-  return `<g pointer-events="none"><line x1="${x1}" y1="${y}" x2="${x1}" y2="${y1}" stroke="#57E0D2" stroke-width="1.5" stroke-dasharray="5 4"/>` +
-    `<line x1="${x2}" y1="${y}" x2="${x2}" y2="${y1}" stroke="#57E0D2" stroke-width="1.5" stroke-dasharray="5 4"/>` +
-    `<rect x="${x1}" y="${y0}" width="${x2 - x1}" height="${y1 - y0}" fill="rgba(87,224,210,.15)" stroke="#57E0D2" stroke-width="1.5"/>${streep}` +
-    `<text x="${(x1 + x2) / 2}" y="${y1 + 15}" text-anchor="middle" fill="#57E0D2" stroke="#000" stroke-width="3" paint-order="stroke" font-size="13" font-weight="700">${gmNl(Math.round(on.n * 10) / 10)} stenen geteld</text></g>`;
-}
-// Staande lijn (bijv. over glas): tel de lagen in het metselwerk naast het kozijn over dezelfde hoogte als de lijn.
-// We kijken in smalle stroken over de hele foto. Glas en kozijn geven geen of een veel grotere herhaling; het metselwerk links
-// en rechts geeft allemaal (bijna) dezelfde laaghoogte. Die groep nemen we (minstens 4 stroken), het midden ervan. Hele lagen.
-function gmLijnNaast(f, l) {
-  const b = gmBeeld(f); if (!b) return null;
-  const X = (l.x1 + l.x2) / 2, Y1 = Math.min(l.y1, l.y2) * b.h, Y2 = Math.max(l.y1, l.y2) * b.h, ws = .06;
-  if (Y2 - Y1 < b.h * .04) return null;
-  const st = [];
-  for (let x = 0; x + ws <= 1.0001; x += .03) { const p = gmRijPer(b, [[x * b.w, (x + ws) * b.w, Y1, Y2]]); if (p && p.score >= .6) st.push({ x, per: p.per, sc: p.score }); }
-  const ps = st.map(s => s.per).sort((a, c) => a - c);
-  const kern = ps.find(p => ps.filter(q => Math.abs(q / p - 1) <= .1).length >= 4); if (!kern) return null;
-  let per = kern, groep = [];
-  for (let i = 0; i < 3; i++) { groep = st.filter(s => Math.abs(s.per / per - 1) <= .12); const gp = groep.map(s => s.per).sort((a, c) => a - c); per = gp[gp.length >> 1]; }   // midden van de groep
-  const ruw = (Y2 - Y1) / per, n = Math.max(1, Math.round(ruw));
-  const dicht = groep.sort((a, c) => c.sc - a.sc)[0];   // de duidelijkste strook laten zien
-  const buur = groep.slice().sort((a, c) => Math.abs(a.x + ws / 2 - X) - Math.abs(c.x + ws / 2 - X))[0];   // strook het dichtst bij de lijn: daar de voegen zoeken
-  return { n, ruw, per: per / b.h, x: dicht.x, w: ws, y1: Y1 / b.h, y2: Y2 / b.h, stroken: groep.length, voegen: gmVoegen(b, buur.x * b.w, (buur.x + ws) * b.w, Y1, Y2, per) };
-}
-// Liggende voegen in een strook: de grijze voeg is het minst rood. Eerst de vaste stap (laaghoogte) over de hele strook leggen,
-// dan elke voeg een klein stukje laten opschuiven naar de echte voeg (perspectief maakt lagen boven/onder iets anders).
-function gmVoegen(b, x0, x1, Y1, Y2, per) {
-  x0 = Math.max(0, Math.round(x0)); x1 = Math.min(b.w, Math.round(x1));
-  const a = Math.max(0, Math.floor(Y1 - per * 1.5)), z = Math.min(b.h, Math.ceil(Y2 + per * 1.5)), L = z - a; if (L < per * 2 || x1 - x0 < 3) return [];
-  const p = new Float32Array(L);
-  for (let i = 0; i < L; i++) { let s = 0; for (let x = x0; x < x1; x++) s += b.v[(a + i) * b.w + x]; p[i] = s / (x1 - x0); }
-  const g = p.map((_, i) => (p[Math.max(0, i - 1)] + p[i] + p[Math.min(L - 1, i + 1)]) / 3);
-  let fase = 0, laag = Infinity;
-  for (let f = 0; f < per; f += .5) { let s = 0, n = 0; for (let y = f; y < L; y += per) { s += g[Math.round(y)] ?? 0; n++; } if (s / n < laag) { laag = s / n; fase = f; } }
-  const uit = [];
-  for (let y = fase; y < L; y += per) { const r = per * .25; let m = Math.round(y);
-    for (let k = Math.max(0, Math.round(y - r)); k <= Math.min(L - 1, Math.round(y + r)); k++) if (g[k] < g[m]) m = k;
-    uit.push((a + m) / b.h); }
-  return uit;
-}
-function gmLijnOnder(f, l, yLaag) {
-  const b = gmBeeld(f); if (!b) return null;
-  const X1 = Math.min(l.x1, l.x2) * b.w, X2 = Math.max(l.x1, l.x2) * b.w, Y = Math.max(l.y1, l.y2) * b.h, hs = b.h * .07;
-  if (X2 - X1 < b.w * .05) return null;
-  // Alle betrouwbare stroken onder de lijn. Door perspectief (foto van onderaf) lijken stenen lager in beeld groter; daarom
-  // trekken we de steenmaat door naar de hoogte van de lijn zelf (rechte lijn door de stroken) in plaats van de strook te nemen.
-  const goed = [];
-  for (let y0 = Y + b.h * .01; y0 + hs <= Math.min(b.h, Y + b.h * .45); y0 += hs * .5) {
-    const rij = gmRijPer(b, [[X1, X2, y0, y0 + hs]]); if (!rij || rij.score < .4) continue;
-    const per = [];
-    for (let yy = y0; yy + rij.per * .5 <= y0 + hs; yy += rij.per * .25) {
-      const k = ['v', 'y'].map(c => gmPeriode(b, X1, X2, yy, yy + rij.per * .5, 'kol', rij.per * 2.4, rij.per * 5.5, c)).filter(k => k && k.score >= .4).sort((a, c) => c.score - a.score)[0];
-      if (k) per.push(k.per); }
-    if (per.length < 4) continue;
-    per.sort((a, c) => a - c); const med = per[per.length >> 1], q1 = per[Math.floor(per.length * .25)], q3 = per[Math.floor(per.length * .75)];
-    if ((q3 - q1) / med > .04) continue;
-    goed.push({ y0, yc: y0 + hs / 2, med, rp: rij.per });
-  }
-  if (!goed.length) return null;
-  const eerste = goed[0]; let perL = eerste.med;
-  if (goed.length >= 3 && goed[goed.length - 1].yc - eerste.yc >= hs) {
-    const n = goed.length, my = goed.reduce((t, g) => t + g.yc, 0) / n, mp = goed.reduce((t, g) => t + g.med, 0) / n;
-    const sxy = goed.reduce((t, g) => t + (g.yc - my) * (g.med - mp), 0), sxx = goed.reduce((t, g) => t + (g.yc - my) ** 2, 0);
-    const v = mp + (sxx ? sxy / sxx : 0) * (Y - my);
-    if (v > 0 && Math.abs(v / eerste.med - 1) < .12) perL = v;
-  }
-  const ruw = (X2 - X1) / perL, n = Math.max(.5, Math.round(ruw * 2) / 2);   // zoals je zelf telt: hele en halve stenen
-  // Laaghoogte (voor staande lijnen) op hoogte yLaag, op dezelfde manier doorgetrokken.
-  let laag = eerste.rp;
-  if (yLaag != null && goed.length >= 3 && goed[goed.length - 1].yc - eerste.yc >= hs) {
-    const k = goed.length, my = goed.reduce((t, g) => t + g.yc, 0) / k, mp = goed.reduce((t, g) => t + g.rp, 0) / k;
-    const sxy = goed.reduce((t, g) => t + (g.yc - my) * (g.rp - mp), 0), sxx = goed.reduce((t, g) => t + (g.yc - my) ** 2, 0);
-    const v = mp + (sxx ? sxy / sxx : 0) * (yLaag - my); if (v > 0 && Math.abs(v / eerste.rp - 1) < .2) laag = v;
-  }
-  return { n, ruw, y: eerste.y0 / b.h, h: hs / b.h, per: perL / b.w, stroken: goed.length, laag };
 }
 function gmLijnBron(s, f, l) {
   if (!s || !f || !l || !s.fotos?.includes(f) || !['horizontaal', 'verticaal'].includes(l.richting)) return null;
@@ -3040,97 +2905,6 @@ function gmBeeldVan(img, id) {
     return { id, w, h, v, y, per: new Map() };
   } catch (e) { console.warn(e); return null; }
 }
-// Herhaling (periode in px) in een strook: 'rij' = voegen liggend (lagen), 'kol' = stootvoegen (stenen). Scheef zoeken tot ±12°.
-function gmPeriode(b, x0, x1, y0, y1, soort, minL, maxL, kanaal = 'v') {
-  const V = b[kanaal];
-  x0 = Math.max(0, Math.round(x0)); x1 = Math.min(b.w, Math.round(x1)); y0 = Math.max(0, Math.round(y0)); y1 = Math.min(b.h, Math.round(y1));
-  const lang = soort === 'rij' ? y1 - y0 : x1 - x0, breed = soort === 'rij' ? x1 - x0 : y1 - y0;
-  maxL = Math.min(Math.round(maxL), Math.floor(lang / 3)); minL = Math.max(4, Math.round(minL));
-  if (breed < 6 || maxL <= minL + 2) return null;
-  let best = null;
-  for (let a = -12; a <= 12; a += 1) {
-    const t = Math.tan(a * Math.PI / 180), p = new Float32Array(lang), stap = Math.max(1, Math.floor(breed / 80));
-    for (let i = 0; i < lang; i++) { let s = 0, n = 0;
-      for (let j = 0; j < breed; j += stap) {
-        const xx = soort === 'rij' ? x0 + j : Math.round(x0 + i + (j - breed / 2) * t), yy = soort === 'rij' ? Math.round(y0 + i + (j - breed / 2) * t) : y0 + j;
-        if (xx >= 0 && xx < b.w && yy >= 0 && yy < b.h) { s += V[yy * b.w + xx]; n++; } }
-      p[i] = n ? s / n : 0; }
-    // Licht gladstrijken: ruis en moiré eruit, de voegen blijven.
-    { const c = Float32Array.from(p); for (let i = 2; i < lang - 2; i++) p[i] = (c[i - 2] + 2 * c[i - 1] + 3 * c[i] + 2 * c[i + 1] + c[i + 2]) / 9; }
-    // Trend eraf (licht/schaduw), dan autocorrelatie.
-    const q = new Float32Array(lang), r = Math.max(2, Math.round(maxL / 2)); let gem = 0;
-    for (let i = 0; i < lang; i++) { let s = 0, n = 0; for (let j = Math.max(0, i - r); j <= Math.min(lang - 1, i + r); j++) { s += p[j]; n++; } q[i] = p[i] - s / n; gem += q[i]; }
-    gem /= lang; let nrm = 0; for (let i = 0; i < lang; i++) { q[i] -= gem; nrm += q[i] * q[i]; } if (!nrm) continue;
-    const ac = []; for (let L = minL - 1; L <= maxL + 1; L++) { let s = 0; for (let i = 0; i + L < lang; i++) s += q[i] * q[i + L]; ac.push(s / nrm * lang / (lang - L)); }
-    const pieken = []; for (let i = 1; i < ac.length - 1; i++) if (ac[i] > ac[i - 1] && ac[i] >= ac[i + 1] && ac[i] > 0) pieken.push(i);
-    if (!pieken.length) continue; const mx = Math.max(...pieken.map(i => ac[i]));
-    // De kleinste duidelijke herhaling, niet een veelvoud (2 lagen tegelijk). Een piek op de halve afstand wint als hij duidelijk is.
-    let i = pieken.find(i => ac[i] >= mx * .6);
-    for (let k = 0; k < 2; k++) { const h = pieken.find(j => Math.abs(j + minL - 1 - (i + minL - 1) / 2) <= (i + minL - 1) * .12 && ac[j] >= ac[i] * .5); if (h == null) break; i = h; }
-    const [u, m, o] = [ac[i - 1], ac[i], ac[i + 1]], dn = u - 2 * m + o, off = dn ? .5 * (u - o) / dn : 0;
-    const res = { per: i + minL - 1 + off, score: m, hoek: a, mx };
-    if (!best || res.mx > best.mx) best = res;
-  }
-  return best;
-}
-// Aantal lagen langs een staande lijn (px in beeld b): beste strook links of rechts.
-// Laaghoogte (px) uit stroken: op roodheid en op helderheid (lichte voegen), over de hele strook en per stuk.
-// Een stuk zonder stenen (natuursteen band, raam) geeft geen duidelijke herhaling en telt niet mee; de schaal uit de stukken
-// met stenen geldt voor de hele lijn. Om-en-om verband (koppen/strekken) geeft ook 2 of 3 lagen tegelijk: de afstand waar de
-// meeste uitkomsten een veelvoud van zijn, wint.
-function gmRijPer(b, stroken) {
-  const uit = [];
-  for (const [x0, x1, y0, y1] of stroken) { const L = y1 - y0, stukken = [[y0, y1]]; if (L > b.h * .12) for (let i = 0; i < 3; i++) stukken.push([y0 + L * i / 3, y0 + L * (i + 1) / 3]);
-    for (const [a, z] of stukken) for (const k of ['v', 'y']) { const r = gmPeriode(b, x0, x1, a, z, 'rij', 8, Math.min(b.h / 8, 140), k); if (r && r.score >= .35) uit.push(r); } }
-  if (!uit.length) return null;
-  const veelvoud = (c, d) => { const k = Math.round(d.per / c.per); return k >= 1 && k <= 3 && Math.abs(d.per / c.per - k) < .08 * k; };
-  let best = null;
-  for (const c of uit) { const steun = uit.filter(d => veelvoud(c, d)).reduce((t, d) => t + d.score, 0);
-    if (!best || steun > best.steun + 1e-9 || (Math.abs(steun - best.steun) < 1e-9 && c.per < best.c.per)) best = { c, steun }; }
-  const groep = uit.filter(d => Math.abs(d.per / best.c.per - 1) < .08), w = groep.reduce((t, d) => t + d.score, 0);
-  return { per: groep.reduce((t, d) => t + d.per * d.score, 0) / w, score: Math.max(...groep.map(d => d.score)) };
-}
-function gmLagenLangs(b, X1, X2, Y1, Y2) {
-  const d = b.w * .012, ws = b.w * .05;
-  const r = gmRijPer(b, [1, 3].flatMap(k => [[X1 - d * k - ws, X1 - d * k, Y1, Y2], [X2 + d * k, X2 + d * k + ws, Y1, Y2]]));
-  return r && { ...r, n: (Y2 - Y1) / r.per };
-}
-// Maat van een lijn uit de stenen ernaast: staand = lagen × laagmaat, liggend = stenen × steenmaat.
-function gmLijnStenen(s, f, l) {
-  const b = gmBeeld(f); if (!b) return null;
-  const st = gmSteen(s), key = [l.richting, l.x1, l.y1, l.x2, l.y2, st.h, st.l].map(v => typeof v === 'number' ? v.toFixed(4) : v).join('|');
-  if (b.per.has(key)) { const r = b.per.get(key); return r && { ...r, m: Math.round((r.n * (r.liggend ? st.l : st.h))) / 100 }; }
-  const X1 = Math.min(l.x1, l.x2) * b.w, X2 = Math.max(l.x1, l.x2) * b.w, Y1 = Math.min(l.y1, l.y2) * b.h, Y2 = Math.max(l.y1, l.y2) * b.h;
-  const liggend = l.richting === 'horizontaal', d = b.w * .012, ws = b.w * .05, hs = b.h * .07;
-  // Stroken boven en onder de lijn, steeds verder weg (een brede vensterbank of latei ertussen mag).
-  const vakken = [1, 3, 6, 10].flatMap(k => [[X1, X2, Y2 + d * k, Y2 + d * k + hs], [X1, X2, Y1 - d * k - hs, Y1 - d * k]]);
-  let res = null;
-  if (!liggend) { const r = gmLagenLangs(b, X1, X2, Y1, Y2); if (r) res = { score: r.score, per: r.per, n: r.n, liggend }; }
-  // Laaghoogte voor een liggende lijn: uit alle stroken samen, ook naast de uiteinden van de lijn (daar zitten vaak hele lagen).
-  const rijG = liggend && gmRijPer(b, [...vakken, [X1 - ws, X1 - d, Y1 - hs, Y2 + hs], [X2 + d, X2 + ws, Y1 - hs, Y2 + hs]]);
-  // Liggend: de stenen tellen binnen één laag. In elke laag (halfsteens of wildverband) zit om de steenlengte een stootvoeg,
-  // dus de herhaling in een dun strookje van één laag is precies één steen (met voeg). Breedte = aantal stenen × steenlengte;
-  // de laaghoogte doet hier niet mee. We nemen de middelste uitkomst van alle strookjes boven en onder de lijn.
-  if (liggend && rijG) { const per = [];
-    for (const [x0, x1, y0, y1] of vakken) for (let yy = y0; yy + rijG.per * .5 <= y1; yy += rijG.per * .25) {
-      const k = ['v', 'y'].map(c => gmPeriode(b, x0, x1, yy, yy + rijG.per * .5, 'kol', rijG.per * 2.4, rijG.per * 5.5, c)).filter(k => k && k.score >= .4).sort((a, c) => c.score - a.score)[0];
-      if (k) per.push(k); }
-    if (per.length >= 3) { per.sort((a, c) => a.per - c.per); const m = per[per.length >> 1];
-      res = { score: m.score, n: (X2 - X1) / m.per, liggend, laag: true }; }
-  }
-  if (liggend && rijG && !res) for (const [x0, x1, y0, y1] of vakken) {
-    const rl = gmRijPer(b, [[x0, x1, y0, y1]]), rij = rl && Math.abs(rl.per / rijG.per - 1) < .12 ? rl : rijG;
-    // Eerst de breedte in lagen (zelfde schaal als de hoogte), dan de stootvoegen tellen. Koppen of halfsteens verband geven
-    // een halve steen: we nemen de uitleg (hele of halve steen) die het best past bij de schatting uit de lagen.
-    const iso = (X2 - X1) / rij.per * st.h / st.l, verw = rij.per * st.l / st.h;
-    const kol = ['v', 'y'].map(k => gmPeriode(b, x0, x1, y0, y1, 'kol', verw * .4, verw * 1.5, k)).filter(k => k && k.score >= .4).sort((a, c) => c.score - a.score)[0];
-    const keuze = kol && [(X2 - X1) / kol.per, (X2 - X1) / kol.per / 2].sort((a, c) => Math.abs(a / iso - 1) - Math.abs(c / iso - 1))[0];
-    const r = keuze && Math.abs(keuze / iso - 1) < .3 ? { score: Math.min(rij.score, kol.score + .15), n: keuze, liggend } : { score: rij.score - .1, n: iso, liggend, iso: true, lagen: (X2 - X1) / rij.per };
-    if (!res || r.score > res.score) res = r;
-  }
-  b.per.set(key, res);
-  return res && { ...res, m: Math.round(res.n * (liggend ? st.l : st.h)) / 100 };
-}
 
 // Onderdeel (kozijn) met zijn delen naar de Topcalc-lijst, alleen op de knop "+ Naar Topcalc".
 // Eén regel per deel (vast raam, draairaam…), aantal = aantal kozijnen × aantal van dat deel. Opnieuw drukken werkt de regels bij.
@@ -3201,7 +2975,6 @@ function gmFotosNaarLijst(m, p, alleen) {
 // "Losse maten" (lijnen zonder onderdeel, vaak lasermaten): met één tik referentie maken (telt niet mee in Topcalc),
 // of er een kozijn van maken (dan telt het wel mee).
 const losLijnen = f => f.lijnen.filter(l => !l.kozijn && !l.ref && l.maat != null);
-const losKnoppenHtml = () => `<span style="margin-left:auto;display:flex;gap:6px"><button class="ondchip" data-losref style="width:auto;padding:2px 10px;font-size:12px">Referentie (telt niet mee)</button><button class="ondchip" data-loskoz style="width:auto;padding:2px 10px;font-size:12px">Maak kozijn</button></span>`;
 function losKoppel(vx, f) {
   const oud = () => ({ lijnen: JSON.parse(JSON.stringify(f.lijnen)), ond: JSON.parse(JSON.stringify(f.onderdelen || [])) });
   const terug = o => () => { f.lijnen = o.lijnen; f.onderdelen = o.ond; bewaar(); tekenUI(); };
@@ -4424,9 +4197,6 @@ function refSvg(f, W, H) {
   return (xy.length > 1 ? `<polyline points="${[...xy, ...(xy.length === 4 ? [xy[0]] : [])].map(p => p.join(',')).join(' ')}" fill="none" stroke="${ok ? '#57E0D2' : '#FFA726'}" stroke-width="2" stroke-dasharray="7 5"/>` : '') +
     xy.map(([x, y], i) => `<circle cx="${x}" cy="${y}" r="${V.hoeken ? 9 : 5}" fill="${ok ? '#57E0D2' : '#FFA726'}" stroke="#000" stroke-width="1"/>${V.hoeken ? `<text x="${x + 12}" y="${y - 10}" fill="#fff" stroke="#000" stroke-width="3" paint-order="stroke" font-size="15" font-weight="700">${i + 1}</text>` : ''}`).join('');
 }
-function startHoeken(f, L) {
-  V.hoeken = { L, p: [] }; V.sel = null; V.modus = 'bekijken'; tekenUI();
-}
 const HOEK_NAMEN = ['linksboven', 'rechtsboven', 'rechtsonder', 'linksonder'];
 const hoekNaam = () => V.hoeken?.soort === 'tel' ? ['linksboven', 'rechtsonder'][V.hoeken.p.length] || '' : `hoek ${(V.hoeken?.p.length || 0) + 1}`;
 const lijnPx = l => Math.hypot((l.x2 - l.x1) * (V?.w || 1), (l.y2 - l.y1) * (V?.h || 1));
@@ -5375,7 +5145,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.28-1';
+const APP_VERSIE = '2026.11.28-2';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
@@ -6646,11 +6416,6 @@ function kozijnLijnen(f, label, k, { b, h }) {
     { id: ver?.id || nieuwId(), kozijn: L, richting: 'verticaal', x1: xh, y1: k.y0, x2: xh, y2: k.y1, maat: h ?? ver?.maat ?? null, bron: 'spraak' });
   Object.assign(label, { x: k.x0 + 0.035, y: k.y0 + 0.04 });
 }
-// Waar de letter op de foto komt: links/midden/rechts en boven/onder als ruwe plek (0..1). Daarna zelf te verslepen.
-function labelPlek(waar) {
-  const w = waar || '';
-  return { x: /links/.test(w) ? 0.2 : /rechts/.test(w) ? 0.8 : 0.5, y: /boven/.test(w) ? 0.28 : /onder/.test(w) ? 0.72 : 0.5 };
-}
 // Maten zoals in Topcalc: hele centimeters. Strekkend = 2 × (B + H) plus extra stijlen en dorpels; 0 als de code geen m1 is.
 const cmGetal = v => String(Math.round(v * 100));
 // Hoort de notitie bij een kozijn op een foto, dan gaan de maten van de lijnen (laser of spraak) voor de maten uit de zin.
@@ -7144,7 +6909,6 @@ function verwijderOnderdeel(f, L) {
   // Nog één over: dan weer gewoon de hele foto, zonder letter.
   if (f.onderdelen.length === 1 && !f.onderdelen[0].naam) { const L1 = f.onderdelen[0].letter; f.lijnen.forEach(l => { if (l.kozijn === L1) delete l.kozijn; }); f.onderdelen = []; }
 }
-const kozijnLetters = f => [...new Set(f.lijnen.filter(l => !l.ref).map(l => l.kozijn).filter(Boolean))].sort();
 const kozijnenVan = f => [...(f.lijnen.some(l => !l.kozijn && !l.ref) ? [null] : []), ...kozijnLetters(f)];
 // Referentielijn: een lasermaat die alleen de schaal van de foto geeft en nergens meetelt.
 const telLijnen = f => f.lijnen.filter(l => !l.ref);
@@ -7651,14 +7415,6 @@ function vlakKlaar(f, p) {
   toast(`Referentievlak ${maatLabel(b.maat)} × ${maatLabel(h.maat)} (je lasermaten). Tik nu de ramen aan.`, 5000);
   V.hoeken = { soort: 'tel', p: [] };
 }
-// 10 lagen: één staande referentielijn per foto. De laser of een getypte maat vult hem; de lijn schuif je op het metselwerk.
-function plus10Lagen(f) {
-  let l = f.lijnen.find(x => x.lagen10);
-  if (!l) { l = { id: nieuwId(), richting: 'verticaal', x1: .08, y1: .52, x2: .08, y2: .78, maat: null, ref: true, lagen10: true }; f.lijnen.push(l); }
-  V.sel = l.id; V.modus = 'bekijken'; V.hoeken = null; bewaar(); tekenUI();
-  if (Laser.status === 'verbonden') toast('Laser nu 10 lagen steen, van voeg tot voeg. Schuif de lijn eventueel op die plek.', 6000);
-  else { toast('10 lagen steen, van voeg tot voeg: laser of typ de maat.', 5000); maatSheet(l); }
-}
 // Onder de foto tijdens het tellen: het laatst getelde raam, met + en − en het aantal gelijke ramen.
 function telPaneel(f, st) {
   const o = ondVan(f).find(x => x.letter === V.telNu); if (!o) { V.telNu = null; return false; }
@@ -8132,21 +7888,6 @@ function tcVanOnderdeel(f, o, c) {
   const on = ouder ? (ondKortNaam(ouder) || `Kozijn ${fotoLetter(ouder.letter)}`) : '';
   const oms = !ouder ? ondKortNaam(o) || `Onderdeel ${o.letter}` : `${soortDeel(o)} ${/^kozijn\b/i.test(on) ? on.replace(/^K/, 'k') : 'in ' + on}`;
   return { code, type, oms, b: hor?.maat != null ? String(cmOp(hor.maat) + (k?.lengte ? 0 : dk)) : '', h: k?.lengte ? '' : cm(ver?.maat), st, stAuto: false, bestek, dikte: k?.lengte ? 0 : dk, ...(n != null ? { n: String(n) } : {}) };
-}
-function tcVanFotos(s) {
-  const lijst = s.tc, gezien = new Set();
-  for (const f of s.fotos) { stenenHerreken(f); for (const o of ondVan(f)) ((o.codes || []).some(c => c?.code) ? o.codes : [{ code: '' }]).forEach((c, ci) => {
-    if (!c?.code && (o.codes || []).some(x => x?.code)) return;
-    if (!c?.code && !f.lijnen.some(l => !l.ref && l.kozijn === o.letter && l.maat != null)) return;
-    const bron = `${f.id}|${o.letter}|${ci}`; gezien.add(bron);
-    let r = lijst.find(x => x.bron === bron);
-    if (!r) { r = { id: nieuwId(), n: '1', bron, foto: f.id }; lijst.push(r); }
-    Object.assign(r, tcVanOnderdeel(f, o, c));
-  }); }
-  for (let i = lijst.length - 1; i >= 0; i--) if (lijst[i].bron && !gezien.has(lijst[i].bron)) lijst.splice(i, 1);
-  // Ramen en andere delen van een kozijn staan direct onder hun kozijn, ook als je ze later tekende (zelfde volgorde als het rapport).
-  const volg = rapportVolgorde(lijst.map(r => ({ r, s }))).map(x => x.r);
-  if (volg.some((r, i) => r !== lijst[i])) lijst.splice(0, lijst.length, ...volg);
 }
 function tcLijst(s) {
   tcLijstBasis(s); for (const r of s.tc) if (r.bron) delete r.bron;   // alleen nog via "+ Naar Topcalc" of zelf typen
