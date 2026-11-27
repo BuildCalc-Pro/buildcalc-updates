@@ -410,6 +410,8 @@ table.form td[data-ncode] { cursor: pointer; text-decoration: underline dotted v
 .vkant { flex: none; padding: 5px 10px; border-radius: 999px; border: 1px solid var(--gold-dark); background: none; color: var(--a2); font-size: 13px; font-weight: 600; margin-right: 6px; }
 .vkant.on { background: color-mix(in srgb, var(--a2) 22%, transparent); border-color: var(--a2); }
 .viewer.loc #vmodes [data-m=bekijken], .viewer.loc #vgsj { display: none; }
+/* 2026-11-27: meten gaat in Maatpijlen. Knop Lijn en Lasermaten tonen verborgen (oude lijnen blijven staan en tellen mee). */
+#vmodes [data-m=lijn], #vref { display: none !important; }
 .gmed { position: fixed; inset: 0; z-index: 48; background: #000; display: flex; flex-direction: column; color: var(--text); }
 .gmbar { display: flex; align-items: center; gap: 8px; padding: 6px 8px; padding-top: max(6px, env(safe-area-inset-top)); background: #111; color: #fff; }
 .gmbar .t { flex: 1; font-weight: 700; font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -2586,8 +2588,10 @@ function mpNieuweLijnKlaar(x) {
 // Lasermeter: de meting komt op de gekozen referentie.
 function mpLaser(m) {
   if (!MP) return; const x = mpNu();
-  if (!x || x.soort !== MP_REF) return toast(`Gemeten: ${Math.round(m * 100)} cm. Kies eerst een referentielijn, dan komt de maat daarop.`);
-  x.cm = Math.round(m * 1000) / 10; bewaar(); mpTeken();
+  if (!x) return toast(`Gemeten: ${Math.round(m * 100)} cm. Tik eerst op een lijn, dan komt de maat daarop.`);
+  // Op een gewone lijn wordt het een lasermaat (◉): die lijn is dan ook referentie.
+  if (x.soort === MP_REF) x.cm = Math.round(m * 1000) / 10; else x.hand = Math.round(m * 100);
+  bewaar(); mpTeken();
 }
 const mpCm = v => { const n = getal(String(v ?? '').replace(/[^\d.,]/g, '')) ?? NaN; return n > 0 && n < 10000 ? Math.round(n * 10) / 10 : null; };
 // De balk onder de foto: één regel. Maat (aanpasbaar) · onderdeel · verwijderen · + Naar Topcalc.
@@ -3542,7 +3546,7 @@ function tekenUI2() {
     // De eerste keer: korte uitleg hoe je een maat zet. Weg zodra er ooit een lijn getekend is.
     if (ln) try { localStorage.setItem('bc_lijnUitleg', '1'); } catch (e) {}
     let gezien = true; try { gezien = !!localStorage.getItem('bc_lijnUitleg'); } catch (e) {}
-    if (!ln && !gezien) { st.className = 'status uitleg'; st.innerHTML = `<div class="vuitleg">Tik op Lijn en trek een lijn over het kozijn. ${V.p.simpel ? 'Tik daarna op de lijn om de maat in te vullen' : 'Spreek daarna de maat in'}.</div><div class="vst" hidden></div>`; }
+    if (!ln && !gezien) { st.className = 'status uitleg'; st.innerHTML = `<div class="vuitleg">Tik op Maatpijlen en trek een lijn over het kozijn.</div><div class="vst" hidden></div>`; }
     (st.querySelector('.vst') || st).textContent = `${ln} ${ln === 1 ? 'lijn' : 'lijnen'}${open ? ` (${open} open)` : ''} • ` + (Laser.status === 'verbonden' && open ? 'Druk op de lasermeter voor de volgende open lijn' : { bekijken: 'Tik op een lijn om de maat in te vullen',
       lijn: 'Sleep over de foto, of klik begin- en eindpunt: liggend = breedte, staand = hoogte', opmerking: 'Tik op de foto waar de opmerking moet komen' }[V.modus]);
     // Net een onderdeel gekozen (bijv. Deur): eerst de breedte, dan de hoogte. Of de maten zelf typen.
@@ -5345,7 +5349,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.27-11';
+const APP_VERSIE = '2026.11.27-12';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
@@ -7656,9 +7660,9 @@ function telPaneel(f, st) {
   $('#tvolg', st).onclick = () => telStart(o.in || null);
   $('#tklaar', st).onclick = () => { V.telNu = null; V.telDeel = null; tekenUI(); };
   if ($('#tdeel', st)) $('#tdeel', st).onclick = () => deelLijnStart(o.letter);
-  $('#tmenu', st).onclick = () => menu([['ruler', 'Vlak zonder stenen (4 hoeken)', () => vlakStart()],
+  // 2026-11-27: "Vlak zonder stenen" en "Hoeken opnieuw aantikken" weg (meten gaat in Maatpijlen: twee lijnen, Wat is het?).
+  $('#tmenu', st).onclick = () => menu([
     ...(f.ref?.L === VLAK_L ? [['close', 'Referentievlak weghalen', () => { delete f.ref; f.lijnen = f.lijnen.filter(l => !l.vlakRef); bewaar(); tekenUI(); }]] : []),
-    ['ruler', 'Hoeken opnieuw aantikken', () => { verwijderOnderdeel(f, o.letter); V.telNu = null; bewaar(); telStart(o.in || null); }],
     ['trash', `${o.in ? soort : o.letter} weghalen`, () => { const oud = { lijnen: JSON.parse(JSON.stringify(f.lijnen)), ond: JSON.parse(JSON.stringify(f.onderdelen || [])) };
       verwijderOnderdeel(f, o.letter); V.telNu = null; bewaar(); tekenUI();
       ongedaanToast(`${o.in ? soort : o.letter} weg.`, () => { f.lijnen = oud.lijnen; f.onderdelen = oud.ond; V.telNu = o.letter; bewaar(); tekenUI(); }); }]]);
@@ -7690,7 +7694,6 @@ function deelPaneel(f, st, o) {
     if (c) { o.codes = [{ code: c, bestek: b }]; bewaar(); tekenUI(); } };
   $('#tmenu', st).onclick = () => menu([
     ...(o.codes?.length ? [['close', 'Code weghalen (leeg in Topcalc)', () => { delete o.codes; bewaar(); tekenUI(); }]] : []),
-    ['ruler', 'Hoeken opnieuw aantikken', () => { verwijderOnderdeel(f, o.letter); V.telNu = null; bewaar(); telStart(o.in); }],
     ...(b?.hand || h?.hand ? [['ruler', `Maat weer uit ${o.in} rekenen`, () => { for (const l of [b, h]) if (l) delete l.hand; stenenHerreken(f); bewaar(); tekenUI(); }]] : []),
     ['trash', `${o.in ? soort : o.letter} weghalen`, () => { const oud = { lijnen: JSON.parse(JSON.stringify(f.lijnen)), ond: JSON.parse(JSON.stringify(f.onderdelen || [])) };
       verwijderOnderdeel(f, o.letter); V.telNu = null; bewaar(); tekenUI();
