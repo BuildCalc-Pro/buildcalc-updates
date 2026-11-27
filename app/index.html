@@ -2104,7 +2104,7 @@ function mpRasterVorm(r) {
 }
 // Raster met maten: breedte en hoogte zelf getypt, anders uit de bekende maten op de foto (lasermaten, referenties),
 // en mist er één richting, dan uit de vorm van de 4 hoeken. Zonder enige maat: null (dan rekent het raster niet).
-function mpRaster(s, fid) {
+function mpRaster(s, fid, diep = 0) {
   const r = mpRasterRuw(s, fid); if (!r) return null;
   let B = r.B > 0 ? r.B : null, H = r.H > 0 ? r.H : null; const bron = { B: B ? 'typ' : null, H: H ? 'typ' : null };
   if (!B || !H) {
@@ -2114,6 +2114,11 @@ function mpRaster(s, fid) {
         const d = Math.abs(k.r === 'h' ? q[0] - p[0] : q[1] - p[1]); if (d > .01 && isFinite(d)) { som[k.r][0] += k.cm; som[k.r][1] += d; } }
       if (!B && som.h[1]) { B = som.h[0] / som.h[1]; bron.B = 'ref'; }
       if (!H && som.v[1]) { H = som.v[0] / som.v[1]; bron.H = 'ref'; } }
+    // Nog niet compleet: een andere foto van dezelfde gevel met een raster en lasermaten geeft de maten (zelfde 4 gevelhoeken).
+    if ((!B || !H) && !diep) for (const [gi, g] of (s.fotos || []).entries()) { if (g.id === fid) continue;
+      const e = mpRaster(s, g.id, 1); if (!e || e.bron.B === 'vorm' || e.bron.H === 'vorm') continue;
+      if (!B && !H) { B = e.B; H = e.H; bron.B = bron.H = 'foto'; } else if (B) { H = B * e.H / e.B; bron.H = 'foto'; } else { B = H * e.B / e.H; bron.B = 'foto'; }
+      bron.foto = gi + 1; break; }
     const asp = (B && !H) || (H && !B) ? mpRasterVorm(r) : 0;
     if (B && !H) { H = B / asp; bron.H = 'vorm'; } else if (H && !B) { B = H * asp; bron.B = 'vorm'; }
   }
@@ -2279,11 +2284,14 @@ function mpSpiegelMaat(s, f, l) { const x = l?.mp && (s?.mp?.lijn || []).find(y 
 const mpBreed = () => window.innerWidth >= 900;
 function mpPaneel() {
   if (!MP) return; let z = MP.zij;
-  const aan = mpBreed() && typeof V !== 'undefined' && V?.s === MP.s && V.p?.simpel;
-  if (!MP.obs && typeof V !== 'undefined' && V?.s === MP.s && $('#vextra', V.el)) { MP.obs = new MutationObserver(() => mpPaneelKopie()); MP.obs.observe($('#vextra', V.el), { childList: true, subtree: true, characterData: true }); }
-  MP.el.style.right = aan ? '340px' : ''; if (z) z.hidden = !aan; if (!aan) return mpPaneelKopie();
   if (!$('#mpzijcss')) { const st = document.createElement('style'); st.id = 'mpzijcss'; st.textContent = `.mpzij { position: fixed; top: 0; right: 0; bottom: 0; width: 340px; z-index: 48; background: var(--surface); border-left: 1px solid var(--surface-high); overflow: auto; padding: 12px; box-sizing: border-box; color: var(--text); }
-.mpzij .mpzijkop { font-weight: 700; font-size: 15px; padding: 6px 4px 10px; } .mpzij .kantoorknop, .mpzij .vtools { display: none !important; }`; document.head.appendChild(st); }
+.mpzij .mpzijkop { font-weight: 700; font-size: 15px; padding: 6px 4px 10px; }
+.mpdeel { background: var(--surface); padding: 8px 12px; display: flex; flex-direction: column; gap: 6px; max-height: 45vh; overflow: auto; flex: none; }
+.mpdeel[hidden] { display: none; } .mpdeel .teller:has([data-dmin]) { display: none; } .mpdeel .teller { display: flex; align-items: center; gap: 6px; } .mpdeel .teller > span { flex: 1; } .mpzij .kantoorknop, .mpzij .vtools { display: none !important; }`; document.head.appendChild(st); }
+  const aan = mpBreed() && typeof V !== 'undefined' && V?.s === MP.s && V.p?.simpel;
+  if (!MP.obs && typeof V !== 'undefined' && V?.s === MP.s && $('#vextra', V.el)) { MP.obs = new MutationObserver(() => mpPaneelKopie()); MP.obs.observe($('#vextra', V.el), { childList: true, subtree: true, characterData: true });
+    MP.obs.observe($('#vstatus', V.el), { childList: true, subtree: true, characterData: true, attributes: true }); }
+  MP.el.style.right = aan ? '340px' : ''; if (z) z.hidden = !aan; if (!aan) return mpPaneelKopie();
   if (!z) { z = MP.zij = document.createElement('div'); z.className = 'mpzij'; document.body.appendChild(z);
     z.addEventListener('click', e => {
       const t = e.target.closest('[data-ond],[data-lsel],[data-ooknaar],button[id],button,[data-anderopen]'); if (!t || !z.contains(t) || t.tagName === 'INPUT') return;
@@ -2291,7 +2299,7 @@ function mpPaneel() {
       if (t.dataset.ooknaar != null) return mpLaad(+t.dataset.ooknaar);
       if (t.dataset.lsel) { const l = MP.f.lijnen.find(y => y.id === t.dataset.lsel); if (l?.mp) { MP.sel = l.mp; mpTeken(); return; } }
       if (t.dataset.ond) MP.ond = t.dataset.ond;
-      if (t.id === 'vplusond') MP.wacht = { x: null, voor: new Set(ondVan(MP.f).map(o => o.letter)) };
+      if (t.id === 'vplusond') return mpNieuwOnd(null);
       const a = [...t.attributes].find(a => a.name.startsWith('data-'));
       const doel = t.id ? $('#' + t.id, vx) : a ? vx.querySelector(`[${a.name}="${CSS.escape(a.value)}"]`) : null;
       if (doel) doel.click(); setTimeout(mpPaneelKopie, 30); });
@@ -2299,6 +2307,20 @@ function mpPaneel() {
       const doel = $('#vextra', V.el)?.querySelector(`[${a.name}="${CSS.escape(a.value)}"]`); if (doel) { doel.value = t.value; doel.dispatchEvent(new Event('input', { bubbles: true })); doel.dispatchEvent(new Event('change', { bubbles: true })); } setTimeout(mpPaneelKopie, 30); });
   }
   mpPaneelKopie();
+}
+// Na "Draairaam in A": het deelpaneel (soort, aantal gelijke, code, Volgend deel, Klaar) boven de balk, net als in de gewone weergave.
+function mpDeelKopie() {
+  if (!MP || typeof V === 'undefined' || !V || V.s !== MP.s) return;
+  const st = $('#vstatus', V.el), o = V.telNu && mpOndOp(MP.f, V.telNu), aan = !!(o?.in && st?.classList.contains('sel') && st.querySelector('#tvolg'));
+  let d = $('#mpdeel', MP.el);
+  if (!d) { d = document.createElement('div'); d.id = 'mpdeel'; d.className = 'mpdeel'; MP.el.insertBefore(d, $('#mpbalk', MP.el));
+    d.addEventListener('click', e => { const t = e.target.closest('button'); if (!t || t.tagName === 'INPUT') return;
+      const a = [...t.attributes].find(a => a.name.startsWith('data-')), sv = $('#vstatus', V.el);
+      const doel = t.id ? $('#' + t.id, sv) : a ? sv.querySelector(`[${a.name}="${CSS.escape(a.value)}"]`) : null; if (doel) doel.click(); setTimeout(mpDeelKopie, 30); });
+    d.addEventListener('change', e => { const t = e.target, a = t && [...t.attributes].find(a => a.name.startsWith('data-')); if (!a) return;
+      const doel = $('#vstatus', V.el).querySelector(`[${a.name}="${CSS.escape(a.value)}"]`); if (doel) { doel.value = t.value; doel.dispatchEvent(new Event('change', { bubbles: true })); } setTimeout(mpDeelKopie, 30); }); }
+  d.hidden = !aan; if (!aan) { if (d.dataset.h) { d.dataset.h = ''; d.innerHTML = ''; mpSchik(); } return; }
+  const h = st.innerHTML; if (d.dataset.h !== h) { d.dataset.h = h; d.innerHTML = h; mpSchik(); }
 }
 function mpPaneelKopie() {
   if (!MP || typeof V === 'undefined' || !V || V.s !== MP.s) return;
@@ -2309,6 +2331,7 @@ function mpPaneelKopie() {
   if (MP.wacht) { const nw = ondVan(MP.f).find(o => !MP.wacht.voor.has(o.letter));
     if (nw) { const x = MP.wacht.x; MP.wacht = null; MP.ond = nw.letter; if (x && MP.s.mp.lijn.includes(x)) x.ond = nw.letter; mpSpiegelAlles(MP.s, MP.f.id); bewaar(); mpTeken(); } }
   if (V.ond && V.ond !== MP.ondV) { MP.ondV = V.ond; if (mpOndOp(MP.f, V.ond)) MP.ond = V.ond; }
+  mpDeelKopie();
   if (!MP.bezigTerug && mpSpiegelAlles(MP.s, MP.f.id)) { MP.bezigTerug = true; bewaar(); mpTeken(); MP.bezigTerug = false; requestAnimationFrame(() => V && tekenUI()); return; }
   if (!MP.zij || MP.zij.hidden) return;
   const h = `<div class="mpzijkop">Onderdelen · ${esc(MP.s.naam)}</div>` + vx.innerHTML;
@@ -2320,6 +2343,8 @@ const mpPaarAan = () => typeof V !== 'undefined' && V?.s === MP?.s && V.p?.simpe
 // + Nieuw onderdeel vanuit de balk onder de foto: hetzelfde menu als + Onderdeel in de lijst.
 function mpNieuwOnd(x) {
   MP.wacht = { x, voor: new Set(ondVan(MP.f).map(o => o.letter)) };
+  const knop = typeof V !== 'undefined' && V?.s === MP.s && foto() === MP.f && $('#vplusond', V.el);
+  if (knop) return knop.click();
   menu(BESTEK_KNOPPEN.map(b => ['plus', `${b} · ${BESTEKKEN[b][0]}`, async () => {
     const f = MP.f, L = volgendeLetter(f), n = await vraagTekst(`${b}: onderdeel ${L}`, 'Naam', 'Bijv. Kozijn 1e verdieping of Voordeur', '', onderdeelNamen()); if (n == null || !MP) return;
     nieuwOnderdeel(f, L, n); const o = mpOndOp(f, L); o.bestek = b; if (o.codes?.length && !o.codes.every(c => codePastBij(String(c.code).split(' ')[0], b))) delete o.codes;
@@ -2424,7 +2449,7 @@ const mpNorm = (cx, cy) => { const r = $('#mpsurf', MP.el).getBoundingClientRect
 const mpKlem = v => Math.max(-.02, Math.min(1.02, v));
 // Weergave: gewone foto, of de gevel rechtgetrokken. Lijnen staan altijd in de punten van de echte foto;
 // alleen het tekenen en slepen gaat via de weergave. Zo klopt de maat in beide weergaven.
-const MP_RAND = .08;
+const MP_RAND = .2;
 function mpNaarBeeld(p) {
   const R = MP?.R; if (!R) return p;
   const g = mpOpGevel(R.r, p); return g ? [(g[0] + MP_RAND * R.r.B) * R.sc / R.OW, (g[1] + MP_RAND * R.r.H) * R.sc / R.OH] : [-9, -9];
@@ -2572,7 +2597,8 @@ function mpNieuweLijnKlaar(x) {
   mpZetSoort(s, x, MP.laatste);
   if (mpPaarAan()) {
     const f = MP.f, o = MP.ond && mpOndOp(f, MP.ond), vol = o && ['horizontaal', 'verticaal'].every(rr => f.lijnen.some(l => l.kozijn === o.letter && !l.ref && l.richting === rr));
-    if (V.telDeel || !o || vol || isWand(o)) {
+    if (o && isWand(o) && !V.telDeel) x.ond = o.letter;   // wand: breedte, hoogte (en hoogte 2) horen bij de wand
+    else if (V.telDeel || !o || vol) {
       x.paar = true; const y = [...mpLijnenOp(s, f.id)].reverse().find(y => y !== x && y.paar === true && !y.ond && mpRicht(y) !== r);
       if (y) { y.paar = x.paar = 'gevraagd'; mpSpiegelAlles(s, f.id); const a = f.lijnen.find(l => l.mp === y.id), b = f.lijnen.find(l => l.mp === x.id);
         if (a && b && lijnPaarPast(a, b)) { bewaar(); mpTeken(); setTimeout(() => { if (MP) lijnPaarVraag(f, a, b); }, 30); return; }
@@ -2782,7 +2808,7 @@ function mpRasterBalk(bk) {
   // Controle: bekende maten op deze foto (referentie, lasermaat, ingebrande pijl) gemeten met het raster.
   const bekend = mpBekend(s, f);
   const e = mpRaster(s, f.id), ctl = e && (r.B > 0 || r.H > 0) ? bekend.map(k => ({ ...k, nu: mpRasterCm(e, k.a, k.b, k.r) })).filter(k => k.nu && Math.abs(k.nu - k.cm) >= 1 && (k.r === 'h' ? r.B > 0 : r.H > 0)) : [];
-  const ph = (k, w) => e && e.bron[k] !== 'typ' ? `≈${Math.round(e[k])}` : w;
+  const ph = (k, w) => e && e.bron[k] !== 'typ' ? `≈${Math.round(e[k])}${e.bron[k] === 'foto' ? ` (foto ${e.bron.foto})` : ''}` : w;
   bk.innerHTML = `<span class="mprich">▦</span><span class="mpl">↔</span><input id="mprb" inputmode="decimal" autocomplete="off" value="${esc(r.B ?? '')}" placeholder="${ph('B', 'auto')}" title="Leeg = uit je lasermaten"><span class="mpl">↕</span><input id="mprh" inputmode="decimal" autocomplete="off" value="${esc(r.H ?? '')}" placeholder="${ph('H', 'auto')}" title="Leeg = uit je lasermaten">
     ${ctl.slice(0, 2).map((k, i) => `<button class="mpijk" data-ijk="${i}" title="Tik om het raster hierop te ijken">${k.r === 'h' ? '↔' : '↕'}${k.cm}→${Math.round(k.nu)}</button>`).join('')}
     <button class="iconbtn mpweg" id="mprweg" aria-label="Raster verwijderen" title="Raster verwijderen">${ic('trash')}</button>`;
@@ -5349,7 +5375,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.27-12';
+const APP_VERSIE = '2026.11.28-1';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
@@ -8661,7 +8687,8 @@ function bevestig(titel, tekst, { ja = 'Verwijderen', nee = 'Annuleren', klasse 
 }
 // Melding met een knop om het terug te draaien (15 seconden).
 function ongedaanToast(t, terug) {
-  const d = document.createElement('div'); d.className = 'toast'; d.style.cssText = 'display:flex;align-items:center;gap:10px';
+  document.querySelectorAll('.toast').forEach(x => x.remove());
+  const d = document.createElement('div'); d.className = 'toast ongedaan'; d.style.cssText = 'display:flex;align-items:center;gap:10px';
   d.innerHTML = `<span style="flex:1">${esc(t)}</span><button class="outline" style="flex:none;width:auto;padding:6px 12px">Ongedaan maken</button>`;
   // Kort zichtbaar (6 s) en weg zodra je ergens anders klikt, zodat je meteen verder kunt.
   document.body.appendChild(d); const weg = () => { clearTimeout(w); d.remove(); removeEventListener('pointerdown', buiten, true); };
@@ -8670,7 +8697,10 @@ function ongedaanToast(t, terug) {
   d.querySelector('button').onclick = () => { weg(); terug(); toast('Teruggezet.'); };
 }
 function toast(t, ms = 3500) {
+  // Een nieuwe melding vervangt de vorige (geen meldingen over elkaar). Een melding met Ongedaan maken blijft staan; dan komt deze erboven.
+  document.querySelectorAll('.toast:not(.ongedaan)').forEach(x => x.remove());
   const d = document.createElement('div'); d.className = 'toast'; d.textContent = t;
+  if (document.querySelector('.toast.ongedaan')) d.style.transform = 'translateY(-70px)';
   document.body.appendChild(d); setTimeout(() => d.remove(), ms);
 }
 
