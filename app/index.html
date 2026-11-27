@@ -433,6 +433,11 @@ table.form td[data-ncode] { cursor: pointer; text-decoration: underline dotted v
 .gmmaat { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 4px; padding: 8px; border-radius: 10px; background: color-mix(in srgb, var(--gold) 12%, transparent); border: 1px solid var(--gold-dark); }
 .gmmaat label { font-size: 14px; color: var(--muted); } .gmmaat input { font-size: 20px !important; }
 .gmmaat .gmknop.hoofd { flex: 1 1 10em; }
+.mpwaarschuw { font-size: 14px; line-height: 1.4; color: #FFB74D; background: rgba(255,152,0,.12); border: 1px solid #FFA726; border-radius: 10px; padding: 8px 10px; margin-bottom: 8px; }
+.mpwaarschuw b { color: #FFD180; }
+.mpkop { font-weight: 700; font-size: 16px; margin-bottom: 6px; }
+.gmknop.mpref { border-color: #57E0D2; color: #57E0D2; }
+.mped .gmbar .iconbtn:disabled { opacity: .3; }
 .gmchips { display: flex; gap: 6px; overflow-x: auto; margin-bottom: 8px; padding-bottom: 2px; }
 .gmfijn span { font-size: 13px; color: var(--muted); } .gmfijn small { font-size: 12px; color: var(--muted); }
 .gmfijn button:disabled { opacity: .35; }
@@ -2001,6 +2006,334 @@ function gmPaneel() {
   });
 }
 
+// ---------- Maatpijlen: referentiepijlen + gewone maatpijlen per gevelmap ----------
+// Alles hoort bij één gevelmap (s.mp). Per foto:
+//   Referentiepijl ↔ of ↕ op iets wat je gelaserd hebt, met je lasermaat (cm).
+//   Onderdeel (kozijn, deur, draairaam): een breedtepijl ↔ en een hoogtepijl ↕.
+// Breedte = lengte breedtepijl / lengte ↔-referentie × lasermaat. Hoogte net zo met de ↕-referentie. Nooit omgedraaid:
+// de breedtepijl rekent altijd met de ↔-schaal, de hoogtepijl altijd met de ↕-schaal.
+// Twee of meer referenties in één richting op verschillende hoogte: de schaal loopt mee met de hoogte (foto schuin omhoog).
+// Alleen referenties op dezelfde foto tellen: een detailfoto heeft een andere schaal en krijgt eerst een eigen referentie.
+// Geen stenen tellen, geen 4-punts vakken. Elke maat is zelf te overschrijven. Naar Topcalc alleen met "+ Naar Topcalc".
+const MP_SOORTEN = ['Kozijn', 'Deur', 'Draairaam'];
+const mpVan = s => { if (!s.mp || typeof s.mp !== 'object') s.mp = {}; s.mp.ref ??= []; s.mp.ond ??= []; return s.mp; };
+const mpRefsOp = (s, fid, r) => (s?.mp?.ref || []).filter(x => x.fotoId === fid && (!r || x.r === r));
+const mpOndOp = (s, fid) => (s?.mp?.ond || []).filter(x => x.fotoId === fid);
+// Lengte van een pijl in echte fotopixels (punten staan als 0-1 op de foto).
+const mpPx = (a, b, iw, ih) => Math.hypot((b[0] - a[0]) * iw, (b[1] - a[1]) * ih);
+const mpMidY = p => (p.a[1] + p.b[1]) / 2;
+// Pixels per cm in richting r op hoogte y van deze foto, uit de referentiepijlen op deze foto.
+function mpSchaal(s, fid, r, y) {
+  const refs = mpRefsOp(s, fid, r).map(x => ({ y: mpMidY(x), k: mpPx(x.a, x.b, x.iw, x.ih) / x.cm, w: mpPx(x.a, x.b, x.iw, x.ih) }))
+    .filter(x => x.k > 0 && isFinite(x.k) && x.w >= 8);
+  if (!refs.length) return null;
+  const ks = refs.map(x => x.k), lo = Math.min(...ks), hi = Math.max(...ks);
+  const ys = refs.map(x => x.y), span = Math.max(...ys) - Math.min(...ys);
+  if (refs.length === 1 || span < .05) {   // één referentie (of allemaal op dezelfde hoogte): vaste schaal
+    const W = refs.reduce((t, x) => t + x.w, 0); return { k: refs.reduce((t, x) => t + x.k * x.w, 0) / W, n: refs.length };
+  }
+  // Rechte lijn door de referenties (pixels per cm tegen de hoogte op de foto), gewogen naar lengte.
+  const W = refs.reduce((t, x) => t + x.w, 0), my = refs.reduce((t, x) => t + x.y * x.w, 0) / W, mk = refs.reduce((t, x) => t + x.k * x.w, 0) / W;
+  const sxy = refs.reduce((t, x) => t + x.w * (x.y - my) * (x.k - mk), 0), sxx = refs.reduce((t, x) => t + x.w * (x.y - my) ** 2, 0);
+  const k = Math.max(lo * .75, Math.min(hi * 1.33, mk + (sxx ? sxy / sxx : 0) * (y - my)));
+  return { k, n: refs.length, mee: true };
+}
+// Berekende maat (cm) van een pijl van een onderdeel. r = 'h' (breedte) of 'v' (hoogte).
+function mpReken(s, o, r) {
+  const p = r === 'h' ? o.b : o.h, sc = mpSchaal(s, o.fotoId, r, mpMidY(p)); if (!sc) return null;
+  const cm = mpPx(p.a, p.b, o.iw, o.ih) / sc.k;
+  return isFinite(cm) && cm > 0 && cm < 5000 ? Math.round(cm) : null;
+}
+// Maat die telt: zelf getypt gaat voor, anders berekend.
+function mpHerreken(s, o) {
+  o.calcB = mpReken(s, o, 'h'); o.calcH = mpReken(s, o, 'v');
+  o.B = o.handB ?? o.calcB; o.H = o.handH ?? o.calcH;
+}
+const mpTcRij = (s, o) => o.tc ? (s.tc || []).find(r => r.id === o.tc) || null : null;
+function mpNaarTopcalc(s, o) {
+  const lijst = tcLijst(s); let r = mpTcRij(s, o);
+  if (!r) { r = { id: nieuwId(), code: '', type: '', oms: '', b: '', h: '', st: '', n: '1', bestek: isRdo(s) ? 'RDO' : 'ONB' }; lijst.push(r); o.tc = r.id; }
+  r.oms = o.naam || o.soort; r.b = String(o.B); r.h = String(o.H); r.mp = o.id; bewaar(); return r;
+}
+const mpGeenRef = (s, fid) => ({ h: !mpRefsOp(s, fid, 'h').length, v: !mpRefsOp(s, fid, 'v').length });
+// Fotonummers in deze map met een referentie (voor de waarschuwing op een detailfoto).
+const mpRefFotos = (s, behalve) => [...new Set((s.mp?.ref || []).map(x => x.fotoId))].filter(id => id !== behalve)
+  .map(id => (s.fotos || []).findIndex(f => f.id === id) + 1).filter(n => n > 0).sort((a, b) => a - b);
+
+// Pijl met twee punten als svg. kl = kleur, tekst in het midden (zoals een maatpijl op tekening).
+function mpPijlSvg(p, W, H, kl, tekst, zs = 1, dik = 2.2, extra = '') {
+  const x1 = p.a[0] * W, y1 = p.a[1] * H, x2 = p.b[0] * W, y2 = p.b[1] * H, L = Math.hypot(x2 - x1, y2 - y1) || 1;
+  const ux = (x2 - x1) / L, uy = (y2 - y1) / L, k = Math.min(12 / zs, L / 3), b = k * .55;
+  const kop = (x, y, d) => `<path d="M${x},${y} L${x + d * (ux * k) - uy * b},${y + d * (uy * k) + ux * b} L${x + d * (ux * k) + uy * b},${y + d * (uy * k) - ux * b} Z" fill="${kl}" stroke="#000" stroke-width="${.8 / zs}"/>`;
+  const mx = (x1 + x2) / 2, my = (y1 + y2) / 2; let hoek = Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI; if (hoek > 90) hoek -= 180; if (hoek < -90) hoek += 180;
+  const fs = 14 / zs;
+  return `<g ${extra}><line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#000" stroke-width="${(dik + 2) / zs}" opacity=".55"/>
+    <line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${kl}" stroke-width="${dik / zs}"/>${kop(x1, y1, 1)}${kop(x2, y2, -1)}
+    ${tekst ? `<text x="${mx}" y="${my}" transform="rotate(${hoek} ${mx} ${my})" dy="${-6 / zs}" text-anchor="middle" fill="${kl}" stroke="#000" stroke-width="${3.2 / zs}" paint-order="stroke" font-size="${fs}" font-weight="700" pointer-events="none">${esc(tekst)}</text>` : ''}</g>`;
+}
+const MP_REF_KL = '#57E0D2', MP_KL = '#FFD54F', MP_NU = '#FF8A50';
+const mpRefTekst = x => `ref ${x.cm ? x.cm + ' cm' : '? cm'}`;
+const mpMaatTekst = (o, r) => { const v = r === 'h' ? o.B : o.H; return `${r === 'h' ? 'B' : 'H'} ${v != null ? v : '?'}`; };
+// In de gewone fotoweergave: alle pijlen van deze foto, alleen om te zien.
+function mpSvg(s, f, W, H) {
+  if (!s?.mp || !f) return '';
+  return mpRefsOp(s, f.id).map(x => mpPijlSvg(x, W, H, MP_REF_KL, mpRefTekst(x), 1, 2, 'pointer-events="none"')).join('') +
+    mpOndOp(s, f.id).map(o => mpPijlSvg(o.b, W, H, MP_KL, mpMaatTekst(o, 'h'), 1, 2, 'pointer-events="none"') + mpPijlSvg(o.h, W, H, MP_KL, mpMaatTekst(o, 'v'), 1, 2, 'pointer-events="none"')).join('');
+}
+
+let MP = null;
+async function mpOpen(p, s, fi) {
+  if (!s.fotos[fi]) return;
+  mpVan(s);
+  const el = document.createElement('div'); el.className = 'gmed mped';
+  el.innerHTML = `<div class="gmbar"><button class="iconbtn" id="mpsluit" aria-label="Sluiten">${ic('close')}</button><div class="t" id="mptitel"></div>
+      <button class="iconbtn" id="mpvorige" aria-label="Vorige foto">${ic('left')}</button><button class="iconbtn" id="mpvolgende" aria-label="Volgende foto">${ic('right')}</button></div>
+    <div class="gmstage" id="mpstage"><div class="gmsurf" id="mpsurf"><img id="mpimg" alt="" draggable="false"><svg id="mpsvg"></svg></div>
+      <canvas class="gmloep" id="mploep" width="170" height="170" hidden></canvas>
+      <div class="gmzoom"><button data-z="1" aria-label="Inzoomen">+</button><button data-z="-1" aria-label="Uitzoomen">−</button><button data-z="0" aria-label="Passend">⤢</button></div></div>
+    <div class="gmpaneel" id="mppaneel"></div>`;
+  document.body.appendChild(el);
+  MP = { p, s, fi, f: null, el, iw: 0, ih: 0, w: 0, h: 0, z: { s: 1, tx: 0, ty: 0 }, sel: null, laserWas: Laser.opMeting };
+  Laser.opMeting = mpLaser;
+  $('#mpsluit', el).onclick = mpSluit;
+  $('#mpvorige', el).onclick = () => mpLaad(MP.fi - 1);
+  $('#mpvolgende', el).onclick = () => mpLaad(MP.fi + 1);
+  el.querySelectorAll('[data-z]').forEach(b => b.onclick = () => { const z = +b.dataset.z; if (!z) mpZoom(1, null, true); else mpZoom(MP.z.s * (z > 0 ? 1.6 : 1 / 1.6)); });
+  window.addEventListener('resize', mpSchik);
+  mpGebaren($('#mpstage', el));
+  await mpLaad(fi);
+}
+async function mpLaad(fi) {
+  const s = MP.s; if (fi < 0 || fi >= s.fotos.length) return;
+  const f = s.fotos[fi], img = $('#mpimg', MP.el), u = await fotoUrl(f.id);
+  if (!u) { toast('Foto ontbreekt.'); return; }
+  Object.assign(MP, { f, fi, iw: 0, sel: null, z: { s: 1, tx: 0, ty: 0 }, stH: null }); $('#mpsvg', MP.el).innerHTML = '';
+  img.onload = () => { if (!MP || MP.f !== f) return; MP.iw = img.naturalWidth; MP.ih = img.naturalHeight;
+    for (const o of mpOndOp(s, f.id)) mpHerreken(s, o);
+    mpSchik();
+    // Detailfoto zonder eigen referentie, terwijl een andere foto van deze gevel er wel een heeft: meteen zeggen.
+    const elders = mpRefFotos(s, f.id);
+    if (!mpRefsOp(s, f.id).length && elders.length) toast(`Let op: deze foto heeft een andere schaal dan foto ${elders.join(', ')}. Zet hier eerst een referentiepijl met een gemeten maat.`, 6000);
+  };
+  img.src = u;
+}
+function mpSluit() {
+  window.removeEventListener('resize', mpSchik);
+  Laser.opMeting = MP?.laserWas ?? null;
+  MP?.el.remove(); MP = null;
+  if (V) { tekenUI(); tekenLijnen(); } else render();
+}
+function mpSchik() {
+  if (!MP?.iw) return;
+  const st = $('#mpstage', MP.el).getBoundingClientRect(), rand = 14;
+  const k = Math.min((st.width - 2 * rand) / MP.iw, (st.height - 2 * rand) / MP.ih);
+  MP.w = MP.iw * k; MP.h = MP.ih * k; MP.ox = (st.width - MP.w) / 2; MP.oy = (st.height - MP.h) / 2;
+  Object.assign($('#mpsurf', MP.el).style, { width: MP.w + 'px', height: MP.h + 'px' });
+  mpZoom(MP.z.s, null, MP.z.s === 1);
+}
+function mpZoom(sc, rond = null, reset = false) {
+  if (!MP?.w) return;
+  const st = $('#mpstage', MP.el).getBoundingClientRect(), z = MP.z, oud = z.s;
+  sc = Math.max(1, Math.min(12, sc));
+  if (reset || sc === 1) { z.s = 1; z.tx = MP.ox; z.ty = MP.oy; }
+  else { const [cx, cy] = rond || [st.width / 2, st.height / 2]; z.tx = cx - (cx - z.tx) * sc / oud; z.ty = cy - (cy - z.ty) * sc / oud; z.s = sc; }
+  $('#mpsurf', MP.el).style.transform = `translate(${z.tx}px,${z.ty}px) scale(${z.s})`;
+  mpTeken();
+}
+const mpNorm = (cx, cy) => { const r = $('#mpsurf', MP.el).getBoundingClientRect(); return [(cx - r.left) / r.width, (cy - r.top) / r.height]; };
+const mpKlem = v => Math.max(-.02, Math.min(1.02, v));
+// Alle pijlen op deze foto als lijst: { id, p (pijl), kl, tekst, sel }.
+function mpPijlen() {
+  const { s, f } = MP, uit = [];
+  for (const x of mpRefsOp(s, f.id)) uit.push({ id: x.id, wat: x.id, p: x, kl: MP_REF_KL, tekst: mpRefTekst(x) });
+  for (const o of mpOndOp(s, f.id)) for (const r of ['h', 'v']) uit.push({ id: o.id + ':' + r, wat: o.id, p: r === 'h' ? o.b : o.h, kl: MP_KL, tekst: mpMaatTekst(o, r) });
+  return uit;
+}
+function mpTeken() {
+  if (!MP?.w) return;
+  const W = MP.w, H = MP.h, zs = MP.z.s, svg = $('#mpsvg', MP.el);
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`); svg.setAttribute('width', W); svg.setAttribute('height', H);
+  const hit = 24 / zs, rh = 8 / zs;
+  svg.innerHTML = mpPijlen().sort((a, b) => (a.wat === MP.sel) - (b.wat === MP.sel)).map(v => {
+    const nu = v.wat === MP.sel, x1 = v.p.a[0] * W, y1 = v.p.a[1] * H, x2 = v.p.b[0] * W, y2 = v.p.b[1] * H;
+    return `<g>${mpPijlSvg(v.p, W, H, nu ? MP_NU : v.kl, v.tekst, zs, nu ? 2.6 : 2)}
+      <line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="rgba(0,0,0,0)" stroke-width="${hit}" data-romp="${v.id}"/>
+      ${nu ? [[x1, y1], [x2, y2]].map(([x, y], i) => `<circle cx="${x}" cy="${y}" r="${hit}" fill="rgba(0,0,0,0)" data-punt="${i}" data-van="${v.id}"/><circle cx="${x}" cy="${y}" r="${rh}" fill="rgba(0,0,0,.25)" stroke="${MP_NU}" stroke-width="${2 / zs}" pointer-events="none"/>`).join('') : ''}</g>`;
+  }).join('');
+  mpPaneel();
+  const sh = Math.round($('#mpstage', MP.el).getBoundingClientRect().height);
+  if (sh !== MP.stH && !MP.sleept) { MP.stH = sh; if (MP.z.s === 1) mpSchik(); }
+}
+function mpLoep(pt, v, clientX) {
+  const c = $('#mploep', MP.el), img = $('#mpimg', MP.el); if (!pt) { c.hidden = true; return; }
+  const st = $('#mpstage', MP.el).getBoundingClientRect();
+  c.hidden = false; c.style.left = (clientX - st.left < st.width / 2 ? st.width - 182 : 12) + 'px';
+  const g = c.getContext('2d'), S = 170, schaal = Math.max(5, MP.w * MP.z.s / MP.iw * 3), bron = S / schaal, cx = pt[0] * MP.iw, cy = pt[1] * MP.ih;
+  g.imageSmoothingEnabled = false; g.fillStyle = '#000'; g.fillRect(0, 0, S, S);
+  try { g.drawImage(img, cx - bron / 2, cy - bron / 2, bron, bron, 0, 0, S, S); } catch (e) {}
+  if (v) { g.strokeStyle = MP_NU; g.lineWidth = 1.5; g.beginPath();
+    [v.a, v.b].forEach(([x, y], i) => { const X = (x * MP.iw - cx) * schaal + S / 2, Y = (y * MP.ih - cy) * schaal + S / 2; i ? g.lineTo(X, Y) : g.moveTo(X, Y); }); g.stroke(); }
+  g.strokeStyle = '#fff'; g.lineWidth = 1; g.beginPath();
+  for (const [a, b, c2, d] of [[0, -18, 0, -4], [0, 4, 0, 18], [-18, 0, -4, 0], [4, 0, 18, 0]]) { g.moveTo(S / 2 + a, S / 2 + b); g.lineTo(S / 2 + c2, S / 2 + d); }
+  g.stroke(); g.fillStyle = MP_NU; g.beginPath(); g.arc(S / 2, S / 2, 2, 0, 7); g.fill();
+}
+// Bijna recht? Dan precies recht (binnen 3 graden, in echte pixels). Zo blijft een breedtepijl liggend.
+function mpRecht(p, i) {
+  const o = i ? p.a : p.b, m = i ? p.b : p.a, dx = (m[0] - o[0]) * MP.iw, dy = (m[1] - o[1]) * MP.ih, hoek = Math.abs(Math.atan2(dy, dx) * 180 / Math.PI);
+  if (Math.min(hoek, 180 - hoek) < 3) m[1] = o[1]; else if (Math.abs(hoek - 90) < 3) m[0] = o[0];
+}
+function mpZoekPijl(id) {
+  const [oid, r] = id.split(':'), s = MP.s;
+  if (r) { const o = s.mp.ond.find(x => x.id === oid); return o ? (r === 'h' ? o.b : o.h) : null; }
+  return s.mp.ref.find(x => x.id === oid) || null;
+}
+function mpNaSlepen(klaar) {
+  for (const o of mpOndOp(MP.s, MP.f.id)) mpHerreken(MP.s, o);
+  if (klaar) bewaar(); mpTeken();
+}
+function mpGebaren(stage) {
+  const vingers = new Map(); let sleep = null, knijp = null;
+  stage.addEventListener('wheel', e => { if (!MP) return; e.preventDefault(); const st = stage.getBoundingClientRect(); mpZoom(MP.z.s * (e.deltaY < 0 ? 1.2 : 1 / 1.2), [e.clientX - st.left, e.clientY - st.top]); }, { passive: false });
+  stage.addEventListener('pointerdown', e => {
+    if (!MP?.w || e.target.closest('.gmzoom')) return;
+    vingers.set(e.pointerId, [e.clientX, e.clientY]);
+    try { stage.setPointerCapture(e.pointerId); } catch (x) {}
+    if (vingers.size === 2) { const [a, b] = [...vingers.values()]; knijp = { d: Math.hypot(b[0] - a[0], b[1] - a[1]), s: MP.z.s }; sleep = null; $('#mploep', MP.el).hidden = true; return; }
+    const punt = e.target.closest('[data-punt]'), romp = e.target.closest('[data-romp]');
+    if (punt) { const p = mpZoekPijl(punt.dataset.van), i = +punt.dataset.punt; sleep = { soort: 'punt', p, i, start: mpNorm(e.clientX, e.clientY), van: [...(i ? p.b : p.a)] }; mpLoep(i ? p.b : p.a, p, e.clientX); }
+    else if (romp) { const id = romp.dataset.romp, wat = id.split(':')[0];
+      if (MP.sel !== wat) { MP.sel = wat; mpTeken(); sleep = { soort: 'tik' }; }
+      else { const p = mpZoekPijl(id); sleep = { soort: 'pijl', p, start: mpNorm(e.clientX, e.clientY), a: [...p.a], b: [...p.b] }; } }
+    else sleep = { soort: 'foto', x: e.clientX, y: e.clientY, tx: MP.z.tx, ty: MP.z.ty };
+    e.preventDefault();
+  });
+  stage.addEventListener('pointermove', e => {
+    if (!MP || !vingers.has(e.pointerId)) return;
+    vingers.set(e.pointerId, [e.clientX, e.clientY]);
+    if (knijp && vingers.size === 2) { const [a, b] = [...vingers.values()], st = stage.getBoundingClientRect();
+      mpZoom(knijp.s * Math.hypot(b[0] - a[0], b[1] - a[1]) / knijp.d, [(a[0] + b[0]) / 2 - st.left, (a[1] + b[1]) / 2 - st.top]); return; }
+    if (!sleep || sleep.soort === 'tik') return;
+    if (sleep.soort === 'foto') { if (Math.hypot(e.clientX - sleep.x, e.clientY - sleep.y) > 6) sleep.bewogen = true; if (MP.z.s === 1) return;
+      MP.z.tx = sleep.tx + e.clientX - sleep.x; MP.z.ty = sleep.ty + e.clientY - sleep.y;
+      $('#mpsurf', MP.el).style.transform = `translate(${MP.z.tx}px,${MP.z.ty}px) scale(${MP.z.s})`; return; }
+    const nu = mpNorm(e.clientX, e.clientY), dx = nu[0] - sleep.start[0], dy = nu[1] - sleep.start[1];
+    if (sleep.soort === 'punt') { const q = sleep.i ? sleep.p.b : sleep.p.a; q[0] = mpKlem(sleep.van[0] + dx); q[1] = mpKlem(sleep.van[1] + dy); mpRecht(sleep.p, sleep.i); mpLoep(q, sleep.p, e.clientX); }
+    else { sleep.p.a = [mpKlem(sleep.a[0] + dx), mpKlem(sleep.a[1] + dy)]; sleep.p.b = [mpKlem(sleep.b[0] + dx), mpKlem(sleep.b[1] + dy)]; }
+    sleep.bewogen = true; MP.sleept = true; mpNaSlepen(false);
+  });
+  const los = e => {
+    if (!vingers.has(e.pointerId)) return; vingers.delete(e.pointerId);
+    if (vingers.size < 2) knijp = null;
+    if (MP) { MP.sleept = false; $('#mploep', MP.el).hidden = true;
+      if (sleep && (sleep.soort === 'punt' || sleep.soort === 'pijl') && sleep.bewogen) mpNaSlepen(true);
+      // Tik op een lege plek van de foto: niets meer gekozen.
+      if (sleep?.soort === 'foto' && !sleep.bewogen && !vingers.size && MP.sel) { MP.sel = null; mpTeken(); } }
+    if (!vingers.size) sleep = null;
+  };
+  stage.addEventListener('pointerup', los); stage.addEventListener('pointercancel', los);
+}
+// Nieuwe pijl midden in wat je nu ziet. Lengte ongeveer een vijfde van het beeld.
+function mpMidden() {
+  const st = $('#mpstage', MP.el).getBoundingClientRect(), [cx, cy] = mpNorm(st.left + st.width / 2, st.top + st.height * .45);
+  return { cx: Math.max(.1, Math.min(.9, cx)), cy: Math.max(.1, Math.min(.9, cy)), dx: .1 / MP.z.s, dy: .1 / MP.z.s * (MP.w / MP.h) };
+}
+function mpNieuweRef(r) {
+  const s = MP.s, { cx, cy, dx, dy } = mpMidden();
+  const x = { id: nieuwId(), fotoId: MP.f.id, iw: MP.iw, ih: MP.ih, r, cm: null, naam: '',
+    a: r === 'h' ? [cx - dx, cy] : [cx, cy - dy], b: r === 'h' ? [cx + dx, cy] : [cx, cy + dy] };
+  s.mp.ref.push(x); MP.sel = x.id; bewaar(); mpTeken();
+  setTimeout(() => { const i = $('#mprcm', MP?.el); if (i) i.focus(); }, 50);
+}
+function mpNieuwOnd(soort) {
+  const s = MP.s, { cx, cy, dx, dy } = mpMidden(), n = s.mp.ond.filter(x => x.soort === soort).length + 1;
+  const o = { id: nieuwId(), fotoId: MP.f.id, iw: MP.iw, ih: MP.ih, soort, naam: `${soort} ${n}`,
+    b: { a: [cx - dx, cy + dy * 1.05], b: [cx + dx, cy + dy * 1.05] }, h: { a: [cx - dx * 1.1, cy - dy], b: [cx - dx * 1.1, cy + dy] } };
+  mpHerreken(s, o); s.mp.ond.push(o); MP.sel = o.id; bewaar(); mpTeken();
+}
+// Lasermeter: de meting komt op de gekozen referentiepijl.
+function mpLaser(m) {
+  if (!MP) return;
+  const x = MP.s.mp.ref.find(r => r.id === MP.sel);
+  if (!x) return toast(`Gemeten: ${Math.round(m * 100)} cm. Kies eerst een referentiepijl (of maak er een), dan komt de maat daarop.`);
+  x.cm = Math.round(m * 1000) / 10; mpNaSlepen(true); toast(`Referentie ${x.cm} cm.`);
+}
+const mpCm = v => { const n = getal(String(v ?? '').replace(/[^\d.,]/g, '')) ?? NaN; return n > 0 && n < 10000 ? Math.round(n * 10) / 10 : null; };
+const mpInp = (id, v, ph = 'cm') => `<input id="${id}" inputmode="decimal" autocomplete="off" value="${esc(v ?? '')}" placeholder="${ph}" style="width:4.8em;text-align:center;padding:8px 6px;font:inherit;font-size:19px;font-weight:700;color:var(--text);background:var(--surface-high);border:1px solid var(--gold-dark);border-radius:8px">`;
+const mpKnopje = (id, t) => `<button class="ghost" id="${id}" style="color:var(--gold);padding:0;font-size:13px;text-decoration:underline">${t}</button>`;
+function mpPaneel() {
+  const pn = $('#mppaneel', MP.el), { s, f, fi } = MP;
+  const actief = document.activeElement?.id, waarde = actief && pn.contains(document.activeElement) ? document.activeElement.value : null;
+  $('#mptitel', MP.el).textContent = `Maatpijlen · ${s.naam} · foto ${fi + 1}/${s.fotos.length}`;
+  $('#mpvorige', MP.el).disabled = fi <= 0; $('#mpvolgende', MP.el).disabled = fi >= s.fotos.length - 1;
+  const refs = mpRefsOp(s, f.id), onds = mpOndOp(s, f.id), geen = mpGeenRef(s, f.id), elders = mpRefFotos(s, f.id);
+  const ref = s.mp.ref.find(x => x.id === MP.sel && x.fotoId === f.id), o = s.mp.ond.find(x => x.id === MP.sel && x.fotoId === f.id);
+  const chips = `<div class="gmchips">${refs.map(x => `<button class="ondchip${x.id === MP.sel ? ' on' : ''}" data-mpsel="${x.id}" style="border-color:${MP_REF_KL}">${x.r === 'h' ? '↔' : '↕'} <b style="color:${MP_REF_KL}">${x.cm ?? '?'}</b></button>`).join('')}${onds.map(x => `<button class="ondchip${x.id === MP.sel ? ' on' : ''}" data-mpsel="${x.id}">${esc(x.naam || x.soort)} <b>${x.B ?? '?'}×${x.H ?? '?'}</b>${mpTcRij(s, x) ? ' ✓' : ''}</button>`).join('')}</div>`;
+  const nieuw = `<div class="gmrij"><button class="gmknop mpref" data-mpref="h">+ ↔ Referentie</button><button class="gmknop mpref" data-mpref="v">+ ↕ Referentie</button>${MP_SOORTEN.map(x => `<button class="gmknop" data-mpond="${x}">+ ${x}</button>`).join('')}</div>`;
+  // Waarschuwing: geen referentie op deze foto (detailfoto met een andere schaal).
+  const waarschuw = geen.h && geen.v ? `<div class="mpwaarschuw">⚠ Deze foto heeft nog geen referentiepijl, dus er komt nog geen maat uit. ${elders.length ? `De referentie op foto ${elders.join(', ')} geldt hier niet: deze foto heeft een andere schaal. ` : ''}Zet eerst een <b>↔ referentie</b> en een <b>↕ referentie</b> op iets wat je gemeten hebt en vul de lasermaat in.</div>`
+    : geen.h || geen.v ? `<div class="mpwaarschuw">⚠ Nog geen ${geen.h ? '↔ referentie: breedtes' : '↕ referentie: hoogtes'} op deze foto kunnen nog niet berekend worden. Zet een ${geen.h ? '↔' : '↕'} referentiepijl op iets wat je gemeten hebt.</div>` : '';
+  let h = '';
+  if (ref) {
+    h = `<div class="mpkop" style="color:${MP_REF_KL}">${ref.r === 'h' ? '↔ Breedte-referentie' : '↕ Hoogte-referentie'}</div>
+      <div class="gmrij"><label>Lasermaat</label>${mpInp('mprcm', ref.cm)}<span>cm</span><input id="mprnaam" placeholder="Wat, bijv. pui beneden" value="${esc(ref.naam || '')}" autocomplete="off" style="flex:1;min-width:8em;padding:8px;font:inherit;color:var(--text);background:var(--surface-high);border:1px solid var(--surface-high);border-radius:8px"></div>
+      <div class="gmklein">Sleep de pijlpunten precies op de randen van wat je gemeten hebt (zoom in, het vergrootglas helpt). Laser verbonden? Druk op de meetknop, dan komt de maat hier.</div>
+      <div class="gmrij"><button class="gmknop hoofd" id="mpklaar">Klaar</button><button class="gmknop" id="mpweg" style="color:var(--danger)">Verwijderen</button></div>`;
+  } else if (o) {
+    const rij = mpTcRij(s, o), zelfde = rij && rij.b === String(o.B) && rij.h === String(o.H) && rij.oms === (o.naam || o.soort);
+    const uitleg = r => { const c = r === 'h' ? o.calcB : o.calcH, hand = r === 'h' ? o.handB : o.handH, nm = r === 'h' ? 'breedte' : 'hoogte';
+      if (hand != null) return `${nm} zelf ingevuld${c != null ? ` (pijl zegt ${c}) · ${mpKnopje('mpterug' + r, 'terug naar pijl')}` : ''}`;
+      if (c == null) return `${nm}: ${geen[r] ? `geen ${r === 'h' ? '↔' : '↕'} referentie op deze foto` : 'kan niet rekenen'}`;
+      const sc = mpSchaal(s, f.id, r, mpMidY(r === 'h' ? o.b : o.h));
+      return `${nm} uit ${sc.n === 1 ? `de ${r === 'h' ? '↔' : '↕'} referentie` : `${sc.n} ${r === 'h' ? '↔' : '↕'} referenties${sc.mee ? ', meegeschaald met de hoogte' : ''}`}`; };
+    h = `<div class="gmrij">${MP_SOORTEN.map(x => `<button class="ondchip${o.soort === x ? ' on' : ''}" data-mpsoort="${x}">${x}</button>`).join('')}<input id="mpnaam" placeholder="Naam" value="${esc(o.naam || '')}" autocomplete="off" style="flex:1;min-width:7em;padding:7px;font:inherit;color:var(--text);background:var(--surface-high);border:1px solid var(--surface-high);border-radius:8px"></div>
+      <div class="gmmaat"><label>Breedte</label>${mpInp('mpb', o.B)}<span>×</span><label>Hoogte</label>${mpInp('mph', o.H)}<span>cm</span>
+        <button class="gmknop hoofd" id="mptc">${!rij ? '+ Naar Topcalc' : zelfde ? '✓ In Topcalc' : '↻ Topcalc bijwerken'}</button></div>
+      <div class="gmklein">${uitleg('h')} · ${uitleg('v')}</div>
+      <div class="gmklein">Sleep de pijlpunten van de breedtepijl en de hoogtepijl op de buitenkant. Typ een maat om hem zelf vast te zetten.</div>
+      <div class="gmrij"><button class="gmknop" id="mpklaar">Klaar</button><button class="gmknop" id="mpweg" style="color:var(--danger)">Verwijderen</button></div>`;
+  } else {
+    h = `${!refs.length && !onds.length ? `<div class="gmuitleg"><b>1.</b> Zet een <b>↔ referentie</b> en een <b>↕ referentie</b> op iets wat je beneden gelaserd hebt en vul de lasermaat in. <b>2.</b> Tik <b>+ Kozijn</b>, <b>+ Deur</b> of <b>+ Draairaam</b> en sleep de pijlpunten: breedte en hoogte komen er meteen uit.</div>` : `<div class="gmklein">Tik op een pijl of een knopje hieronder om hem te kiezen.</div>`}`;
+  }
+  pn.innerHTML = (ref ? '' : waarschuw) + chips + h + (ref || o ? '' : nieuw);
+  if (actief && $('#' + actief, pn)) { const i = $('#' + actief, pn); if (waarde != null) i.value = waarde; i.focus(); }
+  const knop = (id, fn) => { const b = $('#' + id, pn); if (b) b.onclick = fn; };
+  const straks = () => setTimeout(() => MP && mpTeken(), 250);
+  pn.querySelectorAll('[data-mpsel]').forEach(b => b.onclick = () => { MP.sel = b.dataset.mpsel; mpTeken(); });
+  pn.querySelectorAll('[data-mpref]').forEach(b => b.onclick = () => mpNieuweRef(b.dataset.mpref));
+  pn.querySelectorAll('[data-mpond]').forEach(b => b.onclick = () => mpNieuwOnd(b.dataset.mpond));
+  knop('mpklaar', () => { MP.sel = null; mpTeken(); });
+  if (ref) {
+    $('#mprcm', pn).onchange = e => { const v = mpCm(e.target.value); ref.cm = v; mpNaSlepen(true); };
+    $('#mprnaam', pn).oninput = e => { ref.naam = e.target.value; bewaarStraks(); };
+    knop('mpweg', async () => {
+      if (!await bevestig('Referentiepijl verwijderen?', 'Maten op deze foto die hiermee rekenen veranderen of vallen weg (zelf getypte maten blijven).')) return;
+      s.mp.ref = s.mp.ref.filter(x => x !== ref); MP.sel = null; mpNaSlepen(true); });
+    return;
+  }
+  if (!o) return;
+  pn.querySelectorAll('[data-mpsoort]').forEach(b => b.onclick = () => { const oud = o.soort; o.soort = b.dataset.mpsoort;
+    if (!o.naam || o.naam.startsWith(oud + ' ')) o.naam = `${o.soort} ${s.mp.ond.filter(x => x.soort === o.soort).length}`; bewaar(); mpTeken(); });
+  $('#mpnaam', pn).oninput = e => { o.naam = e.target.value; bewaarStraks(); };
+  $('#mpnaam', pn).onchange = straks;
+  for (const [id, k, c] of [['mpb', 'handB', 'calcB'], ['mph', 'handH', 'calcH']]) $('#' + id, pn).onchange = e => {
+    const v = mpCm(e.target.value); if (v == null && e.target.value.trim()) { toast('Typ een maat in cm.'); return straks(); }
+    if (v == null || v === o[c]) delete o[k]; else o[k] = Math.round(v);
+    mpHerreken(s, o); bewaar(); straks(); };
+  for (const r of ['h', 'v']) knop('mpterug' + r, () => { delete o[r === 'h' ? 'handB' : 'handH']; mpHerreken(s, o); bewaar(); mpTeken(); });
+  knop('mptc', () => {
+    // Wat nu in de vakjes staat telt (ook als je nog niet buiten het vak getikt hebt).
+    for (const [id, k, c] of [['mpb', 'handB', 'calcB'], ['mph', 'handH', 'calcH']]) { const v = mpCm($('#' + id, pn).value); if (v != null && Math.round(v) !== o[c]) o[k] = Math.round(v); }
+    mpHerreken(s, o);
+    if (!(o.B > 0) || !(o.H > 0)) return toast('Nog geen breedte en hoogte. Zet eerst referentiepijlen op deze foto, of typ de maten zelf in.');
+    const al = !!mpTcRij(s, o); mpNaarTopcalc(s, o); mpTeken();
+    toast(`${o.naam || o.soort} ${o.B} × ${o.H} cm ${al ? 'bijgewerkt in' : 'staat nu in'} de Topcalc-lijst van ${s.naam}. Code kies je in de Topcalc-lijst.`, 5000);
+  });
+  knop('mpweg', async () => {
+    const rij = mpTcRij(s, o);
+    if (!await bevestig(`${o.naam || o.soort} verwijderen?`, `De maatpijlen gaan weg van deze foto.${rij ? ' De regel in de Topcalc-lijst blijft staan.' : ''}`)) return;
+    s.mp.ond = s.mp.ond.filter(x => x !== o); MP.sel = null; bewaar(); mpTeken(); });
+}
+
 // "nog geen maten" in de lijst: direct de maten invullen (zelfde als Maten zelf typen), niet het menu.
 function ondMatenTypen(f, o) {
   if (!V || !f || !o) return;
@@ -2135,12 +2468,7 @@ function gmLijnBron(s, f, l) {
   // 2026-11-26: geen automatische stenentelling meer (gaf uitschieters, bijv. 584 cm over glas). Alleen nog in verhouding
   // tot een maat die je zelf gemeten of getypt hebt op deze foto (zelfde richting), anders de referentie van de gevelmap.
   const gm = gmLijnGemeten(f, l); if (gm) return gm;
-  // Liggende lijn zonder gemeten maat: tel de stenen in het metselwerk recht eronder (zelfde begin en eind), zoals je zelf
-  // naar beneden kijkt en telt. Alleen als het tellen zeker is; de referentie van de gevelmap gaat hierna.
-  if (l.richting === 'horizontaal') { const sf = gmSteen(s), on = sf.l ? gmLijnOnder(f, l) : null;
-    if (on) { const m = Math.round(on.n * sf.l) / 100; if (m > 0 && m < 100) return { m, stenen: true, tekst: `${gmNl(Math.round(on.n * 10) / 10)} stenen × ${gmNl(sf.l)} cm, geteld in het metselwerk onder de lijn (jouw steenmaat: ${gmSteenTekst(s)})`, onder: on }; } }
-  if (l.richting === 'verticaal') { const sf = gmSteen(s), na = sf.h ? gmLijnNaast(f, l) : null;
-    if (na) { const m = Math.round(na.n * sf.h) / 100; if (m > 0 && m < 100) return { m, stenen: true, tekst: `${na.n} lagen × ${gmNl(sf.h)} cm, geteld in het metselwerk naast de lijn (jouw steenmaat: ${gmSteenTekst(s)})`, naast: na }; } }
+  // 2026-11-27: geen stenentelling meer (onbetrouwbaar). Maten uit de foto: knop Maatpijlen met referentiepijlen.
   const m = gmLijnRef(s, f, l); return m != null ? { m, tekst: `Berekend uit de referentie van ${s.naam} (${s.gm.ref.B} × ${s.gm.ref.H} cm)` } : null;
 }
 function gmLijnRef(s, f, l) {
@@ -2168,8 +2496,8 @@ function gmLijnenVullen(f) {
     else if (l.maat == null) open++; }
   if (n) bewaar();
   if (open && V.gmHint !== f.id && gmBeeld(f)) { V.gmHint = f.id; const r = V.s.gm?.ref, nr = r ? Object.keys(r.fotos || {}).map(id => V.s.fotos.findIndex(x => x.id === id) + 1).filter(x => x > 0)[0] : 0;
-    setTimeout(() => toast(!gmRefKlaar(V.s) ? `Nog geen maat: ${V.s.naam} heeft nog geen referentie. Tik onder de foto op Referentie, of tik op de lijn en typ de maat.`
-      : `Nog geen maat: naast de lijn zijn geen stenen te tellen en deze foto is nog niet gekoppeld aan de referentie op foto ${nr || '?'}. Tik op Sjabloon en dan Zelfde kozijn op foto ${nr || '?'} aanwijzen, of tik op de lijn en typ de maat.`, 7000), 300); }
+    setTimeout(() => toast(!gmRefKlaar(V.s) ? `Nog geen maat: ${V.s.naam} heeft nog geen referentie. Tik onder de foto op Maatpijlen, of tik op de lijn en typ de maat.`
+      : `Nog geen maat: deze foto is nog niet gekoppeld aan de referentie op foto ${nr || '?'}. Gebruik Maatpijlen met een referentiepijl op deze foto, of tik op de lijn en typ de maat.`, 7000), 300); }
 }
 
 // ---------- Stenen automatisch tellen langs een lijn ----------
@@ -2471,7 +2799,7 @@ function openViewer(p, s, i) {
       <button class="navarrow r" id="vnext" aria-label="Volgende foto">${ic('right')}</button><span class="weg" id="vweg2" hidden>Foto ontbreekt</span>
       <div class="vbalk" id="vbalk" hidden></div><div class="vspraak" id="vspraak"></div><button class="mic vmic" id="vmic" aria-label="Inspreken">${ic('mic')}</button></div>
     <div class="vbottom"><div class="status" id="vstatus"></div><div id="vextra"></div><div class="modes" id="vmodes">
-      <button data-m="bekijken">${ic('hand')}Bekijken</button><button data-m="lijn">${ic('ruler')}Lijn</button><button data-m="opmerking">${ic('ballon')}Opmerking</button><button id="vgref">${ic('doel')}Referentie</button><button id="vgsj">${ic('ruler')}Sjabloon</button></div></div>`;
+      <button data-m="bekijken">${ic('hand')}Bekijken</button><button data-m="lijn">${ic('ruler')}Lijn</button><button data-m="opmerking">${ic('ballon')}Opmerking</button><button id="vgmp">${ic('ruler')}Maatpijlen</button></div></div>`;
   document.body.appendChild(el);
   V = { p, s, i, modus: 'bekijken', sel: null, el, zoom: { s: 1, tx: 0, ty: 0 }, refTonen: true };
   if (p.simpel) $('#vmic', el).hidden = true; // simpele projecten: geen spraak
@@ -2563,8 +2891,7 @@ function openViewer(p, s, i) {
     if (!s.fotos.length) return sluitViewer();
     naarFoto(Math.min(V.i, s.fotos.length - 1));
   };
-  $('#vgref', el).onclick = () => gmOpen(V.p, V.s, V.i, 'ref');
-  $('#vgsj', el).onclick = () => gmOpen(V.p, V.s, V.i, 'sj');
+  $('#vgmp', el).onclick = () => mpOpen(V.p, V.s, V.i);
   el.querySelectorAll('[data-m]').forEach(b => b.onclick = () => { V.modus = V.el.classList.contains('loc') && V.modus === b.dataset.m ? 'bekijken' : b.dataset.m; V.sel = null; if (V.modus !== 'lijn') V.telDeel = null; tekenUI(); });
   koppelGebaren($('#surf', el));
   koppelVegen($('#stage', el));
@@ -3744,7 +4071,7 @@ function tekenLijnen2() {
     const kl = sel ? '#D4AF37' : uitFoto ? '#9FE7FF' : maat == null ? '#FFA726' : nareken ? '#FF9800' : ref ? '#81D4FA' : af ? '#FF8A50' : geschat ? '#FFB74D' : '#FFFFFF';   // geschat (≈ uit de foto): oranje stippellijn
     return (dim ? `<g opacity="${heelVaag ? .2 : .45}">${svgPijl(x1, y1, x2, y2, label, kl, sp, geschat && !sel)}</g>` : svgPijl(x1, y1, x2, y2, label, kl, sp, geschat && !sel)) +
       (sel ? [[x1, y1], [x2, y2]].map(([x, y]) => `<circle cx="${x}" cy="${y}" r="${rh}" fill="rgba(212,175,55,.2)" stroke="${kl}" stroke-width="${1.6 * rh / 9}"/>`).join('') : '');
-  }).join('') + sjNummers(foto(), W, H, nuId, rh) + refSvg(foto(), W, H) + tikSvg(foto(), W, H) + stenenStreepjes(W, H) + typeChip(foto(), W, H) + ballonnenSvg(foto(), W, H) + labelsSvg(foto(), W, H) + gmSvg(V.s, foto(), W, H) + gmOnderSvg(V.s, foto(), W, H);
+  }).join('') + sjNummers(foto(), W, H, nuId, rh) + refSvg(foto(), W, H) + tikSvg(foto(), W, H) + stenenStreepjes(W, H) + typeChip(foto(), W, H) + ballonnenSvg(foto(), W, H) + labelsSvg(foto(), W, H) + gmSvg(V.s, foto(), W, H) + mpSvg(V.s, foto(), W, H);
   // Alleen bij tekenen of een geselecteerde lijn vangen we het slepen af.
   const vrij = V.modus === 'bekijken' && !V.sel;
   // Knijpen en schuiven doet de app zelf (inzoomen op de foto), dus de browser mag hier niets.
@@ -4556,7 +4883,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.27-1';
+const APP_VERSIE = '2026.11.27-2';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
