@@ -442,6 +442,10 @@ table.form td[data-ncode] { cursor: pointer; text-decoration: underline dotted v
 .mpbalk .mpweg { color: var(--danger); flex: none; }
 .mpbalk .mptc { flex: none; padding: 9px 10px; border-radius: 10px; border: 1px solid var(--gold); background: var(--gold); color: #000; font: inherit; font-size: 14px; font-weight: 700; white-space: nowrap; }
 .mpbalk .mptc.klaar { background: transparent; color: var(--gold); }
+.mpbalk input.mpn { width: 2.4em; font-size: 16px; padding: 7px 2px; }
+.mpbalk .mpl { color: var(--muted); font-size: 15px; }
+.mpbalk .mpijk { flex: none; padding: 7px 6px; border-radius: 8px; border: 1px solid #57E0D2; background: transparent; color: #57E0D2; font: inherit; font-size: 13px; white-space: nowrap; }
+.mped .gmzoom button.aan { border-color: #57E0D2; color: #57E0D2; }
 .mpwaarschuw { font-size: 14px; line-height: 1.4; color: #FFB74D; background: rgba(255,152,0,.12); border: 1px solid #FFA726; border-radius: 10px; padding: 8px 10px; margin-bottom: 8px; }
 .mpwaarschuw b { color: #FFD180; }
 .mpkop { font-weight: 700; font-size: 16px; margin-bottom: 6px; }
@@ -2058,6 +2062,26 @@ const mpRicht = x => Math.abs((x.b[0] - x.a[0]) * x.iw) >= Math.abs((x.b[1] - x.
 const mpPx = x => Math.hypot((x.b[0] - x.a[0]) * x.iw, (x.b[1] - x.a[1]) * x.ih);
 const mpMidY = x => (x.a[1] + x.b[1]) / 2;
 const mpRefsOp = (s, fid, r) => mpLijnenOp(s, fid).filter(x => x.soort === MP_REF && (!r || mpRicht(x) === r));
+// ---------- Gevelraster: 4 hoeken over de hele gevel + totale breedte en hoogte (cm) ----------
+// De 4 hoeken bepalen het vlak van de gevel (perspectief). Elke lijn op de foto wordt naar dat vlak omgerekend:
+// liggend = verschil in breedte op de gevel, staand = verschil in hoogte. Zo klopt het ook bovenin.
+// Staat er een raster op de foto, dan rekent alles op die foto daarmee (ook de gewone knop Lijn).
+const mpRaster = (s, fid) => { const r = s?.mp?.raster?.[fid]; return r && r.B > 0 && r.H > 0 && r.p?.length === 4 ? r : null; };
+const MP_HC = new Map();
+function mpRasterH(r) {
+  const key = JSON.stringify([r.p, r.iw, r.ih, r.B, r.H]); if (MP_HC.has(key)) return MP_HC.get(key);
+  const q = hoekVolgorde(r.p, r.iw, r.ih).map(([x, y]) => [x * r.iw, y * r.ih]), d = [[0, 0], [r.B, 0], [r.B, r.H], [0, r.H]];
+  const s2d = homografie(q, d), d2s = homografie(d, q), uit = s2d && d2s ? { s2d, d2s } : null;
+  if (MP_HC.size > 50) MP_HC.clear(); MP_HC.set(key, uit); return uit;
+}
+// Punt op de foto (0-1) naar de gevel (cm), en terug.
+const mpOpGevel = (r, [x, y]) => { const h = mpRasterH(r); return h ? hPunt(h.s2d, x * r.iw, y * r.ih) : null; };
+const mpVanGevel = (r, [u, v]) => { const h = mpRasterH(r); if (!h) return null; const [x, y] = hPunt(h.d2s, u, v); return [x / r.iw, y / r.ih]; };
+function mpRasterCm(r, a, b, ri) {
+  const p = mpOpGevel(r, a), q = mpOpGevel(r, b); if (!p || !q) return null;
+  const cm = ri === 'h' ? Math.abs(q[0] - p[0]) : Math.abs(q[1] - p[1]);
+  return isFinite(cm) && cm > 0 && cm < 10000 ? cm : null;
+}
 // Pixels per cm in richting r op hoogte y van deze foto, uit de referenties op deze foto.
 // Schaalbronnen op deze foto, zonder dat je iets nieuws tekent (en zonder dat ze over de foto getekend worden):
 //   1. de bekende referentie van deze gevelmap op deze foto (bijv. 294 × 279: breedte met de boven-/onderrand, hoogte met de zijkanten),
@@ -2078,7 +2102,7 @@ function mpBronnen(s, fid, r, dims) {
   for (const x of mpRefsOp(s, fid, r).filter(x => x.cm > 0)) uit.push({ y: mpMidY(x), k: mpPx(x) / x.cm, w: mpPx(x) });
   return uit.filter(x => x.k > 0 && isFinite(x.k) && x.w >= 8);
 }
-const mpHeeftSchaal = (s, fid, r) => mpBronnen(s, fid, r).length > 0;
+const mpHeeftSchaal = (s, fid, r) => !!mpRaster(s, fid) || mpBronnen(s, fid, r).length > 0;
 function mpSchaal(s, fid, r, y, dims) {
   const refs = mpBronnen(s, fid, r, dims);
   if (!refs.length) return null;
@@ -2092,6 +2116,8 @@ function mpSchaal(s, fid, r, y, dims) {
 // gevelmap op deze foto en met referenties die je met Maatpijlen hebt gezet. Maat in meters, of null.
 function mpLijnMaat(s, f, l) {
   if (!s || !f || !l || !['horizontaal', 'verticaal'].includes(l.richting)) return null;
+  const ras = mpRaster(s, f.id);
+  if (ras) { const cm = mpRasterCm(ras, [l.x1, l.y1], [l.x2, l.y2], l.richting === 'horizontaal' ? 'h' : 'v'); return cm != null ? Math.round(cm) / 100 : null; }
   const img = typeof V !== 'undefined' && V?.el && foto?.() === f ? $('#vimg', V.el) : null;
   const dims = img?.naturalWidth ? [img.naturalWidth, img.naturalHeight] : null; if (!dims) return null;
   mpIngebrand(f, img);
@@ -2102,6 +2128,7 @@ function mpLijnMaat(s, f, l) {
 // Berekende maat van een lijn (cm), of null als er op deze foto geen referentie in die richting is.
 function mpCalc(s, x) {
   if (x.soort === MP_REF) return null;
+  const ras = mpRaster(s, x.fotoId); if (ras) { const cm = mpRasterCm(ras, x.a, x.b, mpRicht(x)); return cm != null ? Math.round(cm) : null; }
   const sc = mpSchaal(s, x.fotoId, mpRicht(x), mpMidY(x)); if (!sc) return null;
   const cm = mpPx(x) / sc.k; return isFinite(cm) && cm > 0 && cm < 5000 ? Math.round(cm) : null;
 }
@@ -2127,8 +2154,9 @@ const mpTcRij = (s, x) => x.tc ? (s.tc || []).find(r => r.id === x.tc) || null :
 // Regel voor Topcalc van het onderdeel: ↔ = breedte, ↕ = hoogte. Boeideel: lengte (strekkend).
 function mpTcWaarden(s, x) {
   const g = mpGroep(s, x), w = r => { const l = g.find(y => mpRicht(y) === r); return l ? mpWaarde(s, l) : null; };
-  if (x.soort === 'Boeideel') return { oms: mpNaam(x), b: '', h: '', st: String(mpWaarde(s, x) ?? '') };
-  const b = w('h'), h = w('v'); return { oms: mpNaam(x), b: b != null ? String(b) : '', h: h != null ? String(h) : '', st: '' };
+  const n = String(g.find(y => y.n > 0)?.n || 1);
+  if (x.soort === 'Boeideel') return { oms: mpNaam(x), b: '', h: '', st: String(mpWaarde(s, x) ?? ''), n };
+  const b = w('h'), h = w('v'); return { oms: mpNaam(x), b: b != null ? String(b) : '', h: h != null ? String(h) : '', st: '', n };
 }
 function mpNaarTopcalc(s, x) {
   const lijst = tcLijst(s), g = mpGroep(s, x); let r = g.map(y => mpTcRij(s, y)).find(Boolean);
@@ -2189,13 +2217,44 @@ async function mpLaad(fi) {
   const s = MP.s; if (fi < 0 || fi >= s.fotos.length) return;
   const f = s.fotos[fi], img = $('#mpimg', MP.el), u = await fotoUrl(f.id);
   if (!u) { toast('Foto ontbreekt.'); return; }
-  Object.assign(MP, { f, fi, iw: 0, sel: null, z: { s: 1, tx: 0, ty: 0 }, stH: null }); $('#mpsvg', MP.el).innerHTML = '';
-  img.onload = () => { if (!MP || MP.f !== f) return; MP.iw = img.naturalWidth; MP.ih = img.naturalHeight; mpIngebrand(f, img); mpSchik();
+  Object.assign(MP, { f, fi, iw: 0, sel: null, z: { s: 1, tx: 0, ty: 0 }, stH: null, R: null, bron: u }); $('#mpsvg', MP.el).innerHTML = '';
+  img.onload = () => { if (!MP || MP.f !== f) return; MP.iw = MP.ow = img.naturalWidth; MP.ih = MP.oh = img.naturalHeight; MP.orig = img; mpIngebrand(f, img); mpSchik();
+    if (s.mp.rechtAan && mpRaster(s, f.id)) mpZetRecht(true, true);
     // Detailfoto zonder eigen referentie terwijl een andere foto van deze gevel er wel een heeft: meteen zeggen.
     const elders = mpRefFotos(s, f.id);
     if (!mpHeeftSchaal(s, f.id, 'h') && !mpHeeftSchaal(s, f.id, 'v') && elders.length) toast(`Let op: deze foto heeft een andere schaal dan foto ${elders.join(', ')}. Trek hier eerst een referentielijn op iets wat je gemeten hebt.`, 6000);
   };
   img.src = u;
+}
+// Gevel rechttrekken aan/uit. De lijnen blijven dezelfde; alleen de weergave verandert.
+function mpZetRecht(aan, stil) {
+  const s = MP.s, f = MP.f, r = mpRaster(s, f.id), img = $('#mpimg', MP.el);
+  if (aan && !r) return toast('Zet eerst het gevelraster: tik op ▦ en vul de breedte en hoogte van de gevel in.');
+  s.mp.rechtAan = !!aan; bewaar();
+  const klaar = (src, R, w, h) => { MP.R = R; img.onload = () => { if (!MP || MP.f !== f) return; MP.iw = w; MP.ih = h; MP.z = { s: 1, tx: 0, ty: 0 }; MP.stH = null; mpSchik(); }; img.src = src; };
+  if (!aan) { klaar(MP.bron, null, MP.ow, MP.oh); if (!stil) toast('Originele foto.'); return; }
+  const R = mpRechtBeeld(MP.orig, r); if (!R) return toast('Rechttrekken lukt niet: kijk of de 4 hoeken van het raster goed staan.');
+  klaar(R.url, R, R.OW, R.OH); if (!stil) toast(`Gevel rechtgetrokken. Wat je tekent, staat ook op de foto.`);
+}
+// Ronde knopjes rechtsonder: gevelraster (zetten / tonen / verbergen) en rechttrekken.
+function mpKnoppen() {
+  const z = $('.gmzoom', MP.el), r = MP.s.mp.raster?.[MP.f.id];
+  let k = $('#mpknop', z); if (!k) { k = document.createElement('div'); k.id = 'mpknop'; k.style.cssText = 'display:flex;flex-direction:column;gap:6px'; z.prepend(k); }
+  const html = `<button id="mprecht" title="Gevel rechttrekken" class="${MP.R ? 'aan' : ''}"${r ? '' : ' hidden'}>⊡</button><button id="mpraster" title="${!r ? 'Gevelraster zetten' : mpRasterZien() ? 'Raster verbergen' : 'Raster tonen'}" class="${r && mpRasterZien() ? 'aan' : ''}">${!r ? '▦' : mpRasterZien() ? '▦' : '◌'}</button>`;
+  if (k.dataset.h === html) return; k.dataset.h = html; k.innerHTML = html;
+  $('#mprecht', k).onclick = () => mpZetRecht(!MP.R);
+  $('#mpraster', k).onclick = () => {
+    if (!MP.s.mp.raster?.[MP.f.id]) return mpNieuwRaster();
+    MP.s.mp.rasterZien = !mpRasterZien(); if (!mpRasterZien() && MP.sel === 'raster') MP.sel = null; bewaar(); mpTeken();
+    toast(mpRasterZien() ? 'Raster zichtbaar.' : 'Raster verborgen. Het rekent gewoon door.'); };
+}
+// Nieuw gevelraster: een vak over het grootste deel van de foto; sleep de 4 hoeken op stoep/dakgoot en de gevelranden.
+function mpNieuwRaster() {
+  if (MP.R) mpZetRecht(false, true);
+  const s = MP.s; s.mp.raster ??= {};
+  s.mp.raster[MP.f.id] = { p: [[.12, .08], [.88, .08], [.88, .8], [.12, .8]], iw: MP.ow, ih: MP.oh, B: null, H: null };
+  s.mp.rasterZien = true; MP.sel = 'raster'; bewaar(); mpTeken();
+  setTimeout(() => { const i = $('#mprb', MP?.el); if (i) i.focus(); }, 50);
 }
 function mpSluit() {
   window.removeEventListener('resize', mpSchik);
@@ -2222,21 +2281,64 @@ function mpZoom(sc, rond = null, reset = false) {
 const mpTransform = () => { $('#mpsurf', MP.el).style.transform = `translate(${MP.z.tx}px,${MP.z.ty}px) scale(${MP.z.s})`; };
 const mpNorm = (cx, cy) => { const r = $('#mpsurf', MP.el).getBoundingClientRect(); return [(cx - r.left) / r.width, (cy - r.top) / r.height]; };
 const mpKlem = v => Math.max(-.02, Math.min(1.02, v));
+// Weergave: gewone foto, of de gevel rechtgetrokken. Lijnen staan altijd in de punten van de echte foto;
+// alleen het tekenen en slepen gaat via de weergave. Zo klopt de maat in beide weergaven.
+const MP_RAND = .08;
+function mpNaarBeeld(p) {
+  const R = MP?.R; if (!R) return p;
+  const g = mpOpGevel(R.r, p); return g ? [(g[0] + MP_RAND * R.r.B) * R.sc / R.OW, (g[1] + MP_RAND * R.r.H) * R.sc / R.OH] : [-9, -9];
+}
+function mpVanBeeld(q) {
+  const R = MP?.R; if (!R) return q;
+  return mpVanGevel(R.r, [q[0] * R.OW / R.sc - MP_RAND * R.r.B, q[1] * R.OH / R.sc - MP_RAND * R.r.H]) || q;
+}
+const mpBeeldLijn = x => ({ a: mpNaarBeeld(x.a), b: mpNaarBeeld(x.b) });
+// De gevel rechttrekken: elke beeldpixel komt van zijn plek op de foto (met een randje rond de gevel).
+function mpRechtBeeld(img, r) {
+  const k = Math.min(1, 2400 / Math.max(img.naturalWidth, img.naturalHeight)), SW = Math.round(img.naturalWidth * k), SH = Math.round(img.naturalHeight * k);
+  const c0 = document.createElement('canvas'); c0.width = SW; c0.height = SH; const g0 = c0.getContext('2d', { willReadFrequently: true }); g0.drawImage(img, 0, 0, SW, SH);
+  const src = g0.getImageData(0, 0, SW, SH).data, h = mpRasterH(r); if (!h) return null;
+  const bw = r.B * (1 + 2 * MP_RAND), bh = r.H * (1 + 2 * MP_RAND); let sc = Math.min(1600 / bw, 2200 / bh);
+  const OW = Math.round(bw * sc), OH = Math.round(bh * sc);
+  const c = document.createElement('canvas'); c.width = OW; c.height = OH; const g = c.getContext('2d'), out = g.createImageData(OW, OH), o = out.data;
+  const fx = SW / r.iw, fy = SH / r.ih, M = h.d2s;
+  for (let y = 0; y < OH; y++) { const v = y / sc - MP_RAND * r.H;
+    for (let x = 0; x < OW; x++) { const u = x / sc - MP_RAND * r.B, w = M[6] * u + M[7] * v + M[8]; if (w <= 0) continue;
+      const sx = Math.round((M[0] * u + M[1] * v + M[2]) / w * fx), sy = Math.round((M[3] * u + M[4] * v + M[5]) / w * fy);
+      if (sx < 0 || sy < 0 || sx >= SW || sy >= SH) continue;
+      const i = (sy * SW + sx) * 4, j = (y * OW + x) * 4; o[j] = src[i]; o[j + 1] = src[i + 1]; o[j + 2] = src[i + 2]; o[j + 3] = 255; } }
+  g.putImageData(out, 0, 0);
+  return { url: c.toDataURL('image/jpeg', .9), OW, OH, sc, r };
+}
 const mpNu = () => MP && mpLijnenOp(MP.s, MP.f.id).find(x => x.id === MP.sel) || null;
 function mpTeken() {
   if (!MP?.w) return;
   const W = MP.w, H = MP.h, zs = MP.z.s, svg = $('#mpsvg', MP.el), s = MP.s;
   svg.setAttribute('viewBox', `0 0 ${W} ${H}`); svg.setAttribute('width', W); svg.setAttribute('height', H);
   const hit = 18 / zs, rh = 8 / zs;
-  svg.innerHTML = mpLijnenOp(s, MP.f.id).filter(mpZichtbaar).sort((a, b) => (a.id === MP.sel) - (b.id === MP.sel)).map(x => {
-    const nu = x.id === MP.sel, x1 = x.a[0] * W, y1 = x.a[1] * H, x2 = x.b[0] * W, y2 = x.b[1] * H;
-    return `<g>${mpPijlSvg(x, W, H, nu ? MP_NU : mpKleur(x), mpTekst(s, x), zs, nu ? 2.6 : 2)}
+  svg.innerHTML = mpRasterSvg(W, H, zs) + mpLijnenOp(s, MP.f.id).filter(mpZichtbaar).sort((a, b) => (a.id === MP.sel) - (b.id === MP.sel)).map(x => {
+    const nu = x.id === MP.sel, d = mpBeeldLijn(x), x1 = d.a[0] * W, y1 = d.a[1] * H, x2 = d.b[0] * W, y2 = d.b[1] * H;
+    return `<g>${mpPijlSvg(d, W, H, nu ? MP_NU : mpKleur(x), mpTekst(s, x), zs, nu ? 2.6 : 2)}
       <line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="rgba(0,0,0,0)" stroke-width="${hit}" data-romp="${x.id}"/>
       ${nu ? [[x1, y1], [x2, y2]].map(([px, py], i) => `<circle cx="${px}" cy="${py}" r="${hit}" fill="rgba(0,0,0,0)" data-punt="${i}" data-van="${x.id}"/><circle cx="${px}" cy="${py}" r="${rh}" fill="rgba(0,0,0,.25)" stroke="${MP_NU}" stroke-width="${2 / zs}" pointer-events="none"/>`).join('') : ''}</g>`;
   }).join('');
-  mpBalk();
+  mpBalk(); mpKnoppen();
   const sh = Math.round($('#mpstage', MP.el).getBoundingClientRect().height);
   if (sh !== MP.stH && !MP.sleept) { MP.stH = sh; if (MP.z.s === 1) mpSchik(); }
+}
+// Raster over de foto: rand, lijnen om de 10% en (in de gewone weergave) 4 versleepbare hoeken. Verborgen = niets tekenen.
+const mpRasterZien = () => MP?.s?.mp?.rasterZien !== false;
+function mpRasterSvg(W, H, zs) {
+  const r = MP.s.mp.raster?.[MP.f.id]; if (!r || !mpRasterZien()) return '';
+  const kl = '#57E0D2', P = q => { const b = mpNaarBeeld(q); return [b[0] * W, b[1] * H]; };
+  let uit = '';
+  if (r.B > 0 && r.H > 0 && mpRasterH(r)) {
+    for (let i = 1; i < 10; i++) { const a = P(mpVanGevel(r, [r.B * i / 10, 0])), b = P(mpVanGevel(r, [r.B * i / 10, r.H])), c = P(mpVanGevel(r, [0, r.H * i / 10])), d = P(mpVanGevel(r, [r.B, r.H * i / 10]));
+      uit += `<line x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}" stroke="${kl}" stroke-width="${.8 / zs}" opacity=".45"/><line x1="${c[0]}" y1="${c[1]}" x2="${d[0]}" y2="${d[1]}" stroke="${kl}" stroke-width="${.8 / zs}" opacity=".45"/>`; } }
+  const hk = hoekVolgorde(r.p, r.iw, r.ih).map(P);
+  uit += `<polygon points="${hk.map(a => a.join(',')).join(' ')}" fill="none" stroke="${kl}" stroke-width="${1.8 / zs}"/>`;
+  if (!MP.R) uit += r.p.map((q, i) => { const [x, y] = P(q); return `<circle cx="${x}" cy="${y}" r="${22 / zs}" fill="rgba(0,0,0,0)" data-rhoek="${i}"/><circle cx="${x}" cy="${y}" r="${8 / zs}" fill="rgba(0,0,0,.3)" stroke="${kl}" stroke-width="${2 / zs}" pointer-events="none"/>`; }).join('');
+  return `<g>${uit}</g>`;
 }
 function mpLoep(pt, x, clientX) {
   const c = $('#mploep', MP.el), img = $('#mpimg', MP.el); if (!pt) { c.hidden = true; return; }
@@ -2269,12 +2371,14 @@ function mpGebaren(stage) {
       if (sleep?.soort === 'nieuw' && sleep.x) { MP.s.mp.lijn = MP.s.mp.lijn.filter(y => y !== sleep.x); MP.sel = sleep.oudSel; }
       const [a, b] = [...vingers.values()]; knijp = { d: Math.hypot(b[0] - a[0], b[1] - a[1]), s: MP.z.s, m: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], tx: MP.z.tx, ty: MP.z.ty };
       sleep = null; $('#mploep', MP.el).hidden = true; mpTeken(); return; }
-    const punt = e.target.closest('[data-punt]'), romp = e.target.closest('[data-romp]');
+    const punt = e.target.closest('[data-punt]'), romp = e.target.closest('[data-romp]'), rh = e.target.closest('[data-rhoek]');
     const lijn = id => mpLijnenOp(MP.s, MP.f.id).find(y => y.id === id);
-    if (punt) { const x = lijn(punt.dataset.van), i = +punt.dataset.punt; sleep = { soort: 'punt', x, i, start: mpNorm(e.clientX, e.clientY), van: [...(i ? x.b : x.a)] }; mpLoep(i ? x.b : x.a, x, e.clientX); }
+    // Alles in weergavepunten; bij loslaten/slepen terug naar de echte foto.
+    if (punt) { const x = lijn(punt.dataset.van), i = +punt.dataset.punt, d = mpBeeldLijn(x); sleep = { soort: 'punt', x, i, d, start: mpNorm(e.clientX, e.clientY), van: [...(i ? d.b : d.a)] }; mpLoep(i ? d.b : d.a, d, e.clientX); }
+    else if (rh) { const r = MP.s.mp.raster[MP.f.id], i = +rh.dataset.rhoek; MP.sel = 'raster'; sleep = { soort: 'rhoek', r, i, start: mpNorm(e.clientX, e.clientY), van: [...r.p[i]] }; mpLoep(r.p[i], null, e.clientX); }
     else if (romp) { const x = lijn(romp.dataset.romp);
       if (MP.sel !== x.id) { MP.sel = x.id; mpTeken(); sleep = { soort: 'tik' }; }
-      else sleep = { soort: 'lijn', x, start: mpNorm(e.clientX, e.clientY), a: [...x.a], b: [...x.b] }; }
+      else { const d = mpBeeldLijn(x); sleep = { soort: 'lijn', x, start: mpNorm(e.clientX, e.clientY), a: d.a, b: d.b }; } }
     else sleep = { soort: 'nieuw', start: mpNorm(e.clientX, e.clientY), cx: e.clientX, cy: e.clientY, oudSel: MP.sel };
     e.preventDefault();
   });
@@ -2292,12 +2396,15 @@ function mpGebaren(stage) {
     const nu = mpNorm(e.clientX, e.clientY);
     if (sleep.soort === 'nieuw') {
       if (!sleep.x) { if (Math.hypot(e.clientX - sleep.cx, e.clientY - sleep.cy) < 12) return;
-        const x = { id: nieuwId(), fotoId: MP.f.id, iw: MP.iw, ih: MP.ih, a: [...sleep.start], b: [...nu], soort: 'Kozijn' };
-        MP.s.mp.lijn.push(x); sleep.x = x; MP.sel = x.id; }
-      sleep.x.b = [mpKlem(nu[0]), mpKlem(nu[1])]; mpRecht(sleep.x, 1); mpLoep(sleep.x.b, sleep.x, e.clientX); MP.sleept = true; mpTeken(); return; }
+        const x = { id: nieuwId(), fotoId: MP.f.id, iw: MP.ow, ih: MP.oh, a: mpVanBeeld(sleep.start), b: mpVanBeeld(nu), soort: 'Kozijn' };
+        MP.s.mp.lijn.push(x); sleep.x = x; sleep.d = { a: [...sleep.start], b: [...nu] }; MP.sel = x.id; }
+      sleep.d.b = [mpKlem(nu[0]), mpKlem(nu[1])]; mpRecht(sleep.d, 1); sleep.x.a = mpVanBeeld(sleep.d.a); sleep.x.b = mpVanBeeld(sleep.d.b);
+      mpLoep(sleep.d.b, sleep.d, e.clientX); MP.sleept = true; mpTeken(); return; }
     const dx = nu[0] - sleep.start[0], dy = nu[1] - sleep.start[1];
-    if (sleep.soort === 'punt') { const q = sleep.i ? sleep.x.b : sleep.x.a; q[0] = mpKlem(sleep.van[0] + dx); q[1] = mpKlem(sleep.van[1] + dy); mpRecht(sleep.x, sleep.i); mpLoep(q, sleep.x, e.clientX); }
-    else { sleep.x.a = [mpKlem(sleep.a[0] + dx), mpKlem(sleep.a[1] + dy)]; sleep.x.b = [mpKlem(sleep.b[0] + dx), mpKlem(sleep.b[1] + dy)]; }
+    if (sleep.soort === 'rhoek') { const q = sleep.r.p[sleep.i]; q[0] = mpKlem(sleep.van[0] + dx); q[1] = mpKlem(sleep.van[1] + dy); mpLoep(q, null, e.clientX); }
+    else if (sleep.soort === 'punt') { const d = sleep.d, q = sleep.i ? d.b : d.a; q[0] = mpKlem(sleep.van[0] + dx); q[1] = mpKlem(sleep.van[1] + dy); mpRecht(d, sleep.i);
+      sleep.x.a = mpVanBeeld(d.a); sleep.x.b = mpVanBeeld(d.b); mpLoep(q, d, e.clientX); }
+    else { const a = [mpKlem(sleep.a[0] + dx), mpKlem(sleep.a[1] + dy)], b = [mpKlem(sleep.b[0] + dx), mpKlem(sleep.b[1] + dy)]; sleep.x.a = mpVanBeeld(a); sleep.x.b = mpVanBeeld(b); }
     sleep.bewogen = true; MP.sleept = true; mpTeken();
   });
   const los = e => {
@@ -2307,7 +2414,8 @@ function mpGebaren(stage) {
       if (sleep?.soort === 'nieuw') {
         if (sleep.x) mpNieuweLijnKlaar(sleep.x);
         else if (!vingers.size && MP.sel) { MP.sel = null; mpTeken(); } }   // tik op een lege plek: niets meer gekozen
-      else if (sleep && sleep.bewogen) { bewaar(); mpTeken(); } }
+      else if (sleep && sleep.bewogen) { bewaar(); mpTeken(); }
+      else if (sleep?.soort === 'rhoek') mpTeken(); }
     if (!vingers.size) sleep = null;
   };
   stage.addEventListener('pointerup', los); stage.addEventListener('pointercancel', los);
@@ -2336,19 +2444,22 @@ function mpBalk() {
   const actief = document.activeElement?.id === 'mpcm' && bk.contains(document.activeElement) ? document.activeElement.value : null;
   $('#mptitel', MP.el).textContent = `${s.naam} · foto ${fi + 1}/${s.fotos.length}`;
   $('#mpvorige', MP.el).disabled = fi <= 0; $('#mpvolgende', MP.el).disabled = fi >= s.fotos.length - 1;
-  if (!x) { bk.innerHTML = `<div class="mphint">${mpLijnenOp(s, f.id).length ? 'Tik op een lijn, of trek een nieuwe.' : 'Trek een lijn op het kozijn, de deur of het draairaam.'}</div>`; return; }
+  if (MP.sel === 'raster' && s.mp.raster?.[f.id]) return mpRasterBalk(bk);
+  if (!x) { bk.innerHTML = `<div class="mphint">${mpLijnenOp(s, f.id).length ? 'Tik op een lijn, of trek een nieuwe.' : (mpRaster(s, f.id) ? 'Trek een lijn op het kozijn, de deur of het draairaam.' : 'Trek een lijn op het kozijn. ▦ rechtsonder = gevelraster.')}</div>`; return; }
   const ref = x.soort === MP_REF, v = mpWaarde(s, x), calc = mpCalc(s, x), hand = !ref && x.hand != null;
   const rij = !ref && mpGroep(s, x).map(y => mpTcRij(s, y)).find(Boolean), w = !ref && mpTcWaarden(s, x);
-  const zelfde = rij && ['oms', 'b', 'h', 'st'].every(k => String(rij[k] ?? '') === w[k]);
+  const zelfde = rij && ['oms', 'b', 'h', 'st', 'n'].every(k => String(rij[k] ?? '') === w[k]);
   bk.innerHTML = `<span class="mprich">${mpRicht(x) === 'h' ? '↔' : '↕'}</span><input id="mpcm" class="${hand ? 'hand' : ''}" inputmode="decimal" autocomplete="off" value="${esc(v ?? '')}" placeholder="${ref ? 'laser' : 'ref?'}" title="${hand && calc != null ? 'Zelf getypt, lijn zegt ' + calc : ''}">
     <select id="mpsoort">${[MP_REF, ...MP_SOORTEN].map(k => `<option value="${k}"${k === x.soort ? ' selected' : ''}>${k === MP_REF ? k : `${k} ${k === x.soort ? x.nr || 1 : ''}`.trim()}</option>`).join('')}</select>
     <button class="iconbtn mpweg" id="mpweg" aria-label="Verwijderen" title="Verwijderen">${ic('trash')}</button>
+    ${ref ? '' : `<input id="mpn" class="mpn" inputmode="numeric" autocomplete="off" value="${esc(mpGroep(s, x).find(y => y.n > 0)?.n || 1)}" title="Aantal" aria-label="Aantal">`}
     ${ref ? '' : `<button class="mptc${zelfde ? ' klaar' : ''}" id="mptc">${!rij ? '+ Naar Topcalc' : zelfde ? '✓ Topcalc' : '↻ Topcalc'}</button>`}`;
   const i = $('#mpcm', bk); if (actief != null) { i.value = actief; i.focus(); }
   i.onchange = () => { const n = mpCm(i.value);
     if (ref) x.cm = n; else if (n == null || Math.round(n) === calc) delete x.hand; else x.hand = Math.round(n);
     bewaar(); setTimeout(() => MP && mpTeken(), 200); };
   i.onkeydown = e => { if (e.key === 'Enter') i.blur(); };
+  const ni = $('#mpn', bk); if (ni) ni.onchange = () => { const n = Math.max(1, Math.min(999, Math.round(+ni.value) || 1)); for (const y of mpGroep(s, x)) y.n = n; bewaar(); setTimeout(() => MP && mpTeken(), 200); };
   $('#mpsoort', bk).onchange = e => { mpZetSoort(s, x, e.target.value); if (x.soort !== MP_REF) MP.laatste = x.soort; bewaar(); mpTeken(); };
   $('#mpweg', bk).onclick = () => { const kopie = { ...x }, idx = s.mp.lijn.indexOf(x);
     s.mp.lijn = s.mp.lijn.filter(y => y !== x); MP.sel = null; bewaar(); mpTeken();
@@ -2498,6 +2609,27 @@ function mpIngebrand(f, img) {
     if (l.length === 2 && weg.length) lijst = lijst.filter(x => x.r !== r); else lijst = lijst.filter(x => !weg.includes(x)); }
   f.ingebrand = { v: 1, iw, ih, lijst }; bewaar();
   if (lijst.length) setTimeout(() => toast(`Maatpijlen op de foto gevonden: ${lijst.map(x => `${x.r === 'h' ? '↔' : '↕'} ${x.cm} cm`).join(', ')}. Daarmee rekent de app nu.`, 6000), 400);
+}
+
+// Balk bij het gevelraster: totale breedte en hoogte van de gevel, controle met een bekende maat (ijken), verwijderen.
+function mpRasterBalk(bk) {
+  const s = MP.s, f = MP.f, r = s.mp.raster[f.id];
+  // Controle: bekende maten op deze foto (referentie, lasermaat, ingebrande pijl) gemeten met het raster.
+  const bekend = [];
+  for (const x of mpRefsOp(s, f.id).filter(x => x.cm > 0)) bekend.push({ a: x.a, b: x.b, r: mpRicht(x), cm: x.cm });
+  for (const x of f.ingebrand?.lijst || []) bekend.push({ a: x.a, b: x.b, r: x.r, cm: x.cm });
+  for (const l of gmFotoMaten(f).filter(l => ['horizontaal', 'verticaal'].includes(l.richting))) bekend.push({ a: [l.x1, l.y1], b: [l.x2, l.y2], r: l.richting === 'horizontaal' ? 'h' : 'v', cm: Math.round(l.maat * 100) });
+  const ctl = r.B > 0 && r.H > 0 ? bekend.map(k => ({ ...k, nu: mpRasterCm(r, k.a, k.b, k.r) })).filter(k => k.nu) : [];
+  bk.innerHTML = `<span class="mprich">▦</span><span class="mpl">↔</span><input id="mprb" inputmode="decimal" autocomplete="off" value="${esc(r.B ?? '')}" placeholder="breed"><span class="mpl">↕</span><input id="mprh" inputmode="decimal" autocomplete="off" value="${esc(r.H ?? '')}" placeholder="hoog">
+    ${ctl.slice(0, 2).map((k, i) => `<button class="mpijk" data-ijk="${i}" title="Tik om het raster hierop te ijken">${k.r === 'h' ? '↔' : '↕'}${k.cm}→${Math.round(k.nu)}</button>`).join('')}
+    <button class="iconbtn mpweg" id="mprweg" aria-label="Raster verwijderen" title="Raster verwijderen">${ic('trash')}</button>`;
+  const zet = (id, k) => { const i = $('#' + id, bk); i.onkeydown = e => { if (e.key === 'Enter') i.blur(); };
+    i.onchange = () => { r[k] = mpCm(i.value); if (!(r.B > 0 && r.H > 0) && MP.R) mpZetRecht(false, true); bewaar(); setTimeout(() => MP && mpTeken(), 200); }; };
+  zet('mprb', 'B'); zet('mprh', 'H');
+  bk.querySelectorAll('[data-ijk]').forEach(b => b.onclick = () => { const k = ctl[+b.dataset.ijk], key = k.r === 'h' ? 'B' : 'H';
+    r[key] = Math.round(r[key] * k.cm / k.nu * 10) / 10; bewaar(); if (MP.R) mpZetRecht(true, true); mpTeken(); toast(`Raster geijkt op ${k.cm} cm: gevel ${k.r === 'h' ? 'breedte' : 'hoogte'} nu ${r[key]} cm.`); });
+  $('#mprweg', bk).onclick = () => { const oud = { ...r, p: r.p.map(q => [...q]) }; if (MP.R) mpZetRecht(false, true); delete s.mp.raster[f.id]; MP.sel = null; bewaar(); mpTeken();
+    ongedaanToast('Gevelraster weg.', () => { s.mp.raster[f.id] = oud; bewaar(); if (MP) mpTeken(); }); };
 }
 
 // "nog geen maten" in de lijst: direct de maten invullen (zelfde als Maten zelf typen), niet het menu.
@@ -5051,7 +5183,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.27-7';
+const APP_VERSIE = '2026.11.27-8';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
