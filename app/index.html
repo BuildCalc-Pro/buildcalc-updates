@@ -2049,28 +2049,38 @@ const mpRefsOp = (s, fid, r) => mpLijnenOp(s, fid).filter(x => x.soort === MP_RE
 //   1. de bekende referentie van deze gevelmap op deze foto (bijv. 294 × 279: breedte met de boven-/onderrand, hoogte met de zijkanten),
 //   2. lasermaten (of getypte maten) die je met Lijn op deze foto hebt gezet, liggend of staand,
 //   3. lijnen die je zelf op Referentie hebt gezet.
-function mpBronnen(s, fid, r) {
+function mpBronnen(s, fid, r, dims) {
   const uit = [], f = (s?.fotos || []).find(x => x.id === fid);
   const rf = typeof gmRefOp === 'function' ? gmRefOp(s, fid) : null, R = s?.gm?.ref;
   if (rf && R && rf.iw && rf.ih && (r === 'h' ? R.B > 0 : R.H > 0)) {
     const q = gmPx(rf.p, rf.iw, rf.ih), [w, h] = gmZijden(q), cy = rf.p.reduce((t, a) => t + a[1], 0) / 4;
     uit.push(r === 'h' ? { y: cy, k: w / R.B, w } : { y: cy, k: h / R.H, w: h });
   }
-  if (f) { const iw = (s.mp?.lijn || []).find(x => x.fotoId === fid)?.iw || rf?.iw || MP?.f === f && MP.iw, ih = (s.mp?.lijn || []).find(x => x.fotoId === fid)?.ih || rf?.ih || MP?.f === f && MP.ih;
+  if (f) { const iw = dims?.[0] || (s.mp?.lijn || []).find(x => x.fotoId === fid)?.iw || rf?.iw || MP?.f === f && MP.iw, ih = dims?.[1] || (s.mp?.lijn || []).find(x => x.fotoId === fid)?.ih || rf?.ih || MP?.f === f && MP.ih;
     if (iw && ih) for (const l of gmFotoMaten(f).filter(l => l.richting === (r === 'h' ? 'horizontaal' : 'verticaal') && !l.lagen10 && !l.vlakRef && !l.hoek && !l.aftrek)) {
       const px = Math.hypot((l.x2 - l.x1) * iw, (l.y2 - l.y1) * ih); uit.push({ y: (l.y1 + l.y2) / 2, k: px / (l.maat * 100), w: px }); } }
   for (const x of mpRefsOp(s, fid, r).filter(x => x.cm > 0)) uit.push({ y: mpMidY(x), k: mpPx(x) / x.cm, w: mpPx(x) });
   return uit.filter(x => x.k > 0 && isFinite(x.k) && x.w >= 8);
 }
 const mpHeeftSchaal = (s, fid, r) => mpBronnen(s, fid, r).length > 0;
-function mpSchaal(s, fid, r, y) {
-  const refs = mpBronnen(s, fid, r);
+function mpSchaal(s, fid, r, y, dims) {
+  const refs = mpBronnen(s, fid, r, dims);
   if (!refs.length) return null;
   const ks = refs.map(x => x.k), lo = Math.min(...ks), hi = Math.max(...ks), ys = refs.map(x => x.y), W = refs.reduce((t, x) => t + x.w, 0);
   const my = refs.reduce((t, x) => t + x.y * x.w, 0) / W, mk = refs.reduce((t, x) => t + x.k * x.w, 0) / W;
   if (refs.length === 1 || Math.max(...ys) - Math.min(...ys) < .05) return { k: mk, n: refs.length };
   const sxy = refs.reduce((t, x) => t + x.w * (x.y - my) * (x.k - mk), 0), sxx = refs.reduce((t, x) => t + x.w * (x.y - my) ** 2, 0);
   return { k: Math.max(lo * .75, Math.min(hi * 1.33, mk + (sxx ? sxy / sxx : 0) * (y - my))), n: refs.length, mee: true };
+}
+// Gewone lijn (knop Lijn in de fotoweergave): zelfde schaal als de maatpijlen, dus ook met de bekende referentie van de
+// gevelmap op deze foto en met referenties die je met Maatpijlen hebt gezet. Maat in meters, of null.
+function mpLijnMaat(s, f, l) {
+  if (!s || !f || !l || !['horizontaal', 'verticaal'].includes(l.richting)) return null;
+  const img = typeof V !== 'undefined' && V?.el && foto?.() === f ? $('#vimg', V.el) : null;
+  const dims = img?.naturalWidth ? [img.naturalWidth, img.naturalHeight] : null; if (!dims) return null;
+  const r = l.richting === 'horizontaal' ? 'h' : 'v', sc = mpSchaal(s, f.id, r, (l.y1 + l.y2) / 2, dims); if (!sc) return null;
+  const cm = Math.hypot((l.x2 - l.x1) * dims[0], (l.y2 - l.y1) * dims[1]) / sc.k;
+  return isFinite(cm) && cm > 0 && cm < 5000 ? Math.round(cm) / 100 : null;
 }
 // Berekende maat van een lijn (cm), of null als er op deze foto geen referentie in die richting is.
 function mpCalc(s, x) {
@@ -2469,6 +2479,7 @@ function gmLijnBron(s, f, l) {
   // tot een maat die je zelf gemeten of getypt hebt op deze foto (zelfde richting), anders de referentie van de gevelmap.
   const gm = gmLijnGemeten(f, l); if (gm) return gm;
   // 2026-11-27: geen stenentelling meer (onbetrouwbaar). Maten uit de foto: knop Maatpijlen met referentiepijlen.
+  { const m = typeof mpLijnMaat === 'function' ? mpLijnMaat(s, f, l) : null; if (m != null) return { m, tekst: `Berekend uit de referentiematen van ${s.naam} op deze foto` }; }
   const m = gmLijnRef(s, f, l); return m != null ? { m, tekst: `Berekend uit de referentie van ${s.naam} (${s.gm.ref.B} × ${s.gm.ref.H} cm)` } : null;
 }
 function gmLijnRef(s, f, l) {
@@ -2496,8 +2507,9 @@ function gmLijnenVullen(f) {
     else if (l.maat == null) open++; }
   if (n) bewaar();
   if (open && V.gmHint !== f.id && gmBeeld(f)) { V.gmHint = f.id; const r = V.s.gm?.ref, nr = r ? Object.keys(r.fotos || {}).map(id => V.s.fotos.findIndex(x => x.id === id) + 1).filter(x => x > 0)[0] : 0;
-    setTimeout(() => toast(!gmRefKlaar(V.s) ? `Nog geen maat: ${V.s.naam} heeft nog geen referentie. Tik onder de foto op Maatpijlen, of tik op de lijn en typ de maat.`
-      : `Nog geen maat: deze foto is nog niet gekoppeld aan de referentie op foto ${nr || '?'}. Gebruik Maatpijlen met een referentiepijl op deze foto, of tik op de lijn en typ de maat.`, 7000), 300); }
+    const elders = typeof mpRefFotos === 'function' ? mpRefFotos(V.s, f.id) : [];
+    setTimeout(() => toast(elders.length ? `Nog geen maat: de referentiematen van ${V.s.naam} staan op foto ${elders.join(', ')}. Deze foto is van een andere plek of afstand en heeft een andere schaal. Meet op foto ${elders[0]}, of zet op deze foto één keer een referentie (Maatpijlen).`
+      : `Nog geen maat: ${V.s.naam} heeft nog geen referentiematen. Zet ze één keer op de foto (Lijn met de laser, of Maatpijlen), of tik op de lijn en typ de maat.`, 8000), 300); }
 }
 
 // ---------- Stenen automatisch tellen langs een lijn ----------
@@ -4883,7 +4895,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.27-4';
+const APP_VERSIE = '2026.11.27-5';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
