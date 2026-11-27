@@ -1416,18 +1416,25 @@ async function verwerkFoto(file) {
   const doel = FOTO_DOEL; FOTO_DOEL = null;
   const p = doel?.p || vind(stapel[0]); const s = doel?.s || p?.submappen.find(x => x.id === stapel[1]);
   if (!file || !s) return;
+  // Meteen laten zien dat de app bezig is: het verkleinen van een grote camerafoto kost even.
+  const bezig = document.createElement('div'); bezig.className = 'toast'; bezig.textContent = 'Foto opslaan…'; document.body.appendChild(bezig);
   try {
-    const blob = await verklein(file, FOTO_MAX), f35 = await jpegF35(file).catch(() => null);
+    const uit = {}, f35P = jpegF35(file).catch(() => null), blob = await verklein(file, FOTO_MAX, FOTO_KWALITEIT, uit), f35 = await f35P;
     const foto = { id: nieuwId(), gemaakt: new Date().toISOString(), lijnen: [], ...(f35 ? { f35 } : {}), ...(doel?.controle ? { controle: doel.controle } : {}) };
     await fotoBewaar(foto.id, blob);
+    // Het kleine fotootje voor de lijst meteen uit de al verkleinde foto maken (scheelt nog een keer de foto inlezen).
+    if (uit.canvas) try { const c = uit.canvas, k = Math.min(1, 400 / Math.max(c.width, c.height)), m = document.createElement('canvas');
+      m.width = Math.round(c.width * k); m.height = Math.round(c.height * k); m.getContext('2d').drawImage(c, 0, 0, m.width, m.height);
+      const v = m.toDataURL('image/jpeg', 0.75); m.width = m.height = 0; memMini.set(foto.id, v); idb('readwrite', st => st.put(v, 'mini:' + foto.id)).catch(() => {}); } catch {}
+    bezig.remove();
     // In een trappenhuis staan de lijnen van een trapwand meteen klaar; je hoeft alleen te laseren.
     if (trapMap(s) && !doel?.controle) try { sjMaak(foto, 'trap', s); } catch (e) { console.warn(e); }
-    s.fotos.push(foto); bewaar(); render(); keurNaMaken(foto, blob, { p, s, doel });
+    s.fotos.push(foto); bewaar(); render(); keurNaMaken(foto, blob, { p, s, doel }, uit.canvas);
     // Simpel project: niet de foto openen, meteen klaar voor de volgende. Lijnen trek je later door de foto aan te tikken.
     if (p.simpel && !doel?.controle) return toast(`Foto ${s.fotos.length} bewaard in ${volNaam(p, s)}`);
     if (doel?.open) { stapel = p.simpel ? [p.id] : [p.id, s.id]; render(); openViewer(p, s, s.fotos.length - 1); }
     else if (doel) toast(`Foto bewaard in ${volNaam(p, s)}`); else openViewer(p, s, s.fotos.length - 1);
-  } catch (e) { toast('Foto maken lukte niet: ' + e.message); }
+  } catch (e) { bezig.remove(); toast('Foto maken lukte niet: ' + e.message); }
 }
 $('#camIn').onchange = e => verwerkFoto(e.target.files[0]);
 $('#galIn').onchange = e => verwerkFoto(e.target.files[0]);
@@ -1492,19 +1499,20 @@ async function jpegDraai(blob) {
   return 1;
 }
 // Een (bijna) helemaal zwarte afbeelding: zo eindigt verkleinen als de telefoon te weinig geheugen had.
+// Zwart? Op een klein kopietje (48 × 48) kijken: de hele grote foto uitlezen kost op een telefoon veel tijd.
 function isZwart(c) {
-  const g = c.getContext('2d'), s = 12, d = g.getImageData(0, 0, c.width, c.height).data;
-  let max = 0;
-  for (let y = 0; y < s; y++) for (let x = 0; x < s; x++) {
-    const p = (Math.floor((y + .5) * c.height / s) * c.width + Math.floor((x + .5) * c.width / s)) * 4;
-    max = Math.max(max, d[p], d[p + 1], d[p + 2]);
-  }
+  if (!c.width || !c.height) return true;
+  const s = 48, k = document.createElement('canvas'); k.width = k.height = s;
+  const g = k.getContext('2d', { willReadFrequently: true }); g.drawImage(c, 0, 0, s, s);
+  const d = g.getImageData(0, 0, s, s).data; let max = 0;
+  for (let i = 0; i < d.length; i += 4) max = Math.max(max, d[i], d[i + 1], d[i + 2]);
   return max < 10;
 }
 // Verkleinen naar max px. Grote camerafoto's (50 MP en meer) worden direct verkleind ingelezen
 // (createImageBitmap), anders raakt het geheugen van een telefoon op en wordt de foto zwart.
 // Is het resultaat toch zwart, dan bewaren we het origineel.
-async function verklein(file, max, kwaliteit = FOTO_KWALITEIT) {
+// uit (optioneel): krijgt uit.canvas, de verkleinde foto, om meteen verder mee te werken zonder hem opnieuw in te lezen.
+async function verklein(file, max, kwaliteit = FOTO_KWALITEIT, uit) {
   const c = document.createElement('canvas'), g = c.getContext('2d');
   let gelukt = false;
   const maat = await jpegMaat(file).catch(() => null);
@@ -1529,6 +1537,7 @@ async function verklein(file, max, kwaliteit = FOTO_KWALITEIT) {
     // Origineel bewaren; is het zelf echt een zwarte foto, dan is dat ook goed.
     return new Blob([await file.arrayBuffer()], { type: file.type || 'image/jpeg' });
   }
+  if (uit) uit.canvas = c;
   return new Promise((res, rej) => c.toBlob(b => b ? res(b) : rej(new Error('kon foto niet omzetten')), 'image/jpeg', kwaliteit));
 }
 
@@ -3281,19 +3290,24 @@ function refVan(f) {
 function rechteStukjes(px, W, H) {
   const g = new Float32Array(W * H);
   for (let i = 0, j = 0; i < W * H; i++, j += 4) g[i] = px[j] * .3 + px[j + 1] * .59 + px[j + 2] * .11;
-  const mag = new Float32Array(W * H), hoek = new Float32Array(W * H);
+  const mag = new Float32Array(W * H), hoek = new Float32Array(W * H), GX = new Float32Array(W * H), GY = new Float32Array(W * H);
   for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
     const i = y * W + x;
     const gx = g[i - W + 1] + 2 * g[i + 1] + g[i + W + 1] - g[i - W - 1] - 2 * g[i - 1] - g[i + W - 1];
     const gy = g[i + W - 1] + 2 * g[i + W] + g[i + W + 1] - g[i - W - 1] - 2 * g[i - W] - g[i - W + 1];
-    mag[i] = Math.hypot(gx, gy) / 4; hoek[i] = Math.atan2(gx, -gy);   // richting van de rand (loodrecht op de gradiënt)
+    mag[i] = Math.sqrt(gx * gx + gy * gy) / 4; GX[i] = gx; GY[i] = gy;
   }
   // Drempel: de sterkste ~12% randen, minstens 12.
   const hist = new Uint32Array(256); for (let i = 0; i < W * H; i++) hist[Math.min(255, mag[i] | 0)]++;
   let tel = 0, drempel = 255; for (; drempel > 12; drempel--) { tel += hist[drempel]; if (tel > W * H * .12) break; }
+  // Richting van de rand (loodrecht op de gradiënt), alleen waar hij sterk genoeg is: de rest wordt nooit gebruikt.
+  for (let i = 0; i < W * H; i++) if (mag[i] > drempel) hoek[i] = Math.atan2(GX[i], -GY[i]);
   // Pixels op volgorde van sterkte; per pixel een gebied laten groeien met (bijna) dezelfde richting.
-  const volg = []; for (let i = 0; i < W * H; i++) if (mag[i] > drempel) volg.push(i);
-  volg.sort((a, b) => mag[b] - mag[a]);
+  // Snel sorteren: sterkte (als bits van het getal, die lopen mee op) en plek samen in één getal, dan een gewone getallensortering.
+  // Zelfde volgorde als sorteren op sterkte (sterkste eerst, bij gelijke sterkte de eerste plek eerst).
+  const bits = new Uint32Array(mag.buffer); let nv = 0; for (let i = 0; i < W * H; i++) if (mag[i] > drempel) nv++;
+  const sl = new Float64Array(nv); nv = 0; for (let i = 0; i < W * H; i++) if (mag[i] > drempel) sl[nv++] = (0x7FFFFFFF - bits[i]) * 2097152 + i;
+  sl.sort(); const volg = new Uint32Array(nv); for (let k = 0; k < nv; k++) volg[k] = sl[k] % 2097152;
   const bezet = new Uint8Array(W * H), tol = 22.5 * Math.PI / 180, stukjes = [], stapel = [];
   const verschil = (a, b) => { let d = Math.abs(a - b) % Math.PI; return Math.min(d, Math.PI - d); };
   for (const s of volg) {
@@ -3438,11 +3452,15 @@ function fotoKeuring(px, W, H) {
   const gr = new Float32Array(W * H); let som = 0;
   for (let i = 0; i < W * H; i++) { gr[i] = px[i * 4] * .3 + px[i * 4 + 1] * .59 + px[i * 4 + 2] * .11; som += gr[i]; }
   // Scherpte: bij de sterkste randen, hoe scherp is de overgang (laplace t.o.v. helling). Wazig = zachte overgangen.
-  const m = [];
+  // De sterkste 2% randen: grens zoeken in een gesorteerde getallenrij (snel), dan in één keer optellen.
+  const nw = Math.max(0, Math.ceil((W - 2) / 2)), nh = Math.max(0, Math.ceil((H - 2) / 2)), lap = new Float64Array(nw * nh), hel = new Float64Array(nw * nh);
+  let n = 0;
   for (let y = 1; y < H - 1; y += 2) for (let x = 1; x < W - 1; x += 2) { const i = y * W + x;
-    m.push([Math.abs(4 * gr[i] - gr[i - 1] - gr[i + 1] - gr[i - W] - gr[i + W]), Math.hypot(gr[i + 1] - gr[i - 1], gr[i + W] - gr[i - W])]); }
-  m.sort((a, b) => b[1] - a[1]); const top = m.slice(0, Math.max(1, m.length * .02 | 0));
-  const scherp = top.reduce((a, v) => a + v[0], 0) / (top.reduce((a, v) => a + v[1], 0) || 1);
+    lap[n] = Math.abs(4 * gr[i] - gr[i - 1] - gr[i + 1] - gr[i - W] - gr[i + W]); hel[n++] = Math.hypot(gr[i + 1] - gr[i - 1], gr[i + W] - gr[i - W]); }
+  const top = Math.min(n, Math.max(1, n * .02 | 0)), grens = n ? hel.slice(0, n).sort()[n - top] : 0;
+  let sl = 0, sh = 0, boven = 0; for (let j = 0; j < n; j++) if (hel[j] > grens) { sl += lap[j]; sh += hel[j]; boven++; }
+  for (let j = 0; j < n && boven < top; j++) if (hel[j] === grens) { sl += lap[j]; sh += hel[j]; boven++; }
+  const scherp = sl / (sh || 1);
   return { licht: som / W / H, scherp };
 }
 function fotoControle(f, px, W, H, vlak, k = fotoKeuring(px, W, H)) {
@@ -3469,26 +3487,32 @@ function fotoControle(f, px, W, H, vlak, k = fotoKeuring(px, W, H)) {
     FOTO_DOEL = waar.doel || null; neemFoto(); };
 }
 const VLAK = new Map(), OPNIEUW = new Map();
-function vlakUitPixels(f, px, W, H) {
+async function vlakUitPixels(f, px, W, H, k) {
   const r = muurVlak(px, W, H, f.f35);
+  await pauze();
   // Alleen vertrouwen bij genoeg rechte lijnen in beide richtingen en niet extreem schuin.
   VLAK.set(f.id, r.ok && r.staand >= 8 && r.liggend >= 8 && r.kantel < 60 ? r : { ok: false, reden: r.reden || 'onzeker' });
   // De lagen stenen in de rechtgezette muur: alleen bij een duidelijke herhaling (gestuukt of glad geeft niks).
   if (VLAK.get(f.id).ok) { const st = laagInVlak(px, W, H, r.punt); if (st && st.sterkte >= LAAG_STERKTE && st.n >= 8 && st.n <= 400) r.laag = st.laag; }
-  fotoControle(f, px, W, H, r);
+  await pauze();
+  fotoControle(f, px, W, H, r, k);
   try { sjUitlijnen(f); } catch (e) { console.warn(e); }
 }
 // Meteen na het maken (ook als je de foto niet opent): nakijken en alvast rechtzetten.
-async function keurNaMaken(f, blob, waar) {
+// Eerst de foto laten zien; het nakijken gebeurt daarna in kleine stukjes, zodat de app niet vastloopt.
+const pauze = (ms = 0) => new Promise(r => setTimeout(r, ms));
+async function keurNaMaken(f, blob, waar, bron) {
   if (waar) OPNIEUW.set(f.id, waar);
   try {
-    const bm = await createImageBitmap(blob), k = Math.min(1, 1200 / Math.max(bm.width, bm.height)), W = Math.round(bm.width * k), H = Math.round(bm.height * k);
-    const c = document.createElement('canvas'); c.width = W; c.height = H; const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(bm, 0, 0, W, H); bm.close?.();
-    const px = g.getImageData(0, 0, W, H).data;
+    await pauze(400);
+    const bm = bron || await createImageBitmap(blob), k = Math.min(1, 1200 / Math.max(bm.width, bm.height)), W = Math.round(bm.width * k), H = Math.round(bm.height * k);
+    const c = document.createElement('canvas'); c.width = W; c.height = H; const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(bm, 0, 0, W, H); if (bron) bron.width = bron.height = 0; else bm.close?.();
+    const px = g.getImageData(0, 0, W, H).data; c.width = c.height = 0;
+    await pauze();
     // Scherpte en licht eerst (snel), dan pas het rechtzetten (voor 'te schuin').
-    if (!f.gekeurd) { const k1 = fotoKeuring(px, W, H); if (k1.scherp < .11 || k1.licht < 45 || k1.licht > 220) fotoControle(f, px, W, H, null, k1); }
-    await new Promise(r => setTimeout(r, 30));
-    if (!VLAK.has(f.id)) { VLAK.set(f.id, { ok: false, bezig: true }); vlakUitPixels(f, px, W, H); if (V && foto() === f) tekenUI(); }
+    let k1; if (!f.gekeurd) { k1 = fotoKeuring(px, W, H); if (k1.scherp < .11 || k1.licht < 45 || k1.licht > 220) fotoControle(f, px, W, H, null, k1); }
+    await pauze(30);
+    if (!VLAK.has(f.id)) { VLAK.set(f.id, { ok: false, bezig: true }); await vlakUitPixels(f, px, W, H, k1); if (V && foto() === f) tekenUI(); }
   } catch (e) { console.warn(e); }
 }
 function berekenVlak(f, img) {
@@ -4532,7 +4556,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.26-14';
+const APP_VERSIE = '2026.11.27-1';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
