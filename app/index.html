@@ -2283,6 +2283,9 @@ function mpPaneelKopie() {
   if (MP.wacht) { const nw = ondVan(MP.f).find(o => !MP.wacht.voor.has(o.letter));
     if (nw) { const x = MP.wacht.x; MP.wacht = null; MP.ond = nw.letter; if (x && MP.s.mp.lijn.includes(x)) x.ond = nw.letter; mpSpiegelAlles(MP.s, MP.f.id); bewaar(); mpTeken(); } }
   if (V.ond && V.ond !== MP.ondV) { MP.ondV = V.ond; if (mpOndOp(MP.f, V.ond)) MP.ond = V.ond; }
+  // Net op "+ Deel in A" getikt: niets meer gekozen, zodat de balk Delen in A (en ⬚ 4 hoeken) laat zien.
+  const dk = V.telDeel ? V.telDeel + '|' + (V.telNu || '') : null;
+  if (dk !== (MP.telDeelWas || null)) { MP.telDeelWas = dk; if (V.telDeel && !V.telNu && MP.sel) { MP.sel = null; requestAnimationFrame(() => MP && mpTeken()); } }
   mpDeelKopie();
   if (!MP.bezigTerug && mpSpiegelAlles(MP.s, MP.f.id)) { MP.bezigTerug = true; bewaar(); mpTeken(); MP.bezigTerug = false; requestAnimationFrame(() => V && tekenUI()); return; }
   if (!MP.zij || MP.zij.hidden) return;
@@ -2332,7 +2335,7 @@ async function mpLaad(fi) {
   const s = MP.s; if (fi < 0 || fi >= s.fotos.length) return;
   const f = s.fotos[fi], img = $('#mpimg', MP.el), u = await fotoUrl(f.id);
   if (!u) { toast('Foto ontbreekt.'); return; }
-  Object.assign(MP, { f, fi, iw: 0, sel: null, z: { s: 1, tx: 0, ty: 0 }, stH: null, R: null, bron: u, wacht: null }); $('#mpsvg', MP.el).innerHTML = '';
+  Object.assign(MP, { f, fi, iw: 0, sel: null, z: { s: 1, tx: 0, ty: 0 }, stH: null, R: null, bron: u, wacht: null, vier: null, vierNu: null }); $('#mpsvg', MP.el).innerHTML = '';
   if (MP.ond && !mpOndOp(f, MP.ond)) MP.ond = null;
   if (typeof V !== 'undefined' && V?.s === s && V.i !== fi) await naarFoto(fi);
   img.onload = () => { if (!MP || MP.f !== f) return; MP.iw = MP.ow = img.naturalWidth; MP.ih = MP.oh = img.naturalHeight; MP.orig = img; mpIngebrand(f, img); mpSchik();
@@ -2441,14 +2444,17 @@ function mpTeken() {
   mpRasterVergeet();
   if (!MP?.w) return;
   const W = MP.w, H = MP.h, zs = MP.z.s, svg = $('#mpsvg', MP.el), s = MP.s;
+  if (mpVierOp(s, MP.f.id).length) { mpVierAlles(s, MP.f.id); mpRasterVergeet(); }
+  const vakken = [];
   svg.setAttribute('viewBox', `0 0 ${W} ${H}`); svg.setAttribute('width', W); svg.setAttribute('height', H);
   const hit = 18 / zs, rh = 8 / zs;
-  svg.innerHTML = mpRasterSvg(W, H, zs) + mpLijnenOp(s, MP.f.id).filter(mpZichtbaar).sort((a, b) => (a.id === MP.sel) - (b.id === MP.sel)).map(x => {
+  svg.innerHTML = mpRasterSvg(W, H, zs) + mpLijnenOp(s, MP.f.id).filter(x => mpZichtbaar(x) && !x.vier).sort((a, b) => (a.id === MP.sel) - (b.id === MP.sel)).map(x => {
     const nu = x.id === MP.sel, d = mpBeeldLijn(x), x1 = d.a[0] * W, y1 = d.a[1] * H, x2 = d.b[0] * W, y2 = d.b[1] * H;
+    { const t = mpTekst(s, x), fs = 14 / zs, w = t.length * fs * .58, mx = (x1 + x2) / 2, my = (y1 + y2) / 2 - 6 / zs - fs * .35; vakken.push([mx - w / 2, my - fs / 2, mx + w / 2, my + fs / 2]); }
     return `<g>${mpPijlSvg(d, W, H, nu ? MP_NU : mpKleur(x), mpTekst(s, x), zs, nu ? 2.6 : 2)}
       <line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="rgba(0,0,0,0)" stroke-width="${hit}" data-romp="${x.id}"/>
       ${nu ? [[x1, y1], [x2, y2]].map(([px, py], i) => `<circle cx="${px}" cy="${py}" r="${hit}" fill="rgba(0,0,0,0)" data-punt="${i}" data-van="${x.id}"/><circle cx="${px}" cy="${py}" r="${rh}" fill="rgba(0,0,0,.25)" stroke="${MP_NU}" stroke-width="${2 / zs}" pointer-events="none"/>`).join('') : ''}</g>`;
-  }).join('');
+  }).join('') + mpVierSvg(W, H, zs, vakken);
   mpBalk(); mpKnoppen();
   if (mpSpiegelAlles(s, MP.f.id) && typeof V !== 'undefined' && V?.s === s && !MP.uiBezig) { MP.uiBezig = true; requestAnimationFrame(() => { if (MP) MP.uiBezig = false; if (V) tekenUI(); }); }
   mpPaneel();
@@ -2499,11 +2505,17 @@ function mpGebaren(stage) {
     if (vingers.size === 2) {
       // Tweede vinger: een net begonnen nieuwe lijn vervalt, we gaan zoomen/schuiven.
       if (sleep?.soort === 'nieuw' && sleep.x) { MP.s.mp.lijn = MP.s.mp.lijn.filter(y => y !== sleep.x); MP.sel = sleep.oudSel; }
+      if (sleep?.soort === 'vtik') MP.vierNu = null;
       const [a, b] = [...vingers.values()]; knijp = { d: Math.hypot(b[0] - a[0], b[1] - a[1]), s: MP.z.s, m: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], tx: MP.z.tx, ty: MP.z.ty };
       sleep = null; $('#mploep', MP.el).hidden = true; mpTeken(); return; }
-    const punt = e.target.closest('[data-punt]'), romp = e.target.closest('[data-romp]'), rh = e.target.closest('[data-rhoek]');
+    const punt = e.target.closest('[data-punt]'), romp = e.target.closest('[data-romp]'), rh = e.target.closest('[data-rhoek]'), vh = !MP.vier && e.target.closest('[data-vhoek]');
     const lijn = id => mpLijnenOp(MP.s, MP.f.id).find(y => y.id === id);
     // Alles in weergavepunten; bij loslaten/slepen terug naar de echte foto.
+    // 4 hoeken aantikken: elke tik is een hoek (vasthouden en schuiven = precies zetten, met de loep).
+    if (MP.vier) { const st = mpNorm(e.clientX, e.clientY); sleep = { soort: 'vtik', start: st, van: [...st] }; MP.vierNu = mpVanBeeld(st); mpLoep(st, null, e.clientX); mpTeken(); e.preventDefault(); return; }
+    if (vh) { const [qid, i] = vh.dataset.vhoek.split(':'), q = MP.s.mp.vier.find(y => y.id === qid), b = mpVierLijnen(MP.s, q).find(y => y.vk === 'b'), v0 = mpNaarBeeld(q.p[+i]);
+      if (b && MP.sel !== b.id && !mpVierLijnen(MP.s, q).some(y => y.id === MP.sel)) { MP.sel = b.id; mpTeken(); }
+      sleep = { soort: 'vhoek', q, i: +i, start: mpNorm(e.clientX, e.clientY), van: v0 }; mpLoep(v0, null, e.clientX); e.preventDefault(); return; }
     if (punt) { const x = lijn(punt.dataset.van), i = +punt.dataset.punt, d = mpBeeldLijn(x); sleep = { soort: 'punt', x, i, d, start: mpNorm(e.clientX, e.clientY), van: [...(i ? d.b : d.a)] }; mpLoep(i ? d.b : d.a, d, e.clientX); }
     else if (rh) { const r = MP.s.mp.raster[MP.f.id], i = +rh.dataset.rhoek; MP.sel = 'raster'; sleep = { soort: 'rhoek', r, i, start: mpNorm(e.clientX, e.clientY), van: [...r.p[i]] }; mpLoep(r.p[i], null, e.clientX); }
     else if (romp) { const x = lijn(romp.dataset.romp);
@@ -2531,7 +2543,10 @@ function mpGebaren(stage) {
       sleep.d.b = [mpKlem(nu[0]), mpKlem(nu[1])]; mpRecht(sleep.d, 1); sleep.x.a = mpVanBeeld(sleep.d.a); sleep.x.b = mpVanBeeld(sleep.d.b);
       mpLoep(sleep.d.b, sleep.d, e.clientX); MP.sleept = true; mpTeken(); return; }
     const dx = nu[0] - sleep.start[0], dy = nu[1] - sleep.start[1];
-    if (sleep.soort === 'rhoek') { const q = sleep.r.p[sleep.i]; q[0] = mpKlem(sleep.van[0] + dx); q[1] = mpKlem(sleep.van[1] + dy); mpLoep(q, null, e.clientX); }
+    if (sleep.soort === 'vtik' || sleep.soort === 'vhoek') { const q = [mpKlem(sleep.van[0] + dx), mpKlem(sleep.van[1] + dy)];
+      if (sleep.soort === 'vtik') MP.vierNu = mpVanBeeld(q); else { sleep.q.p[sleep.i] = mpVanBeeld(q); mpVierZet(MP.s, sleep.q); }
+      mpLoep(q, null, e.clientX); }
+    else if (sleep.soort === 'rhoek') { const q = sleep.r.p[sleep.i]; q[0] = mpKlem(sleep.van[0] + dx); q[1] = mpKlem(sleep.van[1] + dy); mpLoep(q, null, e.clientX); }
     else if (sleep.soort === 'punt') { const d = sleep.d, q = sleep.i ? d.b : d.a; q[0] = mpKlem(sleep.van[0] + dx); q[1] = mpKlem(sleep.van[1] + dy); mpRecht(d, sleep.i);
       sleep.x.a = mpVanBeeld(d.a); sleep.x.b = mpVanBeeld(d.b); mpLoep(q, d, e.clientX); }
     else { const a = [mpKlem(sleep.a[0] + dx), mpKlem(sleep.a[1] + dy)], b = [mpKlem(sleep.b[0] + dx), mpKlem(sleep.b[1] + dy)]; sleep.x.a = mpVanBeeld(a); sleep.x.b = mpVanBeeld(b); }
@@ -2541,7 +2556,8 @@ function mpGebaren(stage) {
     if (!vingers.has(e.pointerId)) return; vingers.delete(e.pointerId);
     if (vingers.size < 2) knijp = null;
     if (MP) { MP.sleept = false; $('#mploep', MP.el).hidden = true;
-      if (sleep?.soort === 'nieuw') {
+      if (sleep?.soort === 'vtik') { if (MP.vier && MP.vierNu) { MP.vier.push(MP.vierNu); MP.vierNu = null; if (MP.vier.length === 4) mpVierKlaar(MP.vier); else mpTeken(); } }
+      else if (sleep?.soort === 'nieuw') {
         if (sleep.x) mpNieuweLijnKlaar(sleep.x);
         else if (!vingers.size && MP.sel) { MP.sel = null; mpTeken(); } }   // tik op een lege plek: niets meer gekozen
       else if (sleep && sleep.bewogen) { bewaar(); mpTeken(); }
@@ -2573,6 +2589,75 @@ function mpNieuweLijnKlaar(x) {
   bewaar(); mpTeken();
   if (x.soort === MP_REF) setTimeout(() => { const i = $('#mpcm', MP?.el); if (i) i.focus(); }, 50);
 }
+// ---------- 4 hoeken: tik de 4 hoeken van een kozijn, deur of raamdeel aan (ook op een schuine foto) ----------
+// Bij de 4e tik sluit het vlak. Het vlak geeft twee gewone maatpijlen: ↔ breedte (midden links → midden rechts) en
+// ↕ hoogte (midden boven → midden onder). Die gaan precies zoals twee getrokken lijnen naar de onderdelen ("Wat is het?",
+// Deel in A), met dezelfde referenties (◉) en hetzelfde raster. De hoeken blijven versleepbaar.
+const mpVierOp = (s, fid) => (s?.mp?.vier || []).filter(q => q.fotoId === fid);
+const mpVierLijnen = (s, q) => (s.mp.lijn || []).filter(x => x.vier === q.id);
+function mpVierZet(s, q) {
+  const [tl, tr, br, bl] = hoekVolgorde(q.p, q.iw, q.ih), r = mpRaster(s, q.fotoId);
+  // Met raster: midden van de randen op de gevel zelf (perspectief), anders op de foto.
+  const mid = (a, b) => { if (r) { const g = mpOpGevel(r, a), h = mpOpGevel(r, b), m = g && h && mpVanGevel(r, [(g[0] + h[0]) / 2, (g[1] + h[1]) / 2]); if (m && isFinite(m[0]) && isFinite(m[1])) return m; } return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]; };
+  for (const x of mpVierLijnen(s, q)) { if (x.vk === 'b') { x.a = mid(tl, bl); x.b = mid(tr, br); } else { x.a = mid(tl, tr); x.b = mid(bl, br); } x.iw = q.iw; x.ih = q.ih; }
+}
+function mpVierAlles(s, fid) { for (const q of mpVierOp(s, fid)) mpVierZet(s, q); }
+function mpVierStart(aan) {
+  MP.vier = aan ? [] : null; MP.vierNu = null; if (aan) MP.sel = null; mpTeken();
+  if (aan) toast('Tik de 4 hoeken van het kozijn, de deur of het raam aan. Houd vast en schuif voor een precieze hoek.', 4000);
+}
+function mpVierKlaar(pts) {
+  mpRasterVergeet();
+  const s = MP.s, f = MP.f; s.mp.vier ??= [];
+  const q = { id: nieuwId(), fotoId: f.id, iw: MP.ow, ih: MP.oh, p: pts };
+  const mk = vk => ({ id: nieuwId(), fotoId: f.id, iw: MP.ow, ih: MP.oh, a: [0, 0], b: [0, 0], soort: 'Kozijn', vier: q.id, vk });
+  const b = mk('b'), h = mk('h'); s.mp.vier.push(q); s.mp.lijn.push(b, h); mpVierZet(s, q);
+  MP.vier = typeof V !== 'undefined' && V?.telDeel ? [] : null; MP.vierNu = null;   // bij Deel in A: meteen klaar voor het volgende raam
+  if (mpPx(b) < 10 || mpPx(h) < 10 || mpRicht(b) !== 'h' || mpRicht(h) !== 'v') {
+    s.mp.lijn = s.mp.lijn.filter(y => y !== b && y !== h); s.mp.vier = s.mp.vier.filter(y => y !== q); MP.sel = null; mpTeken();
+    return toast('Dat vlak is te klein of te scheef. Tik de 4 hoeken opnieuw aan.'); }
+  mpZetSoort(s, b, MP.laatste); mpZetSoort(s, h, MP.laatste); MP.sel = b.id;
+  if (mpPaarAan()) {
+    const o = MP.ond && mpOndOp(f, MP.ond), vol = o && ['horizontaal', 'verticaal'].every(rr => f.lijnen.some(l => l.kozijn === o.letter && !l.ref && l.richting === rr));
+    if (o && isWand(o) && !V.telDeel) b.ond = h.ond = o.letter;
+    else if (V.telDeel || !o || vol) {
+      b.paar = h.paar = 'gevraagd'; mpSpiegelAlles(s, f.id); const A = f.lijnen.find(l => l.mp === b.id), B = f.lijnen.find(l => l.mp === h.id);
+      if (A && B && lijnPaarPast(A, B)) { bewaar(); mpTeken(); setTimeout(() => { if (MP) lijnPaarVraag(f, A, B); }, 30); return; }
+      delete b.paar; delete h.paar; mpSpiegelAlles(s, f.id);
+    } else b.ond = h.ond = o.letter;
+  } else if (MP.ond && mpOndOp(f, MP.ond)) b.ond = h.ond = MP.ond;
+  const mist = ['h', 'v'].filter(r => !mpHeeftSchaal(s, f.id, r));
+  if (mist.length) toast(`Nog geen ${mist.length === 2 ? 'maat' : mist[0] === 'h' ? 'breedte' : 'hoogte'} bekend op deze foto. Typ je lasermaat in het vak: die lijn wordt dan referentie (◉).`, 6000);
+  bewaar(); mpTeken();
+}
+// Tekenen: het vlak, de 4 hoeken en de maten. Maten van vlakken schuiven opzij als ze over een andere maat zouden vallen.
+function mpVierSvg(W, H, zs, vakken) {
+  const s = MP.s, P = q => { const b = mpNaarBeeld(q); return [b[0] * W, b[1] * H]; }, fs = 14 / zs;
+  const vrij = (cx, cy, t) => { const w = t.length * fs * .58 + 6 / zs, h = fs + 4 / zs, b = [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2];
+    return vakken.some(v => b[0] < v[2] && b[2] > v[0] && b[1] < v[3] && b[3] > v[1]) ? null : b; };
+  const label = (kand, t, kl, id) => { let k = kand.find(([x, y]) => vrij(x, y, t)) || null;
+    for (let n = 1; !k && n < 8; n++) k = kand.map(([x, y]) => [x, y + n * (fs + 4 / zs)]).find(([x, y]) => vrij(x, y, t)) || null;
+    k ??= kand[0]; const b = vrij(k[0], k[1], t) || [k[0] - 1, k[1] - 1, k[0] + 1, k[1] + 1]; vakken.push(b);
+    return `<text x="${k[0]}" y="${k[1]}" dy="${fs * .35}" text-anchor="middle" fill="${kl}" stroke="#000" stroke-width="${3.2 / zs}" paint-order="stroke" font-size="${fs}" font-weight="700" data-romp="${id}">${esc(t)}</text>`; };
+  let uit = '';
+  for (const q of mpVierOp(s, MP.f.id)) {
+    const L = mpVierLijnen(s, q), b = L.find(x => x.vk === 'b'), h = L.find(x => x.vk === 'h'); if (!b || !h) continue;
+    const nu = MP.sel === b.id || MP.sel === h.id, kl = nu ? MP_NU : MP_KL, hk = hoekVolgorde(q.p, q.iw, q.ih).map(P), [tl, tr, br, bl] = hk;
+    const m = (a, c) => [(a[0] + c[0]) / 2, (a[1] + c[1]) / 2], d = 9 / zs + fs / 2;
+    uit += `<polygon points="${hk.map(a => a.join(',')).join(' ')}" fill="${nu ? 'rgba(255,138,80,.10)' : 'rgba(255,213,79,.06)'}" stroke="#000" stroke-width="${4 / zs}" opacity=".5" pointer-events="none"/>
+      <polygon points="${hk.map(a => a.join(',')).join(' ')}" fill="none" stroke="${kl}" stroke-width="${(nu ? 2.6 : 2) / zs}" pointer-events="none"/>`;
+    for (const [a, c, id] of [[tl, tr, b.id], [bl, br, b.id], [tl, bl, h.id], [tr, br, h.id]]) uit += `<line x1="${a[0]}" y1="${a[1]}" x2="${c[0]}" y2="${c[1]}" stroke="rgba(0,0,0,0)" stroke-width="${18 / zs}" data-romp="${id}"/>`;
+    const tb = m(tl, tr), bb = m(bl, br), lb = m(tl, bl), rb = m(tr, br), tB = '↔ ' + mpTekst(s, b), tH = '↕ ' + mpTekst(s, h), wH = tH.length * fs * .29 + 8 / zs;
+    uit += label([[tb[0], tb[1] - d], [bb[0], bb[1] + d], [tb[0], tb[1] + d]], tB, nu && MP.sel === b.id ? MP_NU : MP_KL, b.id);
+    uit += label([[rb[0] + wH, rb[1]], [lb[0] - wH, lb[1]], [rb[0] - wH, rb[1]]], tH, nu && MP.sel === h.id ? MP_NU : MP_KL, h.id);
+    uit += q.p.map((pt, i) => { const [x, y] = P(pt); return `<circle cx="${x}" cy="${y}" r="${(nu ? 20 : 14) / zs}" fill="rgba(0,0,0,0)" data-vhoek="${q.id}:${i}"/><circle cx="${x}" cy="${y}" r="${(nu ? 7 : 4.5) / zs}" fill="rgba(0,0,0,.3)" stroke="${kl}" stroke-width="${2 / zs}" pointer-events="none"/>`; }).join('');
+  }
+  // Nog bezig met aantikken: de hoeken tot nu toe.
+  if (MP.vier) { const pts = [...MP.vier, ...(MP.vierNu ? [MP.vierNu] : [])].map(P);
+    if (pts.length > 1) uit += `<polyline points="${pts.map(a => a.join(',')).join(' ')}" fill="none" stroke="${MP_NU}" stroke-width="${2 / zs}" stroke-dasharray="${6 / zs} ${4 / zs}" pointer-events="none"/>`;
+    uit += pts.map(([x, y], i) => `<circle cx="${x}" cy="${y}" r="${7 / zs}" fill="rgba(0,0,0,.3)" stroke="${MP_NU}" stroke-width="${2 / zs}" pointer-events="none"/><text x="${x}" y="${y - 12 / zs}" text-anchor="middle" fill="${MP_NU}" stroke="#000" stroke-width="${3 / zs}" paint-order="stroke" font-size="${12 / zs}" font-weight="700" pointer-events="none">${i + 1}</text>`).join(''); }
+  return uit;
+}
 // Lasermeter: de meting komt op de gekozen referentie.
 function mpLaser(m) {
   if (!MP) return; const x = mpNu();
@@ -2589,9 +2674,12 @@ function mpBalk() {
   $('#mptitel', MP.el).textContent = `${s.naam} · foto ${fi + 1}/${s.fotos.length}`;
   $('#mpvorige', MP.el).disabled = fi <= 0; $('#mpvolgende', MP.el).disabled = fi >= s.fotos.length - 1;
   if (MP.sel === 'raster' && s.mp.raster?.[f.id]) return mpRasterBalk(bk);
-  if (!x && typeof V !== 'undefined' && V?.s === s && V.telDeel && mpOndOp(f, V.telDeel)) { bk.innerHTML = `<div class="mphint">Delen in ${esc(V.telDeel)}: trek de breedte en de hoogte van het raam.</div><button class="mptc" id="mpdeelklaar">Klaar</button>`;
+  if (MP.vier) { bk.innerHTML = `<div class="mphint">${typeof V !== 'undefined' && V?.telDeel && !MP.vier.length ? `Delen in ${esc(V.telDeel)}: tik` : 'Tik'} hoek <b>${MP.vier.length + 1}</b> van 4 aan.</div><button class="mptc" id="mpvierstop">Stop</button>`;
+    $('#mpvierstop', bk).onclick = () => mpVierStart(false); return; }
+  const vierKnop = `<button class="mptc" id="mpvierknop" title="Tik de 4 hoeken aan in plaats van 2 lijnen te trekken">⬚ 4 hoeken</button>`;
+  if (!x && typeof V !== 'undefined' && V?.s === s && V.telDeel && mpOndOp(f, V.telDeel)) { bk.innerHTML = `<div class="mphint">Delen in ${esc(V.telDeel)}: trek de breedte en de hoogte van het raam.</div>${vierKnop}<button class="mptc" id="mpdeelklaar">Klaar</button>`; $('#mpvierknop', bk).onclick = () => mpVierStart(true);
     $('#mpdeelklaar', bk).onclick = () => { V.telDeel = null; V.telNu = null; tekenUI(); mpTeken(); }; return; }
-  if (!x) { bk.innerHTML = `<div class="mphint">${mpLijnenOp(s, f.id).length ? 'Tik op een lijn, of trek een nieuwe.' : (mpRaster(s, f.id) ? 'Trek een lijn op het kozijn, de deur of het draairaam.' : 'Trek een lijn op het kozijn. ▦ rechtsonder = gevelraster.')}</div>`; return; }
+  if (!x) { bk.innerHTML = `<div class="mphint">${mpLijnenOp(s, f.id).length ? 'Tik op een lijn, of trek een nieuwe.' : (mpRaster(s, f.id) ? 'Trek een lijn op het kozijn, de deur of het draairaam.' : 'Trek een lijn op het kozijn. ▦ rechtsonder = gevelraster.')}</div>${vierKnop}`; $('#mpvierknop', bk).onclick = () => mpVierStart(true); return; }
   const een = mpEenWeg(), ond = mpOndVan(x), ref = x.soort === MP_REF, v = mpWaarde(s, x), calc = mpCalc(s, x), hand = !ref && x.hand != null;
   const rij = !ref && mpGroep(s, x).map(y => mpTcRij(s, y)).find(Boolean), w = !ref && mpTcWaarden(s, x);
   const zelfde = rij && ['oms', 'b', 'h', 'st', 'n'].every(k => String(rij[k] ?? '') === w[k]);
@@ -2611,10 +2699,15 @@ function mpBalk() {
   const ni = $('#mpn', bk); if (ni) ni.onchange = () => { const n = Math.max(1, Math.min(999, Math.round(+ni.value) || 1)); for (const y of mpGroep(s, x)) y.n = n; bewaar(); setTimeout(() => MP && mpTeken(), 200); };
   $('#mpsoort', bk).onchange = e => { const w = e.target.value;
     if (w === 'nieuw') { mpTeken(); return mpNieuwOnd(x); }
-    if (w.startsWith('o:')) { x.ond = MP.ond = w.slice(2); if (x.soort === MP_REF) mpZetSoort(s, x, MP.laatste); delete x.tc; }
-    else { delete x.ond; MP.ond = null; mpZetSoort(s, x, w); if (x.soort !== MP_REF) MP.laatste = x.soort; }
+    const g = x.vier ? mpVierLijnen(s, { id: x.vier }) : [x];   // 4 hoeken: breedte en hoogte samen
+    if (w.startsWith('o:')) { MP.ond = w.slice(2); for (const y of g) { y.ond = MP.ond; delete y.paar; if (y.soort === MP_REF) mpZetSoort(s, y, MP.laatste); delete y.tc; } }
+    else { MP.ond = null; for (const y of g) { delete y.ond; mpZetSoort(s, y, w); } if (x.soort !== MP_REF) MP.laatste = x.soort; }
     bewaar(); mpTeken(); };
-  $('#mpweg', bk).onclick = () => { const kopie = { ...x }, idx = s.mp.lijn.indexOf(x);
+  $('#mpweg', bk).onclick = () => {
+    if (x.vier) { const q = (s.mp.vier || []).find(y => y.id === x.vier), weg = mpVierLijnen(s, { id: x.vier }), lijnWas = [...s.mp.lijn], vierWas = [...(s.mp.vier || [])];
+      s.mp.lijn = s.mp.lijn.filter(y => !weg.includes(y)); s.mp.vier = vierWas.filter(y => y !== q); MP.sel = null; bewaar(); mpTeken();
+      return ongedaanToast('Vlak (4 hoeken) weg.', () => { s.mp.lijn = lijnWas; s.mp.vier = vierWas; bewaar(); if (MP) mpTeken(); }); }
+    const kopie = { ...x }, idx = s.mp.lijn.indexOf(x);
     s.mp.lijn = s.mp.lijn.filter(y => y !== x); MP.sel = null; bewaar(); mpTeken();
     ongedaanToast(`${mpNaam(x)} weg.`, () => { s.mp.lijn.splice(idx, 0, kopie); bewaar(); if (MP) mpTeken(); }); };
   const tc = $('#mptc', bk); if (tc) tc.onclick = () => {
@@ -5145,7 +5238,7 @@ const termWeergave = x => (x.aantal != null ? `${x.aantal}x ` : '') + x.naam;
 // ---------- Android-app (Capacitor) ----------
 // In de app draait deze pagina in een WebView. Spraak, Bluetooth en bestanden lopen daar via de
 // ingebouwde plug-ins; in de browser blijft alles zoals het was.
-const APP_VERSIE = '2026.11.28-2';
+const APP_VERSIE = '2026.11.28-3';
 const UPDATE_URL = 'https://buildcalc-pro.github.io/buildcalc-updates/'; // alleen de updatebestanden; de broncode-repo is privé
 const Native = window.Capacitor?.isNativePlatform?.() ? window.Capacitor : null;
 // Op de vaste internetlink (pc): als app te installeren in Chrome en ook zonder internet te openen.
